@@ -29,6 +29,10 @@ data/.harvest-full.log
 data/.harvest-sqlite.log
 data/.api.log
 data/.playlists-*.log
+data/.meta-validate.log
+
+# generated review report — non-whitelisted artists seen in community playlists (regenerated each run)
+data/rejected-artists.txt
 
 # secrets (not in this dir by default, but guard against accidents)
 innertube_cookie.txt

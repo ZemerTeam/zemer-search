@@ -57,7 +57,7 @@ function scheduleLive(task) {
   return new Promise((resolve) => { queue.push({ task, resolve }); pump(); });
 }
 
-export async function cachedPost(url, headers, bodyObj, { maxAgeMs = Infinity } = {}) {
+export async function cachedPost(url, headers, bodyObj, { maxAgeMs = Infinity, cacheOnly = false } = {}) {
   const body = JSON.stringify(bodyObj);
   // Cache entries are gzipped (browse JSON compresses ~10x) to keep disk usage small.
   const file = path.join(CACHE_DIR, sha1(`POST ${url} ${body}`) + ".json.gz");
@@ -71,6 +71,8 @@ export async function cachedPost(url, headers, bodyObj, { maxAgeMs = Infinity } 
       catch { /* corrupt cache entry → refetch */ }
     }
   }
+  // Cache-only readers (e.g. offline report generation alongside a live run) never issue a live request.
+  if (cacheOnly) return { miss: true, status: 0 };
   // Circuit breaker: after an anti-bot page, don't issue more live requests until the cooldown expires.
   if (Date.now() < blockedUntil) return { blocked: true, status: 0 };
   return scheduleLive(async () => {

@@ -207,7 +207,7 @@ function pick(k) { sel = k; renderChips(); if (k === 'new') loadNew(); else if (
 
 // Community chip "show all without a search" — browse every community playlist (best-populated first).
 async function loadCommunity() {
-  try { const d = await (await fetch('/community?k=500')).json(); communityData = d.playlists || []; }
+  try { const d = await (await fetch('/community')).json(); communityData = d.playlists || []; } // no cap → all
   catch { communityData = []; }
   $('#meta').textContent = `${communityData.length} community playlists`;
   render();

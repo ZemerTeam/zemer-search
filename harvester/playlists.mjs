@@ -69,6 +69,22 @@ export function buildSeeds({ topics = [], artistNames = [] }, { mode = "both", n
   return out.slice(0, Math.max(0, n));
 }
 
+// Render the non-whitelisted artist tally (channelId -> {name,count,sample}) to a reviewable text file.
+// Most-seen first → the strongest whitelist candidates lead. Tab-separated for easy spreadsheet import.
+export function formatRejectedArtists(map) {
+  const rows = [...map.entries()].sort((a, b) => b[1].count - a[1].count || a[0].localeCompare(b[0]));
+  const head = [
+    "# Non-whitelisted artist channels found INSIDE community playlists — candidates for whitelist review.",
+    "# Each is a YT Music channel whose track(s) were dropped (not whitelisted) when serving a community playlist.",
+    "# Columns (tab-separated): rejected_track_count  artistName  channelId  channelUrl  sample_track",
+    "# Sorted by count desc (most-seen non-whitelisted artists first).",
+    "",
+  ].join("\n");
+  const body = rows.map(([id, e]) =>
+    `${e.count}\t${e.name || "?"}\t${id}\thttps://music.youtube.com/channel/${id}\t${e.sample || ""}`).join("\n");
+  return head + body + (rows.length ? "\n" : "");
+}
+
 // ---- live pipeline (IP-safe; throws BlockError on an anti-bot page) ------------------------------
 
 async function searchPlaylists(query, pages) {
@@ -145,6 +161,7 @@ async function main() {
   // Phase 2 — for each candidate, fetch tracks, intersect with the corpus, apply the gate, store the keepers.
   let admitted = 0, rejected = 0, removed = 0, wlTotal = 0;
   const reasons = {};
+  const rejectedArtists = new Map(); // channelId -> {name,count,sample}: non-whitelisted tracks' artists (for review)
   const candList = [...cand.values()];
   // REVALIDATE: also re-check every stored playlist that wasn't re-discovered, so stale ones get pruned.
   if (REVALIDATE && !aborted) {
@@ -172,7 +189,15 @@ async function main() {
         const corpus = tracksByIds(db, songs.map((x) => x.videoId));
         // A track is whitelisted exactly as the /playlist endpoint serves it: we hold the videoId, OR it was
         // uploaded to a whitelisted artist's (music or regular) channel.
-        const wl = songs.filter((x) => corpus.has(x.videoId) || (x.rowArtistId && wlChannels.has(x.rowArtistId)));
+        const wl = [];
+        for (const x of songs) {
+          if (corpus.has(x.videoId) || (x.rowArtistId && wlChannels.has(x.rowArtistId))) { wl.push(x); continue; }
+          if (x.rowArtistId) { // non-whitelisted track → record its YT Music artist channel for whitelist review
+            const e = rejectedArtists.get(x.rowArtistId) || { name: "", count: 0, sample: "" };
+            e.count++; if (!e.name && x.rowArtistName) e.name = x.rowArtistName; if (!e.sample && x.title) e.sample = x.title;
+            rejectedArtists.set(x.rowArtistId, e);
+          }
+        }
         const verdict = admitPlaylist({ total: songs.length, whitelisted: wl.length }, { minTracks: MIN_WL_TRACKS, minRatio: MIN_WL_RATIO });
         if (verdict.ok) {
           upsertCommunityPlaylist(db, { id: pl.id, title: pl.title, author: pl.author, thumbnail: pl.thumbnail, total: songs.length },
@@ -191,6 +216,13 @@ async function main() {
     if (candList.length) setStatus({ done: ++i });
   }
   setStatus({ phase: aborted ? "blocked" : "done", done: i });
+
+  // Write the non-whitelisted artist channels seen inside the processed playlists — for whitelist review.
+  if (rejectedArtists.size) {
+    const file = path.join(DATA, "rejected-artists.txt");
+    fs.writeFileSync(file, formatRejectedArtists(rejectedArtists));
+    console.log(`wrote ${rejectedArtists.size} non-whitelisted artist channels → data/rejected-artists.txt`);
+  }
 
   const s = stats(db);
   db.close();

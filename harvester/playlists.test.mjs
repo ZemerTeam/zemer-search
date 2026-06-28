@@ -3,7 +3,7 @@
 // "community playlist" round-trip + the /playlist endpoint), so these only assert the admit/reject policy.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { admitPlaylist, buildSeeds, screenText } from "./playlists.mjs";
+import { admitPlaylist, buildSeeds, screenText, formatRejectedArtists } from "./playlists.mjs";
 
 test("admitPlaylist rejects a playlist with too few whitelisted tracks", () => {
   const v = admitPlaylist({ total: 50, whitelisted: 3 }, { minTracks: 4, minRatio: 0.5 });
@@ -45,6 +45,18 @@ test("screenText flags blocklisted terms in the title OR curator name (case-inse
   assert.equal(screenText("Clean mix", "DJ Explicit", ["explicit"]), "explicit", "matches in curator");
   assert.equal(screenText("Shabbos Songs", "Mordy", ["explicit"]), null, "no match → null");
   assert.equal(screenText("anything", "anyone", []), null, "empty term list → null (screen disabled)");
+});
+
+test("formatRejectedArtists sorts by count desc and emits channel id + url + sample per row", () => {
+  const map = new Map([
+    ["UCaaa", { name: "Artist A", count: 2, sample: "Song A" }],
+    ["UCbbb", { name: "Artist B", count: 9, sample: "Song B" }],
+  ]);
+  const out = formatRejectedArtists(map);
+  const rows = out.trim().split("\n").filter((l) => !l.startsWith("#") && l.trim());
+  assert.match(rows[0], /^9\tArtist B\tUCbbb\thttps:\/\/music\.youtube\.com\/channel\/UCbbb\tSong B$/, "highest count first; name before id");
+  assert.match(rows[1], /^2\tArtist A\tUCaaa\t/);
+  assert.equal(formatRejectedArtists(new Map()).includes("UC"), false, "empty map → header only, no rows");
 });
 
 test("buildSeeds firstNames adds each artist's leading token (deduped, ≥3 chars), as its own seed", () => {

@@ -24,10 +24,10 @@ const CONTEXT = { client: { clientName: C.clientName, clientVersion: C.clientVer
 
 // browse uses browseId/params/continuation in the BODY (search puts continuation in the query).
 // Routed through the cached, rate-limited net layer (fetched at most once, ever).
-export async function postBrowse({ browseId = null, params = null, continuation = null, maxAgeMs }) {
+export async function postBrowse({ browseId = null, params = null, continuation = null, maxAgeMs, cacheOnly }) {
   const body = { context: CONTEXT, browseId, params, continuation };
   const url = `${ORIGIN}/youtubei/v1/browse?prettyPrint=false`;
-  return cachedPost(url, HEADERS, body, { maxAgeMs });
+  return cachedPost(url, HEADERS, body, { maxAgeMs, cacheOnly });
 }
 
 const tabContents = (json) =>
