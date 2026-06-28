@@ -32,6 +32,18 @@
   #stat.bump b { animation:bump 1s ease-out; }
   @keyframes bump { 0%{color:#5ad17a} 100%{color:var(--primary)} }
 
+  /* maintenance/refresh progress — same M3 surfaces, shown only while a run is active */
+  .maint { display:none; padding:0 14px 8px; font-size:12px; color:var(--onSurfaceVariant);
+    font-variant-numeric:tabular-nums; }
+  .maint.show { display:block; }
+  .maint .lbl { display:flex; align-items:center; gap:8px; }
+  .maint .spin { width:12px; height:12px; flex:none; border:2px solid var(--surfaceContainerHigh);
+    border-top-color:var(--primary); border-radius:50%; animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .maint b { color:var(--primary); font-weight:600; }
+  .maint .bar { margin-top:6px; height:3px; border-radius:2px; background:var(--surfaceContainerHigh); overflow:hidden; }
+  .maint .bar > i { display:block; height:100%; background:var(--primary); border-radius:2px; transition:width .5s ease; }
+
   /* filter chips — pill, horizontally scrollable (like the app's ChipsRow) */
   .chips { display:flex; gap:8px; overflow-x:auto; padding:6px 12px 10px; scrollbar-width:none; }
   .chips::-webkit-scrollbar { display:none; }
@@ -99,6 +111,7 @@
     </div>
   </div>
   <div class="stat" id="stat" title="live corpus">…</div>
+  <div class="maint" id="maint"></div>
   <div class="chips" id="chips"></div>
   <div class="toggles">
     <label class="switch"><input type="checkbox" id="noFemale"><span class="track"><span class="thumb"></span></span><span>Hide female singers</span></label>
@@ -120,9 +133,37 @@ const CHECK = '<svg class="ck" viewBox="0 0 24 24"><path d="M9 16.2 4.8 12l-1.4 
 // category chips (app order, albums-first per your earlier note) + which entity each maps to
 const CATS = [
   ['all','All'], ['artists','Artists'], ['albums','Albums'], ['songs','Songs'],
-  ['singles','Singles & EPs'], ['videos','Videos'], ['playlists','Playlists'],
+  ['singles','Singles & EPs'], ['videos','Videos'], ['playlists','Playlists'], ['new','New Releases'],
 ];
-let sel = 'all', lastData = null;
+let sel = 'all', lastData = null, newData = null, newSel = 'all';
+
+// New Releases view: categorized (songs/videos/albums/singles), each row dated "added Xd ago".
+const NEWCATS = [['songs','Songs'], ['videos','Videos'], ['albums','Albums'], ['singles','Singles & EPs']];
+function ago(ms) {
+  if (!ms) return '';
+  const s = Math.max(0, (Date.now() - ms) / 1000);
+  if (s < 3600) return 'added ' + Math.max(1, Math.round(s/60)) + 'm ago';
+  if (s < 86400) return 'added ' + Math.round(s/3600) + 'h ago';
+  return 'added ' + Math.round(s/86400) + 'd ago';
+}
+function rowNewSong(t) { return row(`https://music.youtube.com/watch?v=${t.videoId}`, yt(t.videoId), false,
+  esc(t.title) + (t.explicit?'<span class="e">E</span>':''),
+  esc(t.artist||'') + (t.addedAt ? ` &nbsp;·&nbsp; ${ago(t.addedAt)}` : ''), 'song'); }
+function rowNewAlbum(a) { return row(`openAlbum('${a.id}')`, a.thumbnail, false, esc(a.title),
+  esc(a.artist||'') + (a.addedAt ? ` &nbsp;·&nbsp; ${ago(a.addedAt)}` : ''), 'open'); }
+const NEWRENDER = { songs:rowNewSong, videos:rowNewSong, albums:rowNewAlbum, singles:rowNewAlbum };
+function npick(k) { newSel = k; render(); }
+async function loadNew() {
+  const p = new URLSearchParams();
+  if ($('#noFemale').checked) p.set('allowFemale','0');
+  p.set('k','60');
+  try { const d = await (await fetch('/new?'+p)).json(); newData = d.categories || {}; }
+  catch { newData = {}; }
+  newSel = 'all';
+  const total = Object.values(newData).reduce((n, a) => n + (a ? a.length : 0), 0);
+  $('#meta').textContent = `${total} new releases`;
+  render();
+}
 
 // ---- live corpus stat (subtle, dev-only) ----
 let lastN = null;
@@ -138,15 +179,30 @@ async function stat() {
     const el = $('#stat');
     el.innerHTML = `<span class="live"></span><b>${n(h.tracks)}</b> tracks · <b>${n(h.artists)}</b> artists · <b>${n(h.albums)}</b> albums · <b>${n(h.singles)}</b> singles · <b>${n(h.playlists)}</b> playlists${prog}`;
     if (grew) { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); } // flash the numbers on growth
+    renderMaint(h.maintenance);
   } catch { $('#stat').textContent = 'api offline'; }
 }
 stat(); setInterval(stat, 3000);
+
+// ---- live maintenance/refresh progress (from /health .maintenance; auto-hides when idle) ----
+function renderMaint(m) {
+  const el = $('#maint');
+  if (!m || !m.phase || m.phase === 'idle' || m.phase === 'done') { el.classList.remove('show'); el.innerHTML = ''; return; }
+  const LABEL = { whitelist:'Updating whitelist', onboard:'Onboarding new artists', refresh:'Refreshing catalog', prune:'Pruning removed artists' };
+  const label = LABEL[m.phase] || 'Working';
+  const mode = m.mode ? ` (${m.mode})` : '';
+  const pct = Math.min(100, m.pct || 0); // defensive: never render >100%
+  const counts = m.total ? ` — <b>${n(Math.min(m.done, m.total))}</b> / ${n(m.total)} · ${pct}%` : '';
+  const fresh = m.newTracks ? ` · <b>+${n(m.newTracks)}</b> new` : '';
+  el.innerHTML = `<div class="lbl"><span class="spin"></span><span>${label}${mode}${counts}${fresh}</span></div><div class="bar"><i style="width:${pct}%"></i></div>`;
+  el.classList.add('show');
+}
 
 function renderChips() {
   $('#chips').innerHTML = CATS.map(([k,label]) =>
     `<div class="chip ${k===sel?'sel':''}" onclick="pick('${k}')">${k===sel?CHECK:''}${label}</div>`).join('');
 }
-function pick(k) { sel = k; renderChips(); render(); }
+function pick(k) { sel = k; renderChips(); if (k === 'new') loadNew(); else render(); }
 
 // ---- rows (app-style) ----
 function rowSong(t) { return row(`https://music.youtube.com/watch?v=${t.videoId}`, yt(t.videoId), false,
@@ -170,6 +226,20 @@ function row(action, img, round, title, sub, kind) {
 
 // ---- render the active view from the last fetched data ----
 function render() {
+  if (sel === 'new') {
+    closeDetail();
+    const c = newData || {};
+    const nonEmpty = NEWCATS.filter(([k]) => (c[k] || []).length);
+    if (!nonEmpty.length) { $('#results').innerHTML = `<div class="empty">No recent releases.</div>`; return; }
+    const chips = [['all','All'], ...nonEmpty];
+    let html = `<div class="chips">` + chips.map(([k,l]) =>
+      `<div class="chip ${k===newSel?'sel':''}" onclick="npick('${k}')">${k===newSel?CHECK:''}${l}</div>`).join('') + `</div>`;
+    const cat = (k) => `<div class="sechead">${NEWCATS.find(x=>x[0]===k)[1]}</div>` + (c[k]||[]).map(NEWRENDER[k]).join('');
+    if (newSel === 'all') html += nonEmpty.map(([k]) => cat(k)).join('');
+    else html += (c[newSel]||[]).length ? (c[newSel]||[]).map(NEWRENDER[newSel]).join('') : `<div class="empty">None.</div>`;
+    $('#results').innerHTML = html;
+    return;
+  }
   const c = lastData?.categories;
   if (!c) { $('#results').innerHTML = ''; return; }
   if (sel === 'all') {
@@ -198,6 +268,7 @@ let timer, inflight;
 async function go() {
   closeDetail();
   const q = $('#q').value.trim();
+  if (q && sel === 'new') { sel = 'all'; renderChips(); } // typing leaves the New Releases browse view
   // Require ≥3 characters before searching — 1–2 char queries are too broad to be accurate.
   if (q.length < 3) { lastData = null; $('#results').innerHTML = q ? '<div class="empty">Keep typing — at least 3 characters.</div>' : ''; $('#meta').textContent = ''; return; }
   inflight?.abort();

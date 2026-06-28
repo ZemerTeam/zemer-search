@@ -1,0 +1,14 @@
+[Unit]
+Description=Daily SHALLOW corpus refresh for zemer-search (fast, catches new releases)
+
+[Timer]
+Unit=zemer-refresh@shallow.service
+# Shabbat-aware: Mon–Fri early AM (Fri 03:00 is before Shabbat), and Saturday ONLY after Shabbat (22:00).
+# Sunday is the deep pass. Multiple OnCalendar= lines OR together; none overlaps the Sunday deep on the flock.
+OnCalendar=Mon..Fri *-*-* 03:00:00
+OnCalendar=Sat *-*-* 22:00:00
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

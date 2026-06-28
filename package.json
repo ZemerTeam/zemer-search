@@ -11,7 +11,11 @@
   "scripts": {
     "whitelist": "node harness/whitelist.mjs",
     "harvest": "node harvester/harvest.mjs",
+    "onboard": "node harvester/onboard.mjs",
     "refresh": "node harvester/refresh.mjs",
+    "refresh:deep": "DEEP=1 node harvester/refresh.mjs",
+    "prune": "node harvester/prune.mjs",
+    "maintain": "bash scripts/maintain.sh",
     "test": "node --test index/ corpus/",
     "bench": "node bench/bench.mjs",
     "relevance": "node bench/relevance.mjs",

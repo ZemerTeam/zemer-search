@@ -18,6 +18,12 @@ data/whitelist.json
 # derived on-device search subset — rebuilt via `node index/build-subset.mjs`
 data/subset.json.gz
 
+# transient maintenance progress status (runtime only — written by the harvest/refresh steps)
+data/.maintain-status.json*
+
+# local DB/whitelist backups (timestamped snapshots; never published)
+backups/
+
 # logs
 data/.harvest-full.log
 data/.harvest-sqlite.log

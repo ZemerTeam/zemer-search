@@ -42,8 +42,13 @@ async function pageChain(browse, first, isVideo, add, onItems) {
   }
 }
 
-// Harvest one artist's complete catalog → { tracks, albums, playlists, thumbnail }.
-export async function harvestArtist(artist, browse, { landingMaxAgeMs } = {}) {
+// Harvest one artist's catalog → { tracks, albums, playlists, thumbnail }.
+//   shallow=false (default, "deep"): COMPLETE discography — paginates every song/video/album shelf.
+//   shallow=true: landing page + its carousels + (new) album expansion only — skips deep "more"
+//     pagination. New releases surface at the top of the landing carousels, so a shallow pass catches
+//     them with ~1 request/artist instead of many. Used by the daily maintenance refresh; the weekly
+//     deep refresh and the initial harvest/onboard stay full.
+export async function harvestArtist(artist, browse, { landingMaxAgeMs, shallow = false } = {}) {
   const seen = new Set();
   const tracks = [];
   const albums = new Map();    // browseId -> album/single/ep entity
@@ -77,16 +82,18 @@ export async function harvestArtist(artist, browse, { landingMaxAgeMs } = {}) {
     if (s.kind === "songs") s.songs.forEach(add);
     if (s.kind === "carousel") { s.items.filter((i) => i.kind === "song").forEach(add); collectEntities(s.items, s.title); }
   }
-  for (const s of sections) {
-    if (!s.moreEndpoint || !/song|video/i.test(s.title)) continue;
-    const isVideo = /video/i.test(s.title);
-    const j = await browse({ browseId: s.moreEndpoint.browseId, params: s.moreEndpoint.params, maxAgeMs: landingMaxAgeMs });
-    await pageChain(browse, parseArtistItems(j, isVideo), isVideo, add, null);
-  }
-  for (const s of sections) {
-    if (s.kind !== "carousel" || !s.moreEndpoint || !/album|single|ep|release|playlist/i.test(s.title)) continue;
-    const j = await browse({ browseId: s.moreEndpoint.browseId, params: s.moreEndpoint.params, maxAgeMs: landingMaxAgeMs });
-    await pageChain(browse, parseArtistItems(j, false), false, add, (items) => collectEntities(items, s.title));
+  if (!shallow) {
+    for (const s of sections) {
+      if (!s.moreEndpoint || !/song|video/i.test(s.title)) continue;
+      const isVideo = /video/i.test(s.title);
+      const j = await browse({ browseId: s.moreEndpoint.browseId, params: s.moreEndpoint.params, maxAgeMs: landingMaxAgeMs });
+      await pageChain(browse, parseArtistItems(j, isVideo), isVideo, add, null);
+    }
+    for (const s of sections) {
+      if (s.kind !== "carousel" || !s.moreEndpoint || !/album|single|ep|release|playlist/i.test(s.title)) continue;
+      const j = await browse({ browseId: s.moreEndpoint.browseId, params: s.moreEndpoint.params, maxAgeMs: landingMaxAgeMs });
+      await pageChain(browse, parseArtistItems(j, false), false, add, (items) => collectEntities(items, s.title));
+    }
   }
   const albumTracks = [];
   for (const al of albums.values()) {

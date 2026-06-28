@@ -1,8 +1,17 @@
 // Polite, cached HTTP layer for all YouTube calls. Protects the source IP:
-//   - Disk cache keyed by (method+url+body): a response is fetched AT MOST ONCE, ever. Re-runs,
-//     resumes, and development iterations are served entirely from cache → zero repeat traffic.
-//   - Single-flight queue with a minimum inter-request interval + jitter (no bursting, concurrency 1).
-//   - Anti-bot ("Sorry…" HTML) detection → caller backs off; never cached, never retried in a tight loop.
+//   - Disk cache keyed by (method+url+body): a response is fetched AT MOST ONCE, ever. Re-runs, resumes,
+//     and dev iterations are served entirely from cache → zero repeat traffic. Cache HITS are unlimited
+//     and instant — they bypass the limiter completely.
+//   - Bounded-concurrency, rate-paced limiter for LIVE requests: at most CONCURRENCY requests in flight
+//     (default 1 = single-flight), AND each live start is reserved a slot ≥ MIN_INTERVAL_MS + jitter
+//     after the previous, so the aggregate live rate is capped (~1/interval) NO MATTER the concurrency —
+//     parallelism only overlaps request latency, it never bursts past the paced rate. Defaults stay the
+//     historical single-flight + ≥0.9s; opt into speed with CONCURRENCY>1 + a smaller MIN_INTERVAL_MS
+//     (still bounded + paced — IP-safe, just not serial).
+//   - Anti-bot circuit breaker: the first "Sorry…" challenge latches a back-off (BLOCK_COOLDOWN_MS) that
+//     short-circuits every pending + new live request to {blocked:true} — so the in-flight concurrency
+//     can't keep hammering a flagged IP. Callers still abort on the first block; the latch auto-clears
+//     after the cooldown so a long-lived process (the API) recovers on its own.
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -11,29 +20,41 @@ import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CACHE_DIR = path.resolve(HERE, "../data/.httpcache");
-const MIN_INTERVAL_MS = Number(process.env.MIN_INTERVAL_MS || 900); // ≥0.9s between live requests
+const MIN_INTERVAL_MS = Number(process.env.MIN_INTERVAL_MS || 900); // min gap between LIVE request starts
 const JITTER_MS = Number(process.env.JITTER_MS || 500);
+const CONCURRENCY = Math.max(1, Number(process.env.CONCURRENCY || 1)); // max live requests in flight
+const BLOCK_COOLDOWN_MS = Number(process.env.BLOCK_COOLDOWN_MS || 300000); // back-off after an anti-bot page
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const sha1 = (s) => crypto.createHash("sha1").update(s).digest("hex");
 
-let lastLiveAt = 0;
-let queue = Promise.resolve();
 let liveCount = 0;
 let cacheHits = 0;
 let blockedCount = 0;
+let blockedUntil = 0; // anti-bot latch: while now < blockedUntil, no live requests fire
 
-// Serialize live requests with a paced interval (cache hits bypass the queue entirely).
+// Bounded-concurrency, rate-paced scheduler for LIVE requests. Up to CONCURRENCY run at once; each start
+// reserves a slot ≥ MIN_INTERVAL_MS + jitter after the previous, so the aggregate START rate is capped
+// (~1/interval) regardless of concurrency. Concurrency only overlaps latency — it never bursts.
+let inFlight = 0;
+let nextSlot = 0;
+const queue = [];
+function pump() {
+  while (inFlight < CONCURRENCY && queue.length) {
+    const job = queue.shift();
+    inFlight++;
+    run(job);
+  }
+}
+async function run({ task, resolve }) {
+  const now = Date.now();
+  const at = Math.max(now, nextSlot);
+  nextSlot = at + MIN_INTERVAL_MS + Math.floor(Math.random() * JITTER_MS); // reserve a paced slot
+  if (at > now) await sleep(at - now);
+  try { resolve(await task()); }
+  finally { inFlight--; pump(); }
+}
 function scheduleLive(task) {
-  const p = queue.then(async () => {
-    const since = Date.now() - lastLiveAt;
-    const wait = MIN_INTERVAL_MS - since;
-    if (wait > 0) await sleep(wait);
-    await sleep(Math.floor(Math.random() * JITTER_MS));
-    lastLiveAt = Date.now();
-    return task();
-  });
-  queue = p.then(() => {}, () => {});
-  return p;
+  return new Promise((resolve) => { queue.push({ task, resolve }); pump(); });
 }
 
 export async function cachedPost(url, headers, bodyObj, { maxAgeMs = Infinity } = {}) {
@@ -50,6 +71,8 @@ export async function cachedPost(url, headers, bodyObj, { maxAgeMs = Infinity } 
       catch { /* corrupt cache entry → refetch */ }
     }
   }
+  // Circuit breaker: after an anti-bot page, don't issue more live requests until the cooldown expires.
+  if (Date.now() < blockedUntil) return { blocked: true, status: 0 };
   return scheduleLive(async () => {
     let res, txt;
     try {
@@ -58,7 +81,7 @@ export async function cachedPost(url, headers, bodyObj, { maxAgeMs = Infinity } 
     } catch (e) {
       return { error: e.message, networkError: true };
     }
-    if (txt.startsWith("<")) { blockedCount++; return { blocked: true, status: res.status }; }
+    if (txt.startsWith("<")) { blockedCount++; blockedUntil = Date.now() + BLOCK_COOLDOWN_MS; return { blocked: true, status: res.status }; }
     let json;
     try { json = JSON.parse(txt); } catch (e) { return { error: "non-JSON response", status: res.status }; }
     fs.mkdirSync(CACHE_DIR, { recursive: true });

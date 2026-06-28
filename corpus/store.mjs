@@ -173,7 +173,82 @@ export const whitelistedChannelIds = (db) => new Set([
   ...db.prepare("SELECT regularChannelId FROM artist WHERE regularChannelId IS NOT NULL").all().map((r) => r.regularChannelId),
 ]);
 
+// Recently-added tracks, newest first — powers the "New Releases" view. `addedAt` is when we first
+// indexed the track (harvestedAt), a proxy for release recency; true upload dates would need a per-track
+// /player fetch (a follow-up). Carries the artist content flags so the API can apply the same filters.
+export function recentTracks(db, limit = 100) {
+  return db.prepare(`
+    SELECT t.videoId, t.title, a.name AS artistName, t.isVideo, t.explicit, t.harvestedAt,
+           a.isFemale, a.isChasid, a.isKidZone
+    FROM track t JOIN artist a ON a.id = t.artistId
+    WHERE t.harvestedAt IS NOT NULL
+    ORDER BY t.harvestedAt DESC, t.videoId
+    LIMIT ?`).all(Math.max(1, limit | 0))
+    .map((r) => ({ videoId: r.videoId, title: r.title, artist: r.artistName, isVideo: !!r.isVideo,
+      explicit: !!r.explicit, addedAt: r.harvestedAt,
+      isFemale: !!r.isFemale, isChasid: !!r.isChasid, isKidZone: !!r.isKidZone }));
+}
+
+// Recent albums/singles/EPs — ordered by when their tracks were first indexed (a new release's tracks
+// have a fresh harvestedAt; re-confirming an existing one doesn't touch it). Powers the New Releases
+// Albums/Singles chips. Carries artist flags for the same content filtering.
+export function recentAlbums(db, limit = 100) {
+  return db.prepare(`
+    SELECT al.id, al.playlistId, al.title, al.type, al.year, al.thumbnail, a.name AS artistName,
+           a.isFemale, a.isChasid, a.isKidZone, MAX(t.harvestedAt) AS addedAt
+    FROM album al
+    JOIN album_track at ON at.albumId = al.id
+    JOIN track t ON t.videoId = at.videoId
+    JOIN artist a ON a.id = al.artistId
+    WHERE t.harvestedAt IS NOT NULL
+    GROUP BY al.id
+    ORDER BY addedAt DESC, al.id
+    LIMIT ?`).all(Math.max(1, limit | 0))
+    .map((r) => ({ id: r.id, playlistId: r.playlistId, title: r.title, artist: r.artistName, type: r.type,
+      year: r.year, thumbnail: r.thumbnail, addedAt: r.addedAt,
+      isFemale: !!r.isFemale, isChasid: !!r.isChasid, isKidZone: !!r.isKidZone }));
+}
+
 export const harvestedArtistIds = (db) => db.prepare("SELECT DISTINCT artistId FROM track").all().map((r) => r.artistId);
+// Every artist that has a row (incl. 0-track ones) — used by onboarding to skip already-known artists.
+export const existingArtistIds = (db) => db.prepare("SELECT id FROM artist").all().map((r) => r.id);
+
+// Pure planning + SAFETY check for a prune. Returns which current artists would be dropped and whether
+// it's safe to do so: a prune is refused unless at least `minRatio` of the CURRENT corpus artists survive
+// (are still whitelisted). Comparing survivors (corpus ∩ keep) — not the raw whitelist size — means a
+// plausibly-sized but disjoint/wrong whitelist can't pass the guard and wipe everything. `minRatio` is
+// validated here (NaN / out-of-range → 0.5) so a bad env value can't silently defeat the guard.
+export function prunePlan(corpusIds, keepIds, minRatio = 0.5) {
+  const keep = keepIds instanceof Set ? keepIds : new Set(keepIds);
+  let r = Number(minRatio);
+  if (!Number.isFinite(r) || r < 0 || r > 1) r = 0.5;
+  const before = corpusIds.length;
+  const dropIds = corpusIds.filter((id) => !keep.has(id));
+  const survivors = before - dropIds.length;
+  const safe = before === 0 || survivors >= before * r;
+  return { before, survivors, toRemove: dropIds.length, dropIds, minRatio: r, safe };
+}
+
+// Remove every artist whose id is NOT in keepIds, plus all their tracks/albums/playlists/album_tracks,
+// in ONE transaction. Maintenance uses this to drop artists removed from the whitelist — content-safety:
+// a de-whitelisted artist must stop being searchable. Children are deleted before the artist row so the
+// foreign keys stay satisfied. Returns { artists, ids }. (The CALLER must guard against an empty/broken
+// whitelist — passing a tiny keep set would wipe the corpus; see harvester/prune.mjs.)
+export function pruneArtists(db, keepIds) {
+  const keep = keepIds instanceof Set ? keepIds : new Set(keepIds);
+  const drop = db.prepare("SELECT id FROM artist").all().map((r) => r.id).filter((id) => !keep.has(id));
+  if (!drop.length) return { artists: 0, ids: [] };
+  const delAlbumTracks = db.prepare("DELETE FROM album_track WHERE albumId IN (SELECT id FROM album WHERE artistId=?)");
+  const delTracks = db.prepare("DELETE FROM track WHERE artistId=?");
+  const delAlbums = db.prepare("DELETE FROM album WHERE artistId=?");
+  const delPlaylists = db.prepare("DELETE FROM playlist WHERE artistId=?");
+  const delArtist = db.prepare("DELETE FROM artist WHERE id=?");
+  const tx = db.transaction((ids) => {
+    for (const id of ids) { delAlbumTracks.run(id); delTracks.run(id); delAlbums.run(id); delPlaylists.run(id); delArtist.run(id); }
+  });
+  tx(drop);
+  return { artists: drop.length, ids: drop };
+}
 export const stats = (db) => ({
   tracks: db.prepare("SELECT COUNT(*) c FROM track").get().c,
   artists: db.prepare("SELECT COUNT(*) c FROM artist").get().c,

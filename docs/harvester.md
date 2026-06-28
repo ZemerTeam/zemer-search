@@ -54,14 +54,38 @@ entities**:
 
 `browse` is injected so callers control cache policy and so a block throws `BlockError` (clean abort).
 
-## Initial vs incremental
+## Initial harvest, onboarding, refresh, prune
 
-- **`harvester/harvest.mjs`** (`N`): first N whitelisted UC artists, forever-cache.
-  Upserts **one artist's whole catalog per `db.transaction`** → durable per-artist checkpoints (crash/
-  kill safe), not only-at-the-end. Aborts on block (resume later from cache).
-- **`harvester/refresh.mjs`** (`MAX_AGE_H`, default 12): re-harvests the artists already in `corpus.db`,
-  re-fetching landing + shelf pages with a **TTL** (to catch new releases) while immutable album pages
-  keep their forever-cache. Upserts only-new via `INSERT … ON CONFLICT`. Run on a schedule (daily).
+The four entry points (all upsert **one artist's whole catalog per `db.transaction`** → durable per-artist
+checkpoints, crash/kill safe; all abort on the first anti-bot block and resume from cache; all exit `75`
+on a block so the wrapper can stop the pipeline):
+
+- **`harvester/harvest.mjs`** (`N`): first N whitelisted UC artists, full catalog, forever-cache. The
+  initial bulk build.
+- **`harvester/onboard.mjs`**: harvests only the **new** whitelisted artists (in `whitelist.json` but not
+  yet in `corpus.db`); existing artists are skipped. Full catalog. **Only persists an artist with ≥1
+  track** — a transient fetch error yields 0 tracks and is *not* written (so it isn't stranded as a
+  0-track row; it's retried next run). A no-op (0 live requests) when nothing is new.
+- **`harvester/refresh.mjs`** (`MAX_AGE_H` default 20, `SHALLOW`): re-harvests **all** artist rows in
+  `corpus.db` (incl. 0-track ones, so a transiently-failed harvest recovers), re-fetching landing + shelf
+  pages with a **TTL** to catch new releases while immutable album pages keep their forever-cache. Upserts
+  only-new (`INSERT … ON CONFLICT`); **never deletes**, so a shallow pass can't shrink the corpus. On a
+  block it writes a `"blocked"` status (distinct from `"done"`).
+  - **deep** (default — bare `node harvester/refresh.mjs`): full pagination of every song/video/album
+    shelf. Preserves the historical refresh behavior, so an existing cron keeps catching items anywhere.
+  - **shallow** (`SHALLOW=1`): landing page + its carousels + (new) album expansion only — ~1 request/
+    artist; new releases surface at the top of the landing carousels. The fast daily pass.
+- **`harvester/prune.mjs`** (`PRUNE_MIN_RATIO` default 0.5): removes artists no longer on the whitelist
+  (and all their rows, one transaction) so a de-whitelisted artist stops being searchable. **Safety guard
+  (`prunePlan`, unit-tested):** refuses unless ≥ `PRUNE_MIN_RATIO` of the **current** artists *survive*
+  (corpus ∩ whitelist) — comparing survivors, not raw whitelist size, so a plausibly-sized-but-wrong
+  whitelist can't wipe the corpus. A bad ratio value falls back to 0.5.
+
+**`scripts/maintain.sh [shallow|deep]`** orchestrates the lot under a `flock`, in order: `whitelist`
+refetch → `onboard` → **`prune` → `refresh`** (prune first so refresh doesn't re-harvest doomed artists).
+An anti-bot block in any step **aborts the whole pipeline** (no more live requests at a flagged IP). Uses
+a fast-but-IP-safe profile (`CONCURRENCY=5`, `MIN_INTERVAL_MS=200`). Schedule daily shallow + weekly deep,
+**Shabbat-aware** — see [deployment.md](deployment.md).
 
 ## The channel map & issue #108
 

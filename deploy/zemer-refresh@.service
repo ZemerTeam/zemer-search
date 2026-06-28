@@ -1,0 +1,22 @@
+[Unit]
+Description=zemer-search corpus maintenance (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# --- EDIT these for your deployment ---
+WorkingDirectory=/opt/zemer-search
+Environment=ZEMER_APP=/opt/zemer-app
+# MUST match the CORPUS_DB the API serves from, or maintenance writes a DB the API never reads.
+Environment=CORPUS_DB=/var/lib/zemer-search/corpus.db
+Environment=MAX_AGE_H=20
+# Stay out of the API's way: low CPU/IO priority so serving never starves.
+Nice=10
+IOSchedulingClass=idle
+ExecStart=/usr/bin/env bash scripts/maintain.sh %i
+# A run should never wedge forever (block → exits cleanly; this is a backstop).
+TimeoutStartSec=4h
+# Optional: alert on failure (a step exited non-zero, e.g. an anti-bot block). Create
+# zemer-refresh-alert@.service to email/notify, then uncomment:
+# OnFailure=zemer-refresh-alert@%n.service

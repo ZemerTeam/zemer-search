@@ -12,7 +12,8 @@ process + one `corpus.db` file** — no external search engine.
 | `GET /artist?id=UC…` | Artist catalog `{artist, songs, videos, albums, singles, playlists}` (from the DB). |
 | `GET /album?id=MPRE…` | `{album, tracks}` (from the DB, ordered). |
 | `GET /playlist?id=…` | `{playlist, tracks}` — fetched **on demand** (cached) from YouTube and filtered to whitelisted-corpus / whitelisted-channel tracks. |
-| `GET /health` | Live `{tracks, artists, videos, albums, singles, playlists, indexed, whitelistTotal, worker}`. |
+| `GET /new?k=60&allowFemale=0&kidZone=1&blockVideos=1` | `{count, categories:{songs, videos, albums, singles}}` — most recently-added releases (newest `harvestedAt` first; albums/singles ranked by their tracks' first-indexed time), each item with `addedAt` (ms). Powers the **New Releases** chip + its category sub-chips. Same content-filter params as `/search`. |
+| `GET /health` | Live `{tracks, artists, videos, albums, singles, playlists, indexed, whitelistTotal, worker, maintenance}`. `maintenance` is `{phase, mode, done, total, pct, newTracks, blocks}` while a harvest/refresh run is active (written to `data/.maintain-status.json` by the harvester steps; `null`/absent once a run stops updating). `whitelistTotal` is re-read each reload so it isn't stale after a whitelist refetch. |
 | `POST /reload` | Rebuild the in-memory index now. |
 
 Content-filter query params map to `searchCategories` options; the API always passes **explicit
@@ -46,8 +47,12 @@ Self-contained HTML/CSS/JS that **mirrors the app's search screen** (Material 3,
 exact dark surfaces/typography from `zemer-app`'s `Theme.kt`/`Dimensions.kt`):
 
 - A pill **search bar** + horizontal **filter-chip row**: All · Artists · Albums · Songs · Singles & EPs
-  · Videos · Playlists. The chip filters the displayed category **client-side from the already-fetched
-  data** (no refetch on chip change).
+  · Videos · Playlists · **New Releases** (last). The category chips filter the displayed results
+  **client-side from the already-fetched** search data (no refetch on chip change). **New Releases** is a
+  browse view (no query needed) — it fetches `/new` and shows recently-added releases with **its own
+  category sub-chips** (Songs · Videos · Albums · Singles & EPs; empty ones hidden) and an "added Xd ago"
+  date per row; typing a query leaves it back into search. (True upload dates would need a per-track
+  `/player` fetch — a planned follow-up; today it shows when the track was indexed.)
 - A single **Material 3 switch** — "Hide female singers" — the only on-screen content filter (sets
   `allowFemale=0`); **videos and KidZone content are included by default**.
 - **Minimum 3 characters** before any results appear — 1–2 char queries are too broad to rank accurately.
@@ -56,6 +61,9 @@ exact dark surfaces/typography from `zemer-app`'s `Theme.kt`/`Dimensions.kt`):
   Albums · Singles & EPs · Songs · Videos · Playlists — only the non-empty ones).
 - A **live indicator** (pulsing dot + numbers flash green on growth + "harvesting X/Y artists … updating
   live") so it's obvious the corpus is growing without refreshing.
+- A **maintenance/refresh progress bar** (spinner + "Refreshing catalog — N / total · pct% · +N new" + a
+  thin progress bar) shown from `/health.maintenance` while a harvest/refresh run is active, and
+  auto-hiding when idle. Same M3 surfaces as the rest of the UI.
 - **As-you-type speed:** debounced + an **AbortController** cancels the previous in-flight request on
   every keystroke (no wasted server work, no stale results), system font (no web-font fetch).
 

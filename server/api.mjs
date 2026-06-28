@@ -14,7 +14,7 @@ import path from "node:path";
 import cluster from "node:cluster";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { openCorpus, allTracks, allArtists, allAlbums, allPlaylists, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, stats } from "../corpus/store.mjs";
+import { openCorpus, allTracks, allArtists, allAlbums, allPlaylists, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, recentTracks, recentAlbums, stats } from "../corpus/store.mjs";
 import { buildCategories, searchCategories } from "../index/categories.mjs";
 import { loadDefaultSynonyms } from "../index/synonyms.mjs";
 import { postBrowse, parsePlaylistPage, parseArtistItemsContinuation } from "../harness/browse.mjs";
@@ -38,14 +38,39 @@ if (cluster.isPrimary && WORKERS > 1) {
 
 async function startServer() {
   const liveDb = openCorpus(); // persistent WAL reader → sees the harvest's latest per-artist commits
-  // Total whitelisted artists (the harvest target) — lets the UI show live harvest progress.
-  const whitelistTotal = (() => { try { return JSON.parse(fs.readFileSync(path.join(HERE, "../data/whitelist.json"), "utf8")).filter((a) => /^UC/.test(a.id || "")).length; } catch { return 0; } })();
+  const WL_PATH = path.join(HERE, "../data/whitelist.json");
+  const STATUS_PATH = process.env.MAINTAIN_STATUS || path.join(HERE, "../data/.maintain-status.json");
+  // Total whitelisted artists (the harvest target) — re-read on each reload so a freshly-fetched
+  // whitelist isn't stale beyond one cycle.
+  const countWhitelist = () => { try { return JSON.parse(fs.readFileSync(WL_PATH, "utf8")).filter((a) => /^UC/.test(a.id || "")).length; } catch { return 0; } };
+  // Live maintenance progress written by the harvest/refresh steps; surfaced only while a run is active
+  // (a status file older than 90 s is ignored, so the indicator clears itself when a run ends).
+  let _maint = { at: 0, val: null }; // throttle the per-request status file read
+  const maintenance = () => {
+    const now = Date.now();
+    if (now - _maint.at < 2000) return _maint.val; // read the file at most ~every 2s, not every request
+    let val = null;
+    try {
+      const m = JSON.parse(fs.readFileSync(STATUS_PATH, "utf8"));
+      // surface ONLY an actively-running pass; terminal/stale phases → null (docs: maintenance is null when idle)
+      const active = m.phase && m.phase !== "done" && m.phase !== "blocked" && m.phase !== "idle";
+      if (active && m.updatedAt && now - m.updatedAt <= 600000) {
+        const total = m.total || 0;
+        const done = total ? Math.min(m.done || 0, total) : (m.done || 0); // clamp: progress can't exceed 100%
+        val = { phase: m.phase, mode: m.mode || null, done, total,
+          pct: total ? Math.min(100, Math.round((100 * done) / total)) : null, newTracks: m.newTracks || 0, blocks: m.blocks || 0 };
+      }
+    } catch { /* missing/invalid status → null */ }
+    _maint = { at: now, val };
+    return val;
+  };
   const cache = new Map();     // url -> response body (LRU; cleared on reload)
-  let cats, indexedCount = 0, indexedAt = 0;
+  let cats, indexedCount = 0, indexedAt = 0, whitelistTotal = 0;
   function reload() {
     const tracks = allTracks(liveDb);
     cats = buildCategories({ tracks, artists: allArtists(liveDb), albums: allAlbums(liveDb), playlists: allPlaylists(liveDb) }, loadDefaultSynonyms());
     indexedCount = tracks.length; indexedAt = Date.now();
+    whitelistTotal = countWhitelist();
     cache.clear();
     return tracks.length;
   }
@@ -72,13 +97,13 @@ async function startServer() {
 
   const send = (res, code, obj) => { const body = JSON.stringify(obj); res.writeHead(code, CORS); res.end(body); return body; };
   const cacheSet = (key, body) => { cache.set(key, body); if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value); };
-  const CACHEABLE = new Set(["/search", "/artist", "/album", "/playlist"]);
+  const CACHEABLE = new Set(["/search", "/artist", "/album", "/playlist", "/new"]);
 
   const server = http.createServer(async (req, res) => {
     try {
       const u = new URL(req.url, "http://localhost");
       if (u.pathname === "/" || u.pathname === "/ui.html") { res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }); return res.end(UI); }
-      if (u.pathname === "/health") return send(res, 200, { ok: true, ...stats(liveDb), indexed: indexedCount, indexedAt, worker: wIndex, whitelistTotal });
+      if (u.pathname === "/health") return send(res, 200, { ok: true, ...stats(liveDb), indexed: indexedCount, indexedAt, worker: wIndex, whitelistTotal, maintenance: maintenance() });
       if (u.pathname === "/reload" && req.method === "POST") return send(res, 200, { ok: true, tracks: reload() });
 
       // LRU cache for the hot read endpoints (cleared on reload, so never stale beyond one cycle).
@@ -98,6 +123,26 @@ async function startServer() {
         };
         const categories = searchCategories(cats, q, o);
         return cacheSet(req.url, send(res, 200, { q, count: Object.values(categories).reduce((n, a) => n + a.length, 0), categories }));
+      }
+      if (u.pathname === "/new") {
+        const k = Math.min(300, Math.max(1, Number(u.searchParams.get("k") || 100)));
+        const allowFemale = u.searchParams.get("allowFemale") !== "0";
+        const kidZoneOnly = u.searchParams.get("kidZone") === "1";
+        const blockVideos = u.searchParams.get("blockVideos") === "1";
+        // content filter (only when explicitly requested — gotcha #7)
+        const keepArtist = (x) => (allowFemale || !x.isFemale) && (!kidZoneOnly || x.isKidZone);
+        const tracks = recentTracks(liveDb, k * 4).filter(keepArtist);
+        const albums = recentAlbums(liveDb, k * 4).filter(keepArtist);
+        const song = (t) => ({ videoId: t.videoId, title: t.title, artist: t.artist, explicit: t.explicit, isVideo: t.isVideo, addedAt: t.addedAt });
+        const al = (a) => ({ id: a.id, playlistId: a.playlistId, title: a.title, artist: a.artist, year: a.year, thumbnail: a.thumbnail, addedAt: a.addedAt });
+        const categories = {
+          songs: tracks.filter((t) => !t.isVideo).slice(0, k).map(song),
+          videos: blockVideos ? [] : tracks.filter((t) => t.isVideo).slice(0, k).map(song),
+          albums: albums.filter((a) => a.type !== "single").slice(0, k).map(al),
+          singles: albums.filter((a) => a.type === "single").slice(0, k).map(al),
+        };
+        const count = Object.values(categories).reduce((n, a) => n + a.length, 0);
+        return cacheSet(req.url, send(res, 200, { count, categories }));
       }
       if (u.pathname === "/artist") {
         const d = u.searchParams.get("id") && artistDetail(liveDb, u.searchParams.get("id"));

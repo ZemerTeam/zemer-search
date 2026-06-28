@@ -31,11 +31,12 @@ whitelist (Firestore)  →  harvester (InnerTube, IP-safe)  →  corpus.db (SQLi
 
 | Dir | What |
 |-----|------|
-| `harness/` | Ported InnerTube layer: `clients.mjs`, `lib.mjs`, `parsers.mjs`; **`net.mjs`** (gzipped disk cache + rate-limit + anti-bot abort); `browse.mjs` (artist/album/playlist parsers); `whitelist.mjs` (fetch Firestore whitelist, read-only). Browse + search are **unauthenticated** — no cookie, no `visitorData`. |
-| `harvester/` | `core.mjs` (shared per-artist complete-catalog harvest), `harvest.mjs` (initial), `refresh.mjs` (incremental maintenance). |
+| `harness/` | Ported InnerTube layer: `clients.mjs`, `lib.mjs`, `parsers.mjs`; **`net.mjs`** (gzip disk cache + bounded-concurrency rate-paced limiter + anti-bot circuit breaker); `browse.mjs` (artist/album/playlist parsers); `whitelist.mjs` (fetch Firestore whitelist, read-only); `status.mjs` (maintenance progress channel). Browse + search are **unauthenticated** — no cookie, no `visitorData`. |
+| `harvester/` | `core.mjs` (shared per-artist harvest; shallow/deep), `harvest.mjs` (initial bulk), `onboard.mjs` (new artists), `refresh.mjs` (incremental; shallow daily / deep weekly), `prune.mjs` (drop de-whitelisted). |
+| `scripts/`, `deploy/` | `maintain.sh` (refresh orchestrator: whitelist→onboard→prune→refresh under flock) + systemd timer/service units. |
 | `corpus/store.mjs` | **SQLite** schema + store API (artist/track/album/playlist/album_track). |
 | `index/` | `normalize.mjs` (skeleton + Damerau + `skeletonKey`), **`search.mjs`** (the matcher), `synonyms.mjs`, `categories.mjs` (grouped/by-category search), `build-subset.mjs`, `*.test.mjs`. |
-| `server/` | `api.mjs` (HTTP API + cluster + LRU cache), `ui.html` (the web UI, mirrors the app's search screen). |
+| `server/` | `api.mjs` (HTTP API + cluster + LRU cache; `/search` `/artist` `/album` `/playlist` `/new` `/health`+`maintenance`), `ui.html` (web UI: search chips + **New Releases** chip + live refresh-progress bar). |
 | `bench/` | `relevance` `category-relevance` `audit` `fuzz` `deep-test` `loadtest` `bench` `diag-typos`. |
 | `data/` | `corpus.db`, `whitelist.json`, `synonyms.json`, `.httpcache/` (gzipped, prunable). |
 | `docs/` | Comprehensive deep-dive docs — read `docs/README.md`. |
@@ -46,7 +47,10 @@ whitelist (Firestore)  →  harvester (InnerTube, IP-safe)  →  corpus.db (SQLi
 npm install                                                   # better-sqlite3
 node harness/whitelist.mjs                                    # → data/whitelist.json (reads app google-services.json read-only)
 N=100 node harvester/harvest.mjs                             # → corpus.db (per-artist durable upserts; no cookie — browse is unauthenticated)
-node harvester/refresh.mjs                                    # incremental re-harvest (daily; TTL on landing pages)
+node harvester/onboard.mjs                                    # harvest only NEW whitelisted artists (diff vs corpus)
+node harvester/refresh.mjs                                    # re-harvest existing artists; DEFAULT deep (full); SHALLOW=1 = fast landing-only
+node harvester/prune.mjs                                      # drop de-whitelisted artists (survivor-guard; refuses on a bad whitelist)
+scripts/maintain.sh shallow|deep                             # orchestrate whitelist→onboard→prune→refresh (flock; cron/systemd; shallow daily / deep weekly)
 npm test                                                      # unit tests (index/ + corpus/)
 npm run verify                                                # FULL accuracy gate: test + audit + fuzz + deep-test (must stay green)
 npm run relevance | category-relevance | audit | fuzz | deep-test   # individual measurement harnesses (offline)
@@ -97,9 +101,14 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
     so killing + restarting the harvest replays the cache into `corpus.db`. A *schema* change → drop
     `corpus.db` and re-harvest (cache replay rebuilds it), or add a `PRAGMA`/`ALTER` migration in
     `openCorpus` (see `regularChannelId`).
-12. **IP safety is non-negotiable.** All YouTube traffic goes through `net.mjs`: single-flight, ≥0.9 s +
-    jitter, gzipped disk cache (fetched at most once), **aborts on the first anti-bot page**. Never add a
-    raw fetch. A full 1,608-artist harvest is many requests — let it grow politely over time.
+12. **IP safety is non-negotiable.** All YouTube traffic goes through `net.mjs`: a **bounded-concurrency,
+    rate-paced** limiter (`CONCURRENCY` in flight — default **1 = single-flight**; each start spaced
+    ≥`MIN_INTERVAL_MS`+jitter so the aggregate rate is capped regardless of concurrency), gzipped disk
+    cache (fetched at most once), and an **anti-bot circuit breaker** (first "Sorry…" page latches a
+    `BLOCK_COOLDOWN_MS` back-off that short-circuits all in-flight/pending live requests; callers also
+    abort). Library default stays serial; the maintenance pipeline opts into speed (`CONCURRENCY=5`,
+    `MIN_INTERVAL_MS=200` → ~3 req/s, still far below anti-bot thresholds, never a burst). Never add a raw
+    fetch. A full 1,608-artist harvest is many requests — let it grow politely.
 13. **The whitelist is YouTube **music** channels; uploads use a different **regular** channel.** The
     channel map (`artist.regularChannelId`, from the page's subscribe button) bridges them for playlist
     whitelisting. Content only on the regular channel isn't harvested yet (issue #108).

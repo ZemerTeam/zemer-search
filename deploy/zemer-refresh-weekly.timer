@@ -1,0 +1,12 @@
+[Unit]
+Description=Weekly DEEP corpus refresh for zemer-search (full pagination backfill)
+
+[Timer]
+Unit=zemer-refresh@deep.service
+# Sunday only (daily shallow runs Mon–Sat) → no flock contention, deep pass never skipped.
+OnCalendar=Sun *-*-* 03:00:00
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target
