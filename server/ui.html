@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Zemer · search</title>
+<style>
+  /* Zemer app — Material 3 standard dark (seed #ED5564). Values mirror ui/theme/Theme.kt + Dimensions.kt. */
+  :root {
+    --background:#121212; --surface:#1a1a1a; --surfaceContainerLow:#212121; --surfaceContainer:#2a2a2a;
+    --surfaceContainerHigh:#323232; --surfaceVariant:#49454f; --onSurface:#e6e6e6; --onSurfaceVariant:#b3b3b3;
+    --primary:#ffb3b8; --secondaryContainer:#5a3a3e; --onSecondaryContainer:#ffdadc; --outline:#8c8c8c; --error:#ffb4ab;
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; background:var(--background); color:var(--onSurface);
+    font-family:Roboto,system-ui,-apple-system,"Segoe UI",sans-serif; }
+  body { padding-bottom:40px; }
+
+  header { position:sticky; top:0; z-index:5; background:var(--background); }
+  .topbar { display:flex; align-items:center; gap:10px; padding:10px 12px 6px; }
+  .searchbar { flex:1; display:flex; align-items:center; gap:10px; height:48px; padding:0 16px;
+    background:var(--surfaceContainerLow); border-radius:24px; }
+  .searchbar svg { width:22px; height:22px; fill:var(--onSurfaceVariant); flex:none; }
+  .searchbar input { flex:1; border:0; outline:0; background:transparent; color:var(--onSurface);
+    font-size:16px; font-family:inherit; }
+  .searchbar input::placeholder { color:var(--onSurfaceVariant); }
+  .stat { font-size:11px; color:var(--onSurfaceVariant); padding:4px 14px 6px; font-variant-numeric:tabular-nums; }
+  .stat b { color:var(--primary); font-weight:600; }
+  .stat .hv { color:var(--onSurfaceVariant); }
+  .live { display:inline-block; width:7px; height:7px; border-radius:50%; background:#5ad17a; margin-right:7px; vertical-align:1px; animation:pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:.3} 50%{opacity:1} }
+  #stat.bump b { animation:bump 1s ease-out; }
+  @keyframes bump { 0%{color:#5ad17a} 100%{color:var(--primary)} }
+
+  /* filter chips — pill, horizontally scrollable (like the app's ChipsRow) */
+  .chips { display:flex; gap:8px; overflow-x:auto; padding:6px 12px 10px; scrollbar-width:none; }
+  .chips::-webkit-scrollbar { display:none; }
+  .chip { flex:none; display:inline-flex; align-items:center; gap:6px; height:34px; padding:0 14px;
+    border-radius:17px; background:var(--surfaceContainer); color:var(--onSurface);
+    font-size:14px; font-weight:500; border:1px solid transparent; cursor:pointer; white-space:nowrap;
+    transition:background .12s ease; }
+  .chip:hover { background:var(--surfaceContainerHigh); }
+  .chip.sel { background:var(--secondaryContainer); color:var(--onSecondaryContainer); padding-left:10px; }
+  .chip .ck { width:18px; height:18px; fill:var(--onSecondaryContainer); }
+  /* Material 3 switch (matches the app's settings toggles) */
+  .toggles { display:flex; padding:0 14px 10px; }
+  .switch { display:inline-flex; align-items:center; gap:10px; cursor:pointer; user-select:none;
+    color:var(--onSurface); font-size:13px; }
+  .switch input { position:absolute; opacity:0; width:0; height:0; }
+  .switch .track { position:relative; width:44px; height:26px; border-radius:13px; flex:none;
+    background:var(--surfaceContainerHigh); border:2px solid var(--outline); transition:background .16s, border-color .16s; }
+  .switch .thumb { position:absolute; top:6px; left:6px; width:10px; height:10px; border-radius:50%;
+    background:var(--outline); transition:left .16s, width .16s, height .16s, top .16s, background .16s; }
+  .switch input:checked ~ .track { background:var(--primary); border-color:var(--primary); }
+  .switch input:checked ~ .track .thumb { left:22px; top:4px; width:16px; height:16px; background:#2b0b0f; }
+
+  main { max-width:760px; margin:0 auto; padding:0 4px; }
+  .meta { color:var(--onSurfaceVariant); font-size:12px; padding:6px 14px; }
+  .sechead { color:var(--onSurfaceVariant); font-size:12px; font-weight:600; letter-spacing:.4px;
+    text-transform:uppercase; padding:14px 14px 4px; }
+
+  /* result row — 64dp tall, 48dp thumb, title titleSmall (14/500), subtitle bodySmall (12/400) */
+  .item { display:flex; align-items:center; height:64px; padding:0 8px; border-radius:8px;
+    cursor:pointer; border:1.5px solid transparent; }
+  .item:hover { background:var(--surfaceVariant); }
+  .item .thumb { width:48px; height:48px; margin:0 6px; border-radius:6px; object-fit:cover;
+    background:var(--surfaceContainerHigh); flex:none; }
+  .item .thumb.round { border-radius:50%; }
+  .item .text { flex:1; min-width:0; padding:0 6px; }
+  .item .title { font-size:14px; font-weight:500; line-height:20px; color:var(--onSurface);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .item .sub { font-size:12px; line-height:16px; color:var(--onSurfaceVariant);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .e { font-size:9px; color:var(--onSurfaceVariant); border:1px solid var(--onSurfaceVariant);
+    border-radius:3px; padding:0 3px; margin-right:5px; vertical-align:1px; }
+  .more { flex:none; width:40px; height:40px; border:0; background:transparent; color:var(--onSurfaceVariant);
+    font-size:20px; line-height:1; cursor:pointer; border-radius:50%; }
+  .more:hover { background:var(--surfaceContainerHigh); color:var(--onSurface); }
+  .empty { color:var(--onSurfaceVariant); padding:48px 14px; text-align:center; font-size:14px; }
+
+  /* detail view */
+  #detail { display:none; }
+  .back { display:inline-flex; align-items:center; gap:8px; margin:10px 10px 4px; height:40px; padding:0 14px;
+    background:var(--surfaceContainer); color:var(--onSurface); border:0; border-radius:20px; font-size:14px; cursor:pointer; }
+  .back:hover { background:var(--surfaceContainerHigh); }
+  .dhead { display:flex; align-items:center; gap:16px; padding:8px 14px 14px; }
+  .dhead img { width:84px; height:84px; border-radius:8px; object-fit:cover; background:var(--surfaceContainerHigh); flex:none; }
+  .dhead img.round { border-radius:50%; }
+  .dtitle { font-size:22px; font-weight:700; }
+  .dsub { color:var(--onSurfaceVariant); font-size:13px; margin-top:2px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="topbar">
+    <div class="searchbar">
+      <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14"/></svg>
+      <input id="q" type="search" placeholder="Search songs, artists, albums…" autofocus autocomplete="off">
+    </div>
+  </div>
+  <div class="stat" id="stat" title="live corpus">…</div>
+  <div class="chips" id="chips"></div>
+  <div class="toggles">
+    <label class="switch"><input type="checkbox" id="noFemale"><span class="track"><span class="thumb"></span></span><span>Hide female singers</span></label>
+  </div>
+</header>
+<main>
+  <div id="view">
+    <div class="meta" id="meta"></div>
+    <div id="results"></div>
+  </div>
+  <div id="detail"></div>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const yt = id => `https://i.ytimg.com/vi/${id}/mqdefault.jpg`;
+const CHECK = '<svg class="ck" viewBox="0 0 24 24"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg>';
+
+// category chips (app order, albums-first per your earlier note) + which entity each maps to
+const CATS = [
+  ['all','All'], ['artists','Artists'], ['albums','Albums'], ['songs','Songs'],
+  ['singles','Singles & EPs'], ['videos','Videos'], ['playlists','Playlists'],
+];
+let sel = 'all', lastData = null;
+
+// ---- live corpus stat (subtle, dev-only) ----
+let lastN = null;
+const n = x => (x||0).toLocaleString();
+async function stat() {
+  try { const h = await (await fetch('/health')).json();
+    const grew = lastN !== null && h.tracks > lastN;
+    lastN = h.tracks;
+    const pct = h.whitelistTotal ? Math.round(100*h.artists/h.whitelistTotal) : 0;
+    const prog = h.whitelistTotal && h.artists < h.whitelistTotal
+      ? ` &nbsp;·&nbsp; <span class="hv">harvesting ${n(h.artists)} / ${n(h.whitelistTotal)} artists (${pct}%) — updating live</span>`
+      : ` &nbsp;·&nbsp; <span class="hv">harvest complete</span>`;
+    const el = $('#stat');
+    el.innerHTML = `<span class="live"></span><b>${n(h.tracks)}</b> tracks · <b>${n(h.artists)}</b> artists · <b>${n(h.albums)}</b> albums · <b>${n(h.singles)}</b> singles · <b>${n(h.playlists)}</b> playlists${prog}`;
+    if (grew) { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); } // flash the numbers on growth
+  } catch { $('#stat').textContent = 'api offline'; }
+}
+stat(); setInterval(stat, 3000);
+
+function renderChips() {
+  $('#chips').innerHTML = CATS.map(([k,label]) =>
+    `<div class="chip ${k===sel?'sel':''}" onclick="pick('${k}')">${k===sel?CHECK:''}${label}</div>`).join('');
+}
+function pick(k) { sel = k; renderChips(); render(); }
+
+// ---- rows (app-style) ----
+function rowSong(t) { return row(`https://music.youtube.com/watch?v=${t.videoId}`, yt(t.videoId), false,
+  esc(t.title) + (t.explicit?'<span class="e">E</span>':''), esc(t.artist||''), 'song'); }
+function rowAlbum(a) { return row(`openAlbum('${a.id}')`, a.thumbnail, false, esc(a.title),
+  esc(a.artist) + (a.year?' · '+a.year:''), 'open'); }
+function rowArtist(a) { return row(`openArtist('${a.id}')`, a.thumbnail, true, esc(a.name), 'Artist', 'open'); }
+function rowPlaylist(p) { return row(`openPlaylist('${p.id}')`, p.thumbnail, false, esc(p.title), esc(p.artist||'Playlist'), 'open'); }
+const RENDER = { songs:rowSong, videos:rowSong, albums:rowAlbum, singles:rowAlbum, artists:rowArtist, playlists:rowPlaylist };
+
+function row(action, img, round, title, sub, kind) {
+  const open = kind === 'song'
+    ? `onclick="window.open('${action}','_blank','noopener')"`
+    : `onclick="${action}"`;
+  return `<div class="item" ${open}>
+    <img class="thumb ${round?'round':''}" loading="lazy" src="${img||''}" onerror="this.style.visibility='hidden'">
+    <div class="text"><div class="title">${title}</div><div class="sub">${sub}</div></div>
+    <button class="more" onclick="event.stopPropagation();${kind==='song'?`window.open('${action}','_blank','noopener')`:action}">⋮</button>
+  </div>`;
+}
+
+// ---- render the active view from the last fetched data ----
+function render() {
+  const c = lastData?.categories;
+  if (!c) { $('#results').innerHTML = ''; return; }
+  if (sel === 'all') {
+    let html = '';
+    for (const [k,label] of CATS) {
+      if (k === 'all') continue;
+      const items = c[k] || [];
+      if (!items.length) continue;
+      html += `<div class="sechead">${label}</div>` + items.slice(0,4).map(RENDER[k]).join('');
+    }
+    $('#results').innerHTML = html || `<div class="empty">No results.</div>`;
+  } else {
+    const items = c[sel] || [];
+    $('#results').innerHTML = items.length ? items.map(RENDER[sel]).join('') : `<div class="empty">No results.</div>`;
+  }
+}
+
+// ---- search (debounced + cancellable for as-you-type speed) ----
+function params() {
+  const p = new URLSearchParams();
+  p.set('q', $('#q').value.replace(/^\s+/, '')); // keep trailing space — signals the last word is finished
+  if ($('#noFemale').checked) p.set('allowFemale','0'); // videos + KidZone included by default
+  p.set('k', sel === 'all' ? '12' : '100'); return p;
+}
+let timer, inflight;
+async function go() {
+  closeDetail();
+  const q = $('#q').value.trim();
+  // Require ≥3 characters before searching — 1–2 char queries are too broad to be accurate.
+  if (q.length < 3) { lastData = null; $('#results').innerHTML = q ? '<div class="empty">Keep typing — at least 3 characters.</div>' : ''; $('#meta').textContent = ''; return; }
+  inflight?.abort();
+  inflight = new AbortController();
+  const t0 = performance.now();
+  let d;
+  try { d = await (await fetch('/search?'+params(), { signal: inflight.signal })).json(); }
+  catch (e) { if (e.name === 'AbortError') return; $('#meta').textContent = 'error'; return; }
+  lastData = d;
+  $('#meta').textContent = `${d.count} results · ${(performance.now()-t0).toFixed(0)} ms`;
+  render();
+}
+$('#q').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(go, 150); });
+$('#noFemale').addEventListener('change', go);
+
+// ---- detail views (artist / album / playlist) — sections are {key,label,items,render} ----
+const stack = [];
+function closeDetail() { $('#detail').style.display='none'; $('#view').style.display=''; }
+function back() { stack.pop(); stack.length ? renderDetail() : closeDetail(); }
+function renderDetail() {
+  const v = stack[stack.length-1]; if (!v) return closeDetail();
+  if (v.dsel === undefined) v.dsel = 'all';
+  let html = `<button class="back" onclick="back()">← back</button>`;
+  html += `<div class="dhead"><img class="${v.round?'round':''}" src="${v.thumb||''}" onerror="this.style.visibility='hidden'">
+    <div><div class="dtitle">${esc(v.title)}</div><div class="dsub">${esc(v.sub||'')}</div></div></div>`;
+  const nonEmpty = v.sections.filter(s => s.items && s.items.length);
+  // filter chips appear when the page has more than one category (i.e. artist pages)
+  if (nonEmpty.length > 1) {
+    const chips = [{key:'all',label:'All'}, ...nonEmpty];
+    html += `<div class="chips">` + chips.map(s => `<div class="chip ${s.key===v.dsel?'sel':''}" onclick="dpick('${s.key}')">${s.key===v.dsel?CHECK:''}${s.label}</div>`).join('') + `</div>`;
+  }
+  let any = false;
+  for (const s of nonEmpty) {
+    if (v.dsel !== 'all' && s.key !== v.dsel) continue;
+    any = true; html += `<div class="sechead">${s.label}</div>` + s.items.map(s.render).join('');
+  }
+  if (!any) html += `<div class="empty">No items.</div>`;
+  const el = $('#detail'); el.innerHTML = html; el.style.display='block'; $('#view').style.display='none'; window.scrollTo(0,0);
+}
+function dpick(k) { const v = stack[stack.length-1]; if (v) { v.dsel = k; renderDetail(); } }
+function pushView(v) { v.dsel = 'all'; stack.push(v); renderDetail(); }
+async function openArtist(id) {
+  const d = await (await fetch('/artist?id='+encodeURIComponent(id))).json(); if (d.error) return;
+  pushView({ title:d.artist.name, sub:'Artist', thumb:d.artist.thumbnail, round:true, sections:[
+    { key:'albums', label:'Albums', items:d.albums, render:rowAlbum },
+    { key:'singles', label:'Singles & EPs', items:d.singles, render:rowAlbum },
+    { key:'songs', label:'Songs', items:d.songs, render:rowSong },
+    { key:'videos', label:'Videos', items:d.videos, render:rowSong },
+    { key:'playlists', label:'Playlists', items:d.playlists||[], render:rowPlaylist },
+  ] });
+}
+async function openAlbum(id) {
+  const d = await (await fetch('/album?id='+encodeURIComponent(id))).json(); if (d.error) return;
+  pushView({ title:d.album.title, sub:d.album.artist+(d.album.year?' · '+d.album.year:''), thumb:d.album.thumbnail, sections:[{ key:'tracks', label:'Tracks', items:d.tracks, render:rowSong }] });
+}
+async function openPlaylist(id) {
+  const d = await (await fetch('/playlist?id='+encodeURIComponent(id))).json();
+  pushView({ title:d.playlist.title, sub:d.note||(d.playlist.artist+(d.whitelisted!=null?` · ${d.whitelisted} of ${d.total}`:'')), thumb:d.playlist.thumbnail, sections:[{ key:'tracks', label:'Tracks', items:d.tracks||[], render:rowSong }] });
+}
+renderChips();
+</script>
+</body>
+</html>

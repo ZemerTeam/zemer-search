@@ -1,0 +1,32 @@
+{
+  "name": "zemer-search",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "description": "Whitelist-scoped, Hebrew-aware custom search for Zemer — SQLite corpus + in-memory matcher server (primary) + pure-Kotlin-portable on-device in-memory index (offline fallback).",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "whitelist": "node harness/whitelist.mjs",
+    "harvest": "node harvester/harvest.mjs",
+    "refresh": "node harvester/refresh.mjs",
+    "test": "node --test index/ corpus/",
+    "bench": "node bench/bench.mjs",
+    "relevance": "node bench/relevance.mjs",
+    "category-relevance": "node bench/category-relevance.mjs",
+    "audit": "node bench/audit.mjs",
+    "fuzz": "node bench/fuzz.mjs",
+    "loadtest": "node bench/loadtest.mjs",
+    "diag": "node bench/diag-typos.mjs",
+    "query": "node index/query.mjs",
+    "build-subset": "node index/build-subset.mjs",
+    "api": "node server/api.mjs",
+    "deep-test": "node bench/deep-test.mjs",
+    "verify": "node --test index/ corpus/ && node bench/audit.mjs && node bench/fuzz.mjs && node bench/deep-test.mjs"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.11.1"
+  }
+}

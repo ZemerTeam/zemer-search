@@ -1,0 +1,100 @@
+// Shared per-artist harvest used by both the initial harvest and the maintenance refresh. `browse(args)`
+// is injected so callers control cache policy (initial = forever-cache; refresh passes landingMaxAgeMs so
+// the artist landing + shelf pages re-fetch to catch new releases while immutable album pages stay
+// forever-cached) and so a block aborts cleanly (browse throws BlockError; soft errors degrade to {}).
+//
+// Returns the artist's complete catalog as TYPED ENTITIES: tracks (songs + videos), albums/singles/EPs,
+// and playlists — so search can group results by category the way YouTube Music does.
+import {
+  parseArtistPage, parseArtistItems, parseArtistItemsContinuation, parsePlaylistPage,
+} from "../harness/browse.mjs";
+
+export class BlockError extends Error {}
+
+export function makeBrowse(postBrowse) {
+  return async (args) => {
+    const r = await postBrowse(args);
+    if (r.blocked) throw new BlockError();
+    if (r.networkError || r.error) return {};
+    return r.json || {};
+  };
+}
+
+const yearOf = (s) => { const m = (s || "").match(/\b(19|20)\d\d\b/); return m ? Number(m[0]) : null; };
+function albumType(subtitle, sourceTitle) {
+  const s = `${subtitle || ""} ${sourceTitle || ""}`.toLowerCase();
+  if (/single/.test(s)) return "single";
+  if (/\bep\b/.test(s)) return "ep";
+  return "album";
+}
+
+async function pageChain(browse, first, isVideo, add, onItems) {
+  (first.songs || []).forEach(add);
+  if (onItems) onItems(first.items || []);
+  else (first.items || []).filter((i) => i.kind === "song").forEach(add);
+  let cont = first.continuation, guard = 0;
+  while (cont && guard++ < 100) {
+    const cp = parseArtistItemsContinuation(await browse({ continuation: cont }), isVideo);
+    (cp.songs || []).forEach(add);
+    if (onItems) onItems(cp.items || []);
+    else (cp.items || []).filter((i) => i.kind === "song").forEach(add);
+    cont = cp.continuation;
+  }
+}
+
+// Harvest one artist's complete catalog → { tracks, albums, playlists, thumbnail }.
+export async function harvestArtist(artist, browse, { landingMaxAgeMs } = {}) {
+  const seen = new Set();
+  const tracks = [];
+  const albums = new Map();    // browseId -> album/single/ep entity
+  const playlists = new Map(); // playlistId -> playlist entity
+  const add = (s) => {
+    if (!s?.videoId || s.videoId.length !== 11 || seen.has(s.videoId)) return;
+    seen.add(s.videoId);
+    tracks.push({
+      videoId: s.videoId, title: s.title, artistId: artist.id, artistName: artist.name,
+      isVideo: !!s.isVideo, explicit: !!s.explicit,
+      isFemale: !!artist.isFemale, isChasid: !!artist.isChasid, isKidZone: !!artist.isKidZone,
+    });
+  };
+  const collectEntities = (items, sourceTitle) => {
+    for (const it of items) {
+      if (it.kind === "album" && it.browseId && !albums.has(it.browseId)) {
+        albums.set(it.browseId, {
+          id: it.browseId, playlistId: it.playlistId || null, title: it.title,
+          type: albumType(it.subtitle, sourceTitle), year: yearOf(it.subtitle), thumbnail: it.thumbnail || null,
+        });
+      } else if (it.kind === "playlist" && it.playlistId && !playlists.has(it.playlistId)) {
+        playlists.set(it.playlistId, { id: it.playlistId, title: it.title, thumbnail: it.thumbnail || null });
+      }
+    }
+  };
+
+  const page = parseArtistPage(await browse({ browseId: artist.id, maxAgeMs: landingMaxAgeMs }));
+  const sections = page.sections;
+
+  for (const s of sections) {
+    if (s.kind === "songs") s.songs.forEach(add);
+    if (s.kind === "carousel") { s.items.filter((i) => i.kind === "song").forEach(add); collectEntities(s.items, s.title); }
+  }
+  for (const s of sections) {
+    if (!s.moreEndpoint || !/song|video/i.test(s.title)) continue;
+    const isVideo = /video/i.test(s.title);
+    const j = await browse({ browseId: s.moreEndpoint.browseId, params: s.moreEndpoint.params, maxAgeMs: landingMaxAgeMs });
+    await pageChain(browse, parseArtistItems(j, isVideo), isVideo, add, null);
+  }
+  for (const s of sections) {
+    if (s.kind !== "carousel" || !s.moreEndpoint || !/album|single|ep|release|playlist/i.test(s.title)) continue;
+    const j = await browse({ browseId: s.moreEndpoint.browseId, params: s.moreEndpoint.params, maxAgeMs: landingMaxAgeMs });
+    await pageChain(browse, parseArtistItems(j, false), false, add, (items) => collectEntities(items, s.title));
+  }
+  const albumTracks = [];
+  for (const al of albums.values()) {
+    if (!al.playlistId) continue; // expanding album tracks is what makes the harvest a COMPLETE discography
+    let pos = 0;
+    const albumAdd = (s) => { add(s); if (s?.videoId?.length === 11) albumTracks.push({ albumId: al.id, videoId: s.videoId, pos: pos++ }); };
+    await pageChain(browse, parsePlaylistPage(await browse({ browseId: "VL" + al.playlistId })), false, albumAdd, null);
+  }
+
+  return { tracks, albums: [...albums.values()], playlists: [...playlists.values()], albumTracks, thumbnail: page.thumbnail, regularChannelId: page.regularChannelId };
+}
