@@ -19,10 +19,14 @@ const BLOCKLIST_PATH = process.env.BLOCKLIST || path.resolve(HERE, "../data/bloc
 let _blocklist = null;
 export function blocklist() {
   if (_blocklist) return _blocklist;
-  let v = [], a = [];
-  try { const j = JSON.parse(fs.readFileSync(BLOCKLIST_PATH, "utf8")); v = j.videoIds || []; a = j.artistIds || []; }
-  catch { /* no/invalid blocklist → empty */ }
-  _blocklist = { videoIds: new Set(v), artistIds: new Set(a) };
+  let v = [], a = [], p = [], t = [];
+  try {
+    const j = JSON.parse(fs.readFileSync(BLOCKLIST_PATH, "utf8"));
+    v = j.videoIds || []; a = j.artistIds || [];
+    p = j.playlistIds || [];                                   // community playlist ids to exclude
+    t = (j.playlistTerms || []).map((s) => String(s).toLowerCase()).filter(Boolean); // title/curator screen
+  } catch { /* no/invalid blocklist → empty */ }
+  _blocklist = { videoIds: new Set(v), artistIds: new Set(a), playlistIds: new Set(p), playlistTerms: t };
   return _blocklist;
 }
 
@@ -74,6 +78,29 @@ export function openCorpus(file = DB_PATH) {
     CREATE INDEX IF NOT EXISTS idx_albumtrack_album ON album_track(albumId);
     CREATE INDEX IF NOT EXISTS idx_album_artist ON album(artistId);
     CREATE INDEX IF NOT EXISTS idx_playlist_artist ON playlist(artistId);
+    -- Community playlists (pilot): YTM playlists curated by community members, NOT owned by a whitelisted
+    -- artist. Kept in their OWN tables so the artist-owned playlist table (and its NOT NULL artistId FK)
+    -- is untouched and the pilot is trivially reversible. PURITY is guaranteed at SERVE time: the /playlist
+    -- endpoint re-fetches the playlist live and keeps only whitelisted tracks, so we never serve a
+    -- non-whitelisted track regardless of what else the playlist holds. These rows carry the discovery-time
+    -- counts (total/whitelisted) and community_playlist_track stores the whitelisted subset we matched
+    -- (powers search/index, the displayed counts, and the pilot yield report).
+    CREATE TABLE IF NOT EXISTS community_playlist (
+      id           TEXT PRIMARY KEY,         -- playlistId (no VL prefix)
+      title        TEXT NOT NULL,
+      author       TEXT,                     -- curator/owner display name (free text; not a whitelisted artist)
+      thumbnail    TEXT,
+      total        INTEGER NOT NULL DEFAULT 0,   -- tracks on YTM at discovery
+      whitelisted  INTEGER NOT NULL DEFAULT 0,   -- of those, how many are whitelisted (the only ones served)
+      discoveredAt INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS community_playlist_track (
+      playlistId TEXT NOT NULL,
+      videoId    TEXT NOT NULL,
+      pos        INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (playlistId, videoId)
+    );
+    CREATE INDEX IF NOT EXISTS idx_cpt_playlist ON community_playlist_track(playlistId);
   `);
   // Migrate existing DBs (CREATE TABLE IF NOT EXISTS won't add a new column to an existing table).
   if (!db.prepare("PRAGMA table_info(artist)").all().some((c) => c.name === "regularChannelId"))
@@ -145,6 +172,73 @@ export const allPlaylists = (db) => db.prepare(`
   SELECT pl.id, pl.title, pl.artistId, pl.thumbnail, a.name AS artistName, a.isFemale, a.isChasid, a.isKidZone
   FROM playlist pl JOIN artist a ON a.id = pl.artistId`).all()
   .map((r) => ({ id: r.id, title: r.title, artistId: r.artistId, artistName: r.artistName, thumbnail: r.thumbnail, isFemale: !!r.isFemale, isChasid: !!r.isChasid, isKidZone: !!r.isKidZone }));
+
+// Community playlists (pilot) ---------------------------------------------------------------------
+// YTM playlists curated by community members (not owned by a whitelisted artist). Stored apart from the
+// artist-owned `playlist` table. Purity is NOT enforced here — it's enforced when the playlist is opened
+// (/playlist re-fetches and keeps only whitelisted tracks). These rows hold the discovery-time counts and
+// the matched whitelisted membership, for search/index, the displayed "X of Y" counts, and yield reports.
+export function upsertCommunityPlaylist(db, { id, title, author = null, thumbnail = null, total = 0 }, whitelistedTracks = [], ts = Date.now()) {
+  const bl = blocklist();
+  if (bl.playlistIds.has(id)) return { whitelisted: 0, total, blocked: true }; // never store a blocklisted playlist
+  const mem = whitelistedTracks.filter((t) => t.videoId && !bl.videoIds.has(t.videoId)); // never store blocklisted junk
+  const insPl = db.prepare(
+    `INSERT INTO community_playlist(id,title,author,thumbnail,total,whitelisted,discoveredAt)
+     VALUES(@id,@title,@author,@thumbnail,@total,@whitelisted,@discoveredAt)
+     ON CONFLICT(id) DO UPDATE SET title=excluded.title, author=excluded.author, thumbnail=excluded.thumbnail,
+       total=excluded.total, whitelisted=excluded.whitelisted, discoveredAt=excluded.discoveredAt`);
+  const delMem = db.prepare("DELETE FROM community_playlist_track WHERE playlistId=?");
+  const insMem = db.prepare(
+    `INSERT INTO community_playlist_track(playlistId,videoId,pos) VALUES(@playlistId,@videoId,@pos)
+     ON CONFLICT(playlistId,videoId) DO UPDATE SET pos=excluded.pos`);
+  const tx = db.transaction(() => { // whole playlist in one transaction (gotcha #10)
+    insPl.run({ id, title, author, thumbnail, total, whitelisted: mem.length, discoveredAt: ts });
+    delMem.run(id); // re-snapshot membership (a re-check may change which tracks are whitelisted)
+    mem.forEach((t, i) => insMem.run({ playlistId: id, videoId: t.videoId, pos: t.pos ?? i }));
+  });
+  tx();
+  return { whitelisted: mem.length, total };
+}
+
+// The displayed cover is derived from a WHITELISTED track in the playlist — NOT the curator's playlist
+// cover (which can show non-whitelisted artwork, e.g. a mosaic of its non-whitelisted tracks). This keeps
+// the image as whitelist-pure as the audio. `cover` subquery = first whitelisted track's videoId.
+const ytThumb = (vid) => (vid ? `https://i.ytimg.com/vi/${vid}/mqdefault.jpg` : null);
+const COVER_SQL = "(SELECT videoId FROM community_playlist_track WHERE playlistId=community_playlist.id ORDER BY pos LIMIT 1)";
+
+// For the search index: community playlists shaped like the artist-playlist docs (title + artistName so
+// buildIndex/search treat them uniformly), tagged source:"community" and carrying their counts.
+export const allCommunityPlaylists = (db) => db.prepare(
+  `SELECT id,title,author,whitelisted,total, ${COVER_SQL} AS cover FROM community_playlist`).all()
+  .map((r) => ({ id: r.id, title: r.title, artistName: r.author || "", thumbnail: ytThumb(r.cover),
+    source: "community", whitelisted: r.whitelisted, total: r.total }));
+
+// Detail-header metadata for the /playlist endpoint when the id is a community playlist (not in `playlist`).
+export const communityPlaylistMeta = (db, id) => {
+  const r = db.prepare(`SELECT id,title,author,whitelisted,total, ${COVER_SQL} AS cover FROM community_playlist WHERE id=?`).get(id);
+  return r ? { ...r, thumbnail: ytThumb(r.cover) } : null;
+};
+
+// Browse-all list (powers the Community chip's "show all, no search" view). Best-populated first, so the
+// richest community lists lead. Already-display-shaped rows (author → artist).
+export const communityPlaylistList = (db, limit = 500) => db.prepare(
+  `SELECT id,title,author,whitelisted,total, ${COVER_SQL} AS cover FROM community_playlist ORDER BY whitelisted DESC, total DESC, id LIMIT ?`)
+  .all(Math.max(1, limit | 0))
+  .map((r) => ({ id: r.id, title: r.title, artist: r.author || "Community playlist", thumbnail: ytThumb(r.cover), source: "community", whitelisted: r.whitelisted, total: r.total }));
+
+// Ids we've already discovered — so a re-run skips re-fetching them (unless RECHECK forces a re-validate).
+export const communityPlaylistIds = (db) =>
+  new Set(db.prepare("SELECT id FROM community_playlist").all().map((r) => r.id));
+
+// "Remove what's not": drop a community playlist + its membership (e.g. it fell below the gate on a
+// re-validate, or its whitelisted tracks were de-whitelisted). One transaction.
+export function removeCommunityPlaylist(db, id) {
+  const tx = db.transaction(() => {
+    db.prepare("DELETE FROM community_playlist_track WHERE playlistId=?").run(id);
+    db.prepare("DELETE FROM community_playlist WHERE id=?").run(id);
+  });
+  tx();
+}
 
 // Detail pages -----------------------------------------------------------------------------------
 export function artistDetail(db, artistId) {
@@ -275,11 +369,20 @@ export function pruneArtists(db, keepIds) {
 // Delete blocklisted videoIds (+ blocklisted artists and all their rows) from the corpus — the cleanup
 // that complements upsertArtistCatalog's skip (which keeps them out going forward). One transaction.
 export function pruneBlocklisted(db, bl = blocklist()) {
-  let tracks = 0, artists = 0;
+  let tracks = 0, artists = 0, playlists = 0;
   const tx = db.transaction(() => {
     for (const vid of bl.videoIds) {
       db.prepare("DELETE FROM album_track WHERE videoId=?").run(vid);
+      db.prepare("DELETE FROM community_playlist_track WHERE videoId=?").run(vid);
       tracks += db.prepare("DELETE FROM track WHERE videoId=?").run(vid).changes;
+    }
+    // Re-sync community playlists' whitelisted counts to their (now blocklist-pruned) membership.
+    if (bl.videoIds.size)
+      db.prepare(`UPDATE community_playlist SET whitelisted =
+        (SELECT COUNT(*) FROM community_playlist_track WHERE playlistId = community_playlist.id)`).run();
+    for (const pid of (bl.playlistIds || [])) { // remove explicitly-blocklisted community playlists
+      db.prepare("DELETE FROM community_playlist_track WHERE playlistId=?").run(pid);
+      playlists += db.prepare("DELETE FROM community_playlist WHERE id=?").run(pid).changes;
     }
     for (const id of bl.artistIds) {
       if (!db.prepare("SELECT 1 FROM artist WHERE id=?").get(id)) continue;
@@ -292,7 +395,7 @@ export function pruneBlocklisted(db, bl = blocklist()) {
     }
   });
   tx();
-  return { tracks, artists };
+  return { tracks, artists, playlists };
 }
 export const stats = (db) => ({
   tracks: db.prepare("SELECT COUNT(*) c FROM track").get().c,
@@ -301,4 +404,5 @@ export const stats = (db) => ({
   albums: db.prepare("SELECT COUNT(*) c FROM album WHERE type!='single'").get().c,
   singles: db.prepare("SELECT COUNT(*) c FROM album WHERE type='single'").get().c,
   playlists: db.prepare("SELECT COUNT(*) c FROM playlist").get().c,
+  communityPlaylists: db.prepare("SELECT COUNT(*) c FROM community_playlist").get().c,
 });

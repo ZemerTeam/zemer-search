@@ -3,12 +3,13 @@
 The matcher is tuned against numbers. Everything here is **offline** (reads the live `corpus.db`, no
 network) except `loadtest` (hits a running API). Run any via `npm run <name>`.
 
-## Unit tests — `npm test` (`node --test index/ corpus/`)
+## Unit tests — `npm test` (`node --test index/ corpus/ harvester/`)
 
 Pinned regression tests, one or more per **gotcha** (see [gotchas.md](gotchas.md)). If one goes red,
 you've reintroduced a known bug. Covers: cross-script alignment, Damerau transposition, no-false-
 positives, synonyms, begins-with > contains, skeleton-collapse, fuzzy-no-affinity, apostrophe-join, IDF,
-and the store's detail accessors + channel map.
+the store's detail accessors + channel map + community-playlist round-trip/removal, and the
+community-playlist admission gate + seed builder (`harvester/`).
 
 ## `relevance` — track ranking quality
 
@@ -56,8 +57,8 @@ case). Reports req/s, avg/max latency, errors.
 
 ## `npm run verify` — the one-command accuracy gate
 
-`node --test index/ corpus/ && audit && fuzz && deep-test` — runs the full correctness/precision suite in
-one go. **Must stay green.** Use it before/after any matcher change and as a regression gate.
+`node --test index/ corpus/ harvester/ && audit && fuzz && deep-test` — runs the full correctness/precision
+suite in one go. **Must stay green.** Use it before/after any matcher change and as a regression gate.
 
 ## How to use them when changing the matcher
 

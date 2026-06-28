@@ -4,7 +4,7 @@
 // top-k per category with content-filter scoping.
 import { buildIndex, search } from "./search.mjs";
 
-export function buildCategories({ tracks = [], artists = [], albums = [], playlists = [] }, synonyms = []) {
+export function buildCategories({ tracks = [], artists = [], albums = [], playlists = [], community = [] }, synonyms = []) {
   const songs = tracks.filter((t) => !t.isVideo);
   const videos = tracks.filter((t) => t.isVideo);
   const artistDocs = artists.map((a) => ({ ...a, title: a.name, artistName: "" }));
@@ -14,7 +14,8 @@ export function buildCategories({ tracks = [], artists = [], albums = [], playli
     albums: buildIndex(albums.filter((a) => a.type !== "single"), synonyms),
     singles: buildIndex(albums.filter((a) => a.type === "single"), synonyms),
     videos: buildIndex(videos, synonyms),
-    playlists: buildIndex(playlists, synonyms),
+    playlists: buildIndex(playlists, synonyms),       // artist-owned playlists
+    community: buildIndex(community, synonyms),        // community-curated playlists (own chip)
   };
 }
 
@@ -34,6 +35,7 @@ export function searchCategories(cats, q, o = {}) {
     albums: pick(cats.albums, albumRow, 6),
     singles: pick(cats.singles, albumRow, 6),
     videos: pick(cats.videos, (t) => ({ videoId: t.videoId, title: t.title, artist: t.artistName, explicit: t.explicit }), 6),
-    playlists: pick(cats.playlists, (p) => ({ id: p.id, title: p.title, artist: p.artistName, thumbnail: p.thumbnail }), 6),
+    playlists: pick(cats.playlists, (p) => ({ id: p.id, title: p.title, artist: p.artistName, thumbnail: p.thumbnail, source: p.source || "artist", whitelisted: p.whitelisted }), 6),
+    community: pick(cats.community, (p) => ({ id: p.id, title: p.title, artist: p.artistName, thumbnail: p.thumbnail, source: "community", whitelisted: p.whitelisted }), 6),
   };
 }

@@ -133,9 +133,9 @@ const CHECK = '<svg class="ck" viewBox="0 0 24 24"><path d="M9 16.2 4.8 12l-1.4 
 // category chips (app order, albums-first per your earlier note) + which entity each maps to
 const CATS = [
   ['all','All'], ['artists','Artists'], ['albums','Albums'], ['songs','Songs'],
-  ['singles','Singles & EPs'], ['videos','Videos'], ['playlists','Playlists'], ['new','New Releases'],
+  ['singles','Singles & EPs'], ['videos','Videos'], ['playlists','Playlists'], ['community','Community'], ['new','New Releases'],
 ];
-let sel = 'all', lastData = null, newData = null, newSel = 'all';
+let sel = 'all', lastData = null, newData = null, newSel = 'all', communityData = null;
 
 // New Releases view: categorized (songs/videos/albums/singles), each row dated "added Xd ago".
 const NEWCATS = [['songs','Songs'], ['videos','Videos'], ['albums','Albums'], ['singles','Singles & EPs']];
@@ -177,7 +177,7 @@ async function stat() {
       ? ` &nbsp;·&nbsp; <span class="hv">harvesting ${n(h.artists)} / ${n(h.whitelistTotal)} artists (${pct}%) — updating live</span>`
       : ` &nbsp;·&nbsp; <span class="hv">harvest complete</span>`;
     const el = $('#stat');
-    el.innerHTML = `<span class="live"></span><b>${n(h.tracks)}</b> tracks · <b>${n(h.artists)}</b> artists · <b>${n(h.albums)}</b> albums · <b>${n(h.singles)}</b> singles · <b>${n(h.playlists)}</b> playlists${prog}`;
+    el.innerHTML = `<span class="live"></span><b>${n(h.tracks)}</b> tracks · <b>${n(h.artists)}</b> artists · <b>${n(h.albums)}</b> albums · <b>${n(h.singles)}</b> singles · <b>${n(h.playlists)}</b> playlists${h.communityPlaylists?` · <b>${n(h.communityPlaylists)}</b> community`:''}${prog}`;
     if (grew) { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); } // flash the numbers on growth
     renderMaint(h.maintenance);
   } catch { $('#stat').textContent = 'api offline'; }
@@ -188,7 +188,7 @@ stat(); setInterval(stat, 3000);
 function renderMaint(m) {
   const el = $('#maint');
   if (!m || !m.phase || m.phase === 'idle' || m.phase === 'done') { el.classList.remove('show'); el.innerHTML = ''; return; }
-  const LABEL = { whitelist:'Updating whitelist', onboard:'Onboarding new artists', refresh:'Refreshing catalog', prune:'Pruning removed artists' };
+  const LABEL = { whitelist:'Updating whitelist', onboard:'Onboarding new artists', refresh:'Refreshing catalog', prune:'Pruning removed artists', playlists:'Discovering community playlists' };
   const label = LABEL[m.phase] || 'Working';
   const mode = m.mode ? ` (${m.mode})` : '';
   const pct = Math.min(100, m.pct || 0); // defensive: never render >100%
@@ -202,7 +202,16 @@ function renderChips() {
   $('#chips').innerHTML = CATS.map(([k,label]) =>
     `<div class="chip ${k===sel?'sel':''}" onclick="pick('${k}')">${k===sel?CHECK:''}${label}</div>`).join('');
 }
-function pick(k) { sel = k; renderChips(); if (k === 'new') loadNew(); else render(); }
+const hasQuery = () => $('#q').value.trim().length >= 3;
+function pick(k) { sel = k; renderChips(); if (k === 'new') loadNew(); else if (k === 'community' && !hasQuery()) loadCommunity(); else render(); }
+
+// Community chip "show all without a search" — browse every community playlist (best-populated first).
+async function loadCommunity() {
+  try { const d = await (await fetch('/community?k=500')).json(); communityData = d.playlists || []; }
+  catch { communityData = []; }
+  $('#meta').textContent = `${communityData.length} community playlists`;
+  render();
+}
 
 // ---- rows (app-style) ----
 function rowSong(t) { return row(`https://music.youtube.com/watch?v=${t.videoId}`, yt(t.videoId), false,
@@ -210,8 +219,8 @@ function rowSong(t) { return row(`https://music.youtube.com/watch?v=${t.videoId}
 function rowAlbum(a) { return row(`openAlbum('${a.id}')`, a.thumbnail, false, esc(a.title),
   esc(a.artist) + (a.year?' · '+a.year:''), 'open'); }
 function rowArtist(a) { return row(`openArtist('${a.id}')`, a.thumbnail, true, esc(a.name), 'Artist', 'open'); }
-function rowPlaylist(p) { return row(`openPlaylist('${p.id}')`, p.thumbnail, false, esc(p.title), esc(p.artist||'Playlist'), 'open'); }
-const RENDER = { songs:rowSong, videos:rowSong, albums:rowAlbum, singles:rowAlbum, artists:rowArtist, playlists:rowPlaylist };
+function rowPlaylist(p) { const sub = (p.artist||'Playlist') + (p.source==='community' ? (p.whitelisted!=null?` · community · ${p.whitelisted} tracks`:' · community') : ''); return row(`openPlaylist('${p.id}')`, p.thumbnail, false, esc(p.title), esc(sub), 'open'); }
+const RENDER = { songs:rowSong, videos:rowSong, albums:rowAlbum, singles:rowAlbum, artists:rowArtist, playlists:rowPlaylist, community:rowPlaylist };
 
 function row(action, img, round, title, sub, kind) {
   const open = kind === 'song'
@@ -238,6 +247,14 @@ function render() {
     if (newSel === 'all') html += nonEmpty.map(([k]) => cat(k)).join('');
     else html += (c[newSel]||[]).length ? (c[newSel]||[]).map(NEWRENDER[newSel]).join('') : `<div class="empty">None.</div>`;
     $('#results').innerHTML = html;
+    return;
+  }
+  // Community chip with no active query → browse ALL community playlists (no search needed).
+  if (sel === 'community' && !hasQuery()) {
+    closeDetail();
+    const items = communityData || [];
+    $('#results').innerHTML = items.length ? items.map(rowPlaylist).join('')
+      : `<div class="empty">No community playlists yet — run <code>npm run playlists</code>.</div>`;
     return;
   }
   const c = lastData?.categories;
@@ -270,7 +287,12 @@ async function go() {
   const q = $('#q').value.trim();
   if (q && sel === 'new') { sel = 'all'; renderChips(); } // typing leaves the New Releases browse view
   // Require ≥3 characters before searching — 1–2 char queries are too broad to be accurate.
-  if (q.length < 3) { lastData = null; $('#results').innerHTML = q ? '<div class="empty">Keep typing — at least 3 characters.</div>' : ''; $('#meta').textContent = ''; return; }
+  if (q.length < 3) {
+    lastData = null;
+    if (sel === 'community') return loadCommunity(); // empty box on the Community chip → show all
+    $('#results').innerHTML = q ? '<div class="empty">Keep typing — at least 3 characters.</div>' : '';
+    $('#meta').textContent = ''; return;
+  }
   inflight?.abort();
   inflight = new AbortController();
   const t0 = performance.now();

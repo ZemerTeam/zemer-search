@@ -14,7 +14,7 @@ import path from "node:path";
 import cluster from "node:cluster";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { openCorpus, allTracks, allArtists, allAlbums, allPlaylists, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, recentTracks, recentAlbums, stats } from "../corpus/store.mjs";
+import { openCorpus, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, recentTracks, recentAlbums, stats } from "../corpus/store.mjs";
 import { buildCategories, searchCategories } from "../index/categories.mjs";
 import { loadDefaultSynonyms } from "../index/synonyms.mjs";
 import { postBrowse, parsePlaylistPage, parseArtistItemsContinuation } from "../harness/browse.mjs";
@@ -68,7 +68,8 @@ async function startServer() {
   let cats, indexedCount = 0, indexedAt = 0, whitelistTotal = 0;
   function reload() {
     const tracks = allTracks(liveDb);
-    cats = buildCategories({ tracks, artists: allArtists(liveDb), albums: allAlbums(liveDb), playlists: allPlaylists(liveDb) }, loadDefaultSynonyms());
+    // Artist-owned playlists and community-discovered playlists are indexed separately → separate chips.
+    cats = buildCategories({ tracks, artists: allArtists(liveDb), albums: allAlbums(liveDb), playlists: allPlaylists(liveDb), community: allCommunityPlaylists(liveDb) }, loadDefaultSynonyms());
     indexedCount = tracks.length; indexedAt = Date.now();
     whitelistTotal = countWhitelist();
     cache.clear();
@@ -97,7 +98,7 @@ async function startServer() {
 
   const send = (res, code, obj) => { const body = JSON.stringify(obj); res.writeHead(code, CORS); res.end(body); return body; };
   const cacheSet = (key, body) => { cache.set(key, body); if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value); };
-  const CACHEABLE = new Set(["/search", "/artist", "/album", "/playlist", "/new"]);
+  const CACHEABLE = new Set(["/search", "/artist", "/album", "/playlist", "/new", "/community"]);
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -144,6 +145,12 @@ async function startServer() {
         const count = Object.values(categories).reduce((n, a) => n + a.length, 0);
         return cacheSet(req.url, send(res, 200, { count, categories }));
       }
+      if (u.pathname === "/community") {
+        // Browse ALL community playlists (no query) — powers the Community chip's "show all" view.
+        const k = Math.min(2000, Math.max(1, Number(u.searchParams.get("k") || 500)));
+        const playlists = communityPlaylistList(liveDb, k);
+        return cacheSet(req.url, send(res, 200, { count: playlists.length, playlists }));
+      }
       if (u.pathname === "/artist") {
         const d = u.searchParams.get("id") && artistDetail(liveDb, u.searchParams.get("id"));
         return d ? cacheSet(req.url, send(res, 200, d)) : send(res, 404, { error: "artist not found" });
@@ -155,7 +162,8 @@ async function startServer() {
       if (u.pathname === "/playlist") {
         const id = u.searchParams.get("id");
         if (!id) return send(res, 400, { error: "missing id" });
-        const meta = liveDb.prepare("SELECT pl.id,pl.title,pl.thumbnail,a.name artistName FROM playlist pl JOIN artist a ON a.id=pl.artistId WHERE pl.id=?").get(id);
+        let meta = liveDb.prepare("SELECT pl.title,pl.thumbnail,a.name artistName FROM playlist pl JOIN artist a ON a.id=pl.artistId WHERE pl.id=?").get(id);
+        if (!meta) { const c = communityPlaylistMeta(liveDb, id); if (c) meta = { title: c.title, thumbnail: c.thumbnail, artistName: c.author || "Community playlist" }; }
         const playlist = { id, title: meta?.title || "Playlist", artist: meta?.artistName || "", thumbnail: meta?.thumbnail || null };
         const songs = await fetchPlaylistTracks(id);
         if (songs === null) return send(res, 200, { playlist, tracks: [], note: "playlist contents unavailable" });

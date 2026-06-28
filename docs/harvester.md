@@ -91,6 +91,51 @@ An anti-bot block in any step **aborts the whole pipeline** (no more live reques
 a fast-but-IP-safe profile (`CONCURRENCY=5`, `MIN_INTERVAL_MS=200`). Schedule daily shallow + weekly deep,
 **Shabbat-aware** — see [deployment.md](deployment.md).
 
+## Community playlists (pilot)
+
+Goal: surface **community-built YTM playlists** (curated by users, not whitelisted artists) — *as many as
+possible* — while serving **whitelisted tracks only**. Two independent guarantees:
+
+- **Purity (hard).** The `/playlist` endpoint re-fetches a playlist live and keeps only its whitelisted
+  tracks (`tracksByIds` ∪ `whitelistedChannelIds`). This is **id-based**, so opening *any* playlist —
+  community, artist, or even unindexed — can only ever render whitelisted tracks. Discovery never weakens
+  this; a community playlist is just "a community ordering of (the whitelisted subset of) some tracks."
+- **Admission (quality).** `admitPlaylist({total, whitelisted})` admits only if **≥ `MIN_WL_TRACKS`**
+  (default 4) **AND ≥ `MIN_WL_RATIO`** (default 0.5) whitelisted — so we don't surface a 4%-whitelisted
+  fragment. This is *not* a purity gate (purity is the serve-time filter); it's a "is this a coherent
+  list?" gate. **Never** admit on "contains *any* whitelisted track" — that's the leaky inverse (gotcha #14).
+
+**`harvester/playlists.mjs`** (`npm run playlists`) — there is no global "all playlists" enumeration on
+YouTube, so discovery **seeds from search** (IP-safe via `harness/search.mjs` → `net.mjs`):
+
+1. **Seeds** (`buildSeeds`): curated topical terms (`data/playlist-seeds.json`) + whitelisted artist names
+   + (with `FIRSTNAMES=1`) each artist's first name. `SEEDS=topics|artists|both` (default `both`), `N` caps
+   the seed budget. Full sweep: `SEEDS=both FIRSTNAMES=1 N=4000`.
+2. **Discover**: search each seed with the community-playlist `SearchFilter` → candidate playlist ids
+   (already-known ids skipped unless `RECHECK`/`REVALIDATE`).
+3. **Check + gate**: fetch each candidate's tracks (`CAP` default 300), intersect with the corpus, apply
+   `admitPlaylist`. Keepers → `upsertCommunityPlaylist` (playlist + whitelisted membership, one
+   transaction). `PAGES` sets search pages per seed.
+4. **"Remove what's not"**: `RECHECK=1` re-validates re-discovered playlists and **deletes** ones that now
+   fail the gate; `REVALIDATE=1` re-checks **every** stored community playlist (even if not re-found) and
+   deletes failures + refreshes the rest. `pruneBlocklisted` also strips blocklisted videoIds from
+   community membership and re-syncs counts.
+
+**Metadata safety (the audio is already pure; this hardens what's *displayed*).** A playlist's title,
+curator name, and cover are user-generated:
+- **Cover** — derived from a **whitelisted track** at read time (`store.mjs`), never the curator's cover
+  image (which can be a mosaic of the playlist's non-whitelisted tracks). Applies retroactively to all rows.
+- **Title / curator text** — screened at admission against `blocklist.json` `playlistTerms` (case-insensitive
+  substrings); a hit rejects the playlist (and removes it on `REVALIDATE`/`RECHECK`). You own this list.
+- **Specific removals** — `blocklist.json` `playlistIds` (your manual backstop). `upsertCommunityPlaylist`
+  refuses a blocklisted id; `pruneBlocklisted` deletes existing ones.
+
+IP-safe like every other step: paced/cached/circuit-broken, aborts on the first anti-bot block → exit 75.
+Re-runs are free (cache replay). Progress writes to the status channel → the web UI shows "Discovering
+community playlists (discover|check) — N / total"; results get their **own Community chip** (browse-all via
+`/community`, no search needed). Stored in `community_playlist` / `community_playlist_track`
+([store.md](store.md)); separate from the artist-owned `playlist` table, so the pilot is fully reversible.
+
 ## The channel map & issue #108
 
 The whitelist holds YouTube **Music** channel ids. Artists' *uploads* (live videos, older content, music

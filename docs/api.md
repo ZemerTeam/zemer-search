@@ -8,12 +8,13 @@ process + one `corpus.db` file** — no external search engine.
 | Method/Path | Returns |
 |-------------|---------|
 | `GET /` | The web UI (`ui.html`). |
-| `GET /search?q=…&allowFemale=0&kidZone=1&blockVideos=1&k=8` | Ranked, **category-grouped**, content-filtered results: `{q, count, categories:{artists, songs, albums, singles, videos, playlists}}`. |
+| `GET /search?q=…&allowFemale=0&kidZone=1&blockVideos=1&k=8` | Ranked, **category-grouped**, content-filtered results: `{q, count, categories:{artists, songs, albums, singles, videos, playlists}}`. The `playlists` category includes both artist-owned **and** community-discovered playlists (each row carries `source: "artist"\|"community"`). |
 | `GET /artist?id=UC…` | Artist catalog `{artist, songs, videos, albums, singles, playlists}` (from the DB). |
 | `GET /album?id=MPRE…` | `{album, tracks}` (from the DB, ordered). |
-| `GET /playlist?id=…` | `{playlist, tracks}` — fetched **on demand** (cached) from YouTube and filtered to whitelisted-corpus / whitelisted-channel tracks. |
+| `GET /playlist?id=…` | `{playlist, tracks, total, whitelisted}` — fetched **on demand** (cached) from YouTube and filtered to whitelisted-corpus / whitelisted-channel tracks. Works for **any** playlist id: artist-owned, community-discovered, or even an unindexed id (the filter is purely id-based, so it can never serve a non-whitelisted track). The header meta falls back to `community_playlist` when the id isn't an artist playlist. |
 | `GET /new?k=60&allowFemale=0&kidZone=1&blockVideos=1` | `{count, categories:{songs, videos, albums, singles}}` — most recently-added releases (newest `harvestedAt` first; albums/singles ranked by their tracks' first-indexed time), each item with `addedAt` (ms). Powers the **New Releases** chip + its category sub-chips. Same content-filter params as `/search`. |
-| `GET /health` | Live `{tracks, artists, videos, albums, singles, playlists, indexed, whitelistTotal, worker, maintenance}`. `maintenance` is `{phase, mode, done, total, pct, newTracks, blocks}` while a harvest/refresh run is active (written to `data/.maintain-status.json` by the harvester steps; `null`/absent once a run stops updating). `whitelistTotal` is re-read each reload so it isn't stale after a whitelist refetch. |
+| `GET /community?k=500` | `{count, playlists}` — **all** community-discovered playlists, best-populated first (`whitelisted` desc). Powers the **Community** chip's "show all without a search" browse view. Each row `{id, title, artist (curator), thumbnail, source:"community", whitelisted, total}`. |
+| `GET /health` | Live `{tracks, artists, videos, albums, singles, playlists, communityPlaylists, indexed, whitelistTotal, worker, maintenance}`. `maintenance` is `{phase, mode, done, total, pct, newTracks, blocks}` while a harvest/refresh/**playlist-discovery** run is active (written to `data/.maintain-status.json` by the harvester steps; `null`/absent once a run stops updating). `whitelistTotal` is re-read each reload so it isn't stale after a whitelist refetch. |
 | `POST /reload` | Rebuild the in-memory index now. |
 
 Content-filter query params map to `searchCategories` options; the API always passes **explicit
@@ -47,11 +48,14 @@ Self-contained HTML/CSS/JS that **mirrors the app's search screen** (Material 3,
 exact dark surfaces/typography from `zemer-app`'s `Theme.kt`/`Dimensions.kt`):
 
 - A pill **search bar** + horizontal **filter-chip row**: All · Artists · Albums · Songs · Singles & EPs
-  · Videos · Playlists · **New Releases** (last). The category chips filter the displayed results
-  **client-side from the already-fetched** search data (no refetch on chip change). **New Releases** is a
-  browse view (no query needed) — it fetches `/new` and shows recently-added releases with **its own
-  category sub-chips** (Songs · Videos · Albums · Singles & EPs; empty ones hidden) and an "added Xd ago"
-  date per row; typing a query leaves it back into search. (True upload dates would need a per-track
+  · Videos · Playlists · **Community** · **New Releases** (last). The category chips filter the displayed
+  results **client-side from the already-fetched** search data (no refetch on chip change). **Playlists**
+  is artist-owned playlists; **Community** is community-curated playlists (own ranked slot). The Community
+  chip also **browses all without a search** — with an empty box it fetches `/community` and lists every
+  community playlist (best-populated first); typing a query filters it via the search `community` category.
+  **New Releases** is a browse view (no query needed) — it fetches `/new` and shows recently-added releases
+  with **its own category sub-chips** (Songs · Videos · Albums · Singles & EPs; empty ones hidden) and an
+  "added Xd ago" date per row; typing a query leaves it back into search. (True upload dates would need a per-track
   `/player` fetch — a planned follow-up; today it shows when the track was indexed.)
 - A single **Material 3 switch** — "Hide female singers" — the only on-screen content filter (sets
   `allowFemale=0`); **videos and KidZone content are included by default**.
@@ -63,7 +67,9 @@ exact dark surfaces/typography from `zemer-app`'s `Theme.kt`/`Dimensions.kt`):
   live") so it's obvious the corpus is growing without refreshing.
 - A **maintenance/refresh progress bar** (spinner + "Refreshing catalog — N / total · pct% · +N new" + a
   thin progress bar) shown from `/health.maintenance` while a harvest/refresh run is active, and
-  auto-hiding when idle. Same M3 surfaces as the rest of the UI.
+  auto-hiding when idle. Same M3 surfaces as the rest of the UI. It also covers **community-playlist
+  discovery** ("Discovering community playlists (discover|check) — N / total"), so a `npm run playlists`
+  run shows live progress in the UI just like a refresh.
 - **As-you-type speed:** debounced + an **AbortController** cancels the previous in-flight request on
   every keystroke (no wasted server work, no stale results), system font (no web-font fetch).
 

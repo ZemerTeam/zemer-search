@@ -25,7 +25,32 @@ album (
 )
 playlist (id TEXT PRIMARY KEY, title TEXT, artistId TEXT REFERENCES artist(id), thumbnail TEXT)
 album_track (albumId TEXT, videoId TEXT, pos INTEGER, PRIMARY KEY(albumId, videoId))  -- album → tracks
+
+-- Community playlists (PILOT) — YTM playlists curated by community members, NOT owned by a whitelisted
+-- artist. Separate tables so the artist-owned `playlist` table is untouched and the pilot is reversible.
+community_playlist (
+  id TEXT PRIMARY KEY,             -- playlistId (no VL prefix)
+  title TEXT, author TEXT,         -- curator display name (free text; not a whitelisted artist)
+  thumbnail TEXT,
+  total INTEGER, whitelisted INTEGER,   -- discovery-time counts (tracks on YTM / of those, whitelisted)
+  discoveredAt INTEGER
+)
+community_playlist_track (playlistId TEXT, videoId TEXT, pos INTEGER, PRIMARY KEY(playlistId, videoId))
 ```
+
+> **Purity is NOT enforced in these tables — it's enforced at SERVE time.** Opening any playlist hits
+> `/playlist`, which re-fetches the playlist live and keeps only whitelisted tracks (`tracksByIds` ∪
+> `whitelistedChannelIds`). So a community playlist can only ever render whitelisted tracks, regardless of
+> what else it holds. `whitelisted`/`total` + `community_playlist_track` are the matched subset captured at
+> discovery, powering search/index, the displayed "X of Y" counts, and the pilot yield report. See
+> [harvester.md](harvester.md#community-playlists-pilot).
+>
+> **Metadata is user-generated, so it's hardened too:** the displayed **cover is derived from a whitelisted
+> track** (`allCommunityPlaylists`/`communityPlaylistList`/`communityPlaylistMeta` build the thumbnail from
+> the first `community_playlist_track` videoId — NOT the stored curator cover, which can show non-whitelisted
+> art). The **title/curator screen** + **playlist removal** live in `blocklist.json` (`playlistTerms`,
+> `playlistIds`); `upsertCommunityPlaylist` refuses a blocklisted id and `pruneBlocklisted` deletes blocklisted
+> playlists (+ strips blocklisted videoIds from membership, re-syncing counts).
 
 WAL mode (`journal_mode=WAL`, `synchronous=NORMAL`) → unlimited concurrent readers alongside the single
 writer. Indexes on every `artistId` and `album_track.albumId`.
@@ -42,7 +67,10 @@ writer. Indexes on every `artistId` and `album_track.albumId`.
 | `tracksByIds(db, ids)` | Which of `ids` are whitelisted tracks we hold (chunked for the 999-var limit) — for playlist filtering. |
 | `whitelistedChannelIds(db)` | Set of **music ids ∪ regular channel ids** — for playlist whitelisting. |
 | `harvestedArtistIds(db)` | Distinct artist ids with tracks (refresh iterates these). |
-| `stats(db)` | `{tracks, artists, videos, albums, singles, playlists}` — the live `/health` numbers. |
+| `upsertCommunityPlaylist(db, pl, whitelistedTracks)` | **One transaction**: upsert a community playlist + re-snapshot its whitelisted membership (drops blocklisted ids; re-check shrinks the set cleanly). |
+| `allCommunityPlaylists(db)` | Community playlists shaped like the artist-playlist docs (`{id, title, artistName=author, thumbnail, source:"community", whitelisted, total}`) — merged into the playlists index. |
+| `communityPlaylistMeta(db, id)` / `communityPlaylistIds(db)` | Detail-header lookup for `/playlist`; the set of already-discovered ids (so a re-run skips them unless `RECHECK=1`). |
+| `stats(db)` | `{tracks, artists, videos, albums, singles, playlists, communityPlaylists}` — the live `/health` numbers. |
 
 ## Migrations & re-harvest
 

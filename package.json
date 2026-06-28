@@ -15,8 +15,9 @@
     "refresh": "node harvester/refresh.mjs",
     "refresh:deep": "DEEP=1 node harvester/refresh.mjs",
     "prune": "node harvester/prune.mjs",
+    "playlists": "node harvester/playlists.mjs",
     "maintain": "bash scripts/maintain.sh",
-    "test": "node --test index/ corpus/",
+    "test": "node --test index/ corpus/ harvester/",
     "bench": "node bench/bench.mjs",
     "relevance": "node bench/relevance.mjs",
     "category-relevance": "node bench/category-relevance.mjs",
@@ -28,7 +29,7 @@
     "build-subset": "node index/build-subset.mjs",
     "api": "node server/api.mjs",
     "deep-test": "node bench/deep-test.mjs",
-    "verify": "node --test index/ corpus/ && node bench/audit.mjs && node bench/fuzz.mjs && node bench/deep-test.mjs"
+    "verify": "node --test index/ corpus/ harvester/ && node bench/audit.mjs && node bench/fuzz.mjs && node bench/deep-test.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1"

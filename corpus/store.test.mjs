@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats } from "./store.mjs";
+import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistIds } from "./store.mjs";
 
 const seed = (db) => upsertArtistCatalog(db, { id: "UCmusic", name: "Test Artist" }, {
   regularChannelId: "UCregular",
@@ -109,4 +109,76 @@ test("pruneBlocklisted removes only the listed videoIds (+ album_track membershi
   r = pruneBlocklisted(db, { videoIds: new Set(), artistIds: new Set(["UCmusic"]) });
   assert.equal(r.artists, 1);
   assert.equal(artistDetail(db, "UCmusic"), null);
+});
+
+// ---- community playlists (pilot) ---------------------------------------------------------------
+
+test("community playlist round-trips: counts, source tag, membership, and meta lookup", () => {
+  const db = openCorpus(":memory:");
+  upsertCommunityPlaylist(db, { id: "PLcomm", title: "Shabbos Vibes", author: "DJ Moshe", thumbnail: "t.jpg", total: 20 }, [
+    { videoId: "vid00000001", pos: 0 }, { videoId: "vid00000002", pos: 1 }, { videoId: "vid00000003", pos: 2 },
+  ]);
+  const all = allCommunityPlaylists(db);
+  assert.equal(all.length, 1);
+  assert.equal(all[0].id, "PLcomm");
+  assert.equal(all[0].artistName, "DJ Moshe", "author surfaces as artistName for the index");
+  assert.equal(all[0].source, "community");
+  assert.equal(all[0].whitelisted, 3);
+  assert.equal(all[0].total, 20);
+  assert.equal(db.prepare("SELECT COUNT(*) c FROM community_playlist_track WHERE playlistId='PLcomm'").get().c, 3);
+  assert.equal(stats(db).communityPlaylists, 1);
+  const meta = communityPlaylistMeta(db, "PLcomm");
+  assert.equal(meta.title, "Shabbos Vibes");
+  assert.equal(meta.author, "DJ Moshe");
+  assert.ok(communityPlaylistIds(db).has("PLcomm"));
+});
+
+test("upsertCommunityPlaylist re-snapshots membership on a re-check (drops tracks no longer whitelisted)", () => {
+  const db = openCorpus(":memory:");
+  upsertCommunityPlaylist(db, { id: "PLx", title: "X", total: 10 }, [{ videoId: "a0000000001" }, { videoId: "b0000000002" }, { videoId: "c0000000003" }]);
+  assert.equal(communityPlaylistMeta(db, "PLx").whitelisted, 3);
+  // a later re-check finds only 1 still whitelisted → membership + count shrink, no stale rows linger
+  upsertCommunityPlaylist(db, { id: "PLx", title: "X", total: 10 }, [{ videoId: "a0000000001" }]);
+  assert.equal(communityPlaylistMeta(db, "PLx").whitelisted, 1);
+  assert.equal(db.prepare("SELECT COUNT(*) c FROM community_playlist_track WHERE playlistId='PLx'").get().c, 1);
+});
+
+test("community playlist cover is derived from a WHITELISTED track, not the curator's cover image", () => {
+  const db = openCorpus(":memory:");
+  upsertCommunityPlaylist(db, { id: "PLcov", title: "C", thumbnail: "https://evil.example/cover.jpg", total: 5 },
+    [{ videoId: "wl00000001x", pos: 0 }, { videoId: "wl00000002x", pos: 1 }]);
+  const expect = "https://i.ytimg.com/vi/wl00000001x/mqdefault.jpg";
+  assert.equal(allCommunityPlaylists(db)[0].thumbnail, expect, "index thumbnail from first whitelisted track");
+  assert.equal(communityPlaylistMeta(db, "PLcov").thumbnail, expect, "meta thumbnail from first whitelisted track");
+});
+
+test("pruneBlocklisted removes an explicitly blocklisted community playlist + its membership", () => {
+  const db = openCorpus(":memory:");
+  upsertCommunityPlaylist(db, { id: "PLbad", title: "Bad", total: 5 }, [{ videoId: "x0000000001" }, { videoId: "x0000000002" }]);
+  upsertCommunityPlaylist(db, { id: "PLok", title: "Ok", total: 5 }, [{ videoId: "y0000000001" }, { videoId: "y0000000002" }]);
+  const r = pruneBlocklisted(db, { videoIds: new Set(), artistIds: new Set(), playlistIds: new Set(["PLbad"]) });
+  assert.equal(r.playlists, 1);
+  assert.equal(communityPlaylistMeta(db, "PLbad"), null, "blocklisted playlist gone");
+  assert.equal(db.prepare("SELECT COUNT(*) c FROM community_playlist_track WHERE playlistId='PLbad'").get().c, 0);
+  assert.ok(communityPlaylistMeta(db, "PLok"), "other playlist intact");
+});
+
+test("removeCommunityPlaylist drops the playlist AND its membership ('remove what's not')", () => {
+  const db = openCorpus(":memory:");
+  upsertCommunityPlaylist(db, { id: "PLdel", title: "Gone", total: 6 }, [{ videoId: "v0000000001" }, { videoId: "v0000000002" }]);
+  assert.equal(stats(db).communityPlaylists, 1);
+  removeCommunityPlaylist(db, "PLdel");
+  assert.equal(stats(db).communityPlaylists, 0);
+  assert.equal(communityPlaylistMeta(db, "PLdel"), null);
+  assert.equal(db.prepare("SELECT COUNT(*) c FROM community_playlist_track WHERE playlistId='PLdel'").get().c, 0);
+  assert.ok(!communityPlaylistIds(db).has("PLdel"));
+});
+
+test("pruneBlocklisted removes blocklisted videoIds from community membership and re-syncs the count", () => {
+  const db = openCorpus(":memory:");
+  upsertCommunityPlaylist(db, { id: "PLp", title: "P", total: 8 }, [{ videoId: "keep0000001" }, { videoId: "drop0000002" }, { videoId: "keep0000003" }]);
+  assert.equal(communityPlaylistMeta(db, "PLp").whitelisted, 3);
+  pruneBlocklisted(db, { videoIds: new Set(["drop0000002"]), artistIds: new Set() });
+  assert.equal(db.prepare("SELECT COUNT(*) c FROM community_playlist_track WHERE playlistId='PLp'").get().c, 2, "blocklisted membership row gone");
+  assert.equal(communityPlaylistMeta(db, "PLp").whitelisted, 2, "stored count re-synced to membership");
 });

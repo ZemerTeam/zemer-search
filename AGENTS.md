@@ -31,14 +31,14 @@ whitelist (Firestore)  →  harvester (InnerTube, IP-safe)  →  corpus.db (SQLi
 
 | Dir | What |
 |-----|------|
-| `harness/` | Ported InnerTube layer: `clients.mjs`, `lib.mjs`, `parsers.mjs`; **`net.mjs`** (gzip disk cache + bounded-concurrency rate-paced limiter + anti-bot circuit breaker); `browse.mjs` (artist/album/playlist parsers); `whitelist.mjs` (fetch Firestore whitelist, read-only); `status.mjs` (maintenance progress channel). Browse + search are **unauthenticated** — no cookie, no `visitorData`. |
-| `harvester/` | `core.mjs` (shared per-artist harvest; shallow/deep), `harvest.mjs` (initial bulk), `onboard.mjs` (new artists), `refresh.mjs` (incremental; shallow daily / deep weekly), `prune.mjs` (drop de-whitelisted). |
+| `harness/` | Ported InnerTube layer: `clients.mjs`, `lib.mjs`, `parsers.mjs`; **`net.mjs`** (gzip disk cache + bounded-concurrency rate-paced limiter + anti-bot circuit breaker); `browse.mjs` (artist/album/playlist parsers); **`search.mjs`** (IP-safe search via `net.mjs` — used for community-playlist discovery); `whitelist.mjs` (fetch Firestore whitelist, read-only); `status.mjs` (maintenance progress channel). Browse + search are **unauthenticated** — no cookie, no `visitorData`. |
+| `harvester/` | `core.mjs` (shared per-artist harvest; shallow/deep), `harvest.mjs` (initial bulk), `onboard.mjs` (new artists), `refresh.mjs` (incremental; shallow daily / deep weekly), `prune.mjs` (drop de-whitelisted), **`playlists.mjs`** (community-playlist discovery — seed-search → whitelist-filter → quality-gate → store; revalidate prunes stale). |
 | `scripts/`, `deploy/` | `maintain.sh` (refresh orchestrator: whitelist→onboard→prune→refresh under flock) + systemd timer/service units. |
-| `corpus/store.mjs` | **SQLite** schema + store API (artist/track/album/playlist/album_track). |
+| `corpus/store.mjs` | **SQLite** schema + store API (artist/track/album/playlist/album_track **+ community_playlist/community_playlist_track**). |
 | `index/` | `normalize.mjs` (skeleton + Damerau + `skeletonKey`), **`search.mjs`** (the matcher), `synonyms.mjs`, `categories.mjs` (grouped/by-category search), `build-subset.mjs`, `*.test.mjs`. |
-| `server/` | `api.mjs` (HTTP API + cluster + LRU cache; `/search` `/artist` `/album` `/playlist` `/new` `/health`+`maintenance`), `ui.html` (web UI: search chips + **New Releases** chip + live refresh-progress bar). |
+| `server/` | `api.mjs` (HTTP API + cluster + LRU cache; `/search` `/artist` `/album` `/playlist` `/new` `/community` `/health`+`maintenance`), `ui.html` (web UI: search chips + **Community** chip (browse-all, no search) + **New Releases** chip + live refresh-progress bar). |
 | `bench/` | `relevance` `category-relevance` `audit` `fuzz` `deep-test` `loadtest` `bench` `diag-typos`. |
-| `data/` | `corpus.db`, `whitelist.json`, `synonyms.json`, `blocklist.json` (curated junk videoIds/artistIds to exclude), `.httpcache/` (gzipped, prunable). |
+| `data/` | `corpus.db`, `whitelist.json`, `synonyms.json`, `blocklist.json` (curated exclusions: `videoIds`/`artistIds` + community `playlistIds` + `playlistTerms` title/curator screen), `playlist-seeds.json` (community-playlist discovery seed terms), `.httpcache/` (gzipped, prunable). |
 | `docs/` | Comprehensive deep-dive docs — read `docs/README.md`. |
 
 ## Commands
@@ -50,8 +50,9 @@ N=100 node harvester/harvest.mjs                             # → corpus.db (pe
 node harvester/onboard.mjs                                    # harvest only NEW whitelisted artists (diff vs corpus)
 node harvester/refresh.mjs                                    # re-harvest existing artists; DEFAULT deep (full); SHALLOW=1 = fast landing-only
 node harvester/prune.mjs                                      # drop de-whitelisted artists (survivor-guard) + apply data/blocklist.json
+node harvester/playlists.mjs                                  # discover COMMUNITY playlists (SEEDS=both FIRSTNAMES=1 N=4000 = full sweep; REVALIDATE=1 prunes stale)
 scripts/maintain.sh shallow|deep                             # orchestrate whitelist→onboard→prune→refresh (flock; cron/systemd; shallow daily / deep weekly)
-npm test                                                      # unit tests (index/ + corpus/)
+npm test                                                      # unit tests (index/ + corpus/ + harvester/)
 npm run verify                                                # FULL accuracy gate: test + audit + fuzz + deep-test (must stay green)
 npm run relevance | category-relevance | audit | fuzz | deep-test   # individual measurement harnesses (offline)
 npm run api                                                   # HTTP API + web UI on :7700  (WORKERS=auto to cluster)
@@ -112,6 +113,17 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
 13. **The whitelist is YouTube **music** channels; uploads use a different **regular** channel.** The
     channel map (`artist.regularChannelId`, from the page's subscribe button) bridges them for playlist
     whitelisting. Content only on the regular channel isn't harvested yet (issue #108).
+14. **Community playlists are whitelist-pure by SERVE-TIME filtering, NOT by the admission gate.** A
+    community playlist (`community_playlist`) can be admitted with non-whitelisted tracks in it — opening
+    it (`/playlist`) re-fetches live and keeps only whitelisted tracks (`tracksByIds` ∪
+    `whitelistedChannelIds`), so it can NEVER serve a non-whitelisted track. `admitPlaylist`'s
+    `MIN_WL_TRACKS`/`MIN_WL_RATIO` is a *quality* gate (is the whitelisted subset a coherent list?), not a
+    purity gate. NEVER "admit any playlist containing a whitelisted track" — that's the leaky inverse.
+    Discovery (`harvester/playlists.mjs`) seeds search; it does NOT enumerate all of YouTube (impossible).
+    The audio is pure, but a playlist's **metadata is user-generated** — so the displayed **cover is derived
+    from a whitelisted track** (`store.mjs` read funcs, NOT the curator's cover image, which can show
+    non-whitelisted art), and **title/curator text is screened** at admission via `blocklist.playlistTerms`
+    (+ `playlistIds` to remove specific ones). `REVALIDATE=1` reapplies all of this to existing rows.
 
 ## Editing the matcher safely
 

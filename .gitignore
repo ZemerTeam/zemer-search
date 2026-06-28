@@ -27,6 +27,8 @@ backups/
 # logs
 data/.harvest-full.log
 data/.harvest-sqlite.log
+data/.api.log
+data/.playlists-*.log
 
 # secrets (not in this dir by default, but guard against accidents)
 innertube_cookie.txt
