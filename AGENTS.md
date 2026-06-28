@@ -31,8 +31,8 @@ whitelist (Firestore)  →  harvester (InnerTube, IP-safe)  →  corpus.db (SQLi
 
 | Dir | What |
 |-----|------|
-| `harness/` | Ported InnerTube layer: `clients.mjs`, `lib.mjs`, `parsers.mjs`; **`net.mjs`** (gzip disk cache + bounded-concurrency rate-paced limiter + anti-bot circuit breaker); `browse.mjs` (artist/album/playlist parsers); **`search.mjs`** (IP-safe search via `net.mjs` — used for community-playlist discovery); `whitelist.mjs` (fetch Firestore whitelist, read-only); `status.mjs` (maintenance progress channel). Browse + search are **unauthenticated** — no cookie, no `visitorData`. |
-| `harvester/` | `core.mjs` (shared per-artist harvest; shallow/deep), `harvest.mjs` (initial bulk), `onboard.mjs` (new artists), `refresh.mjs` (incremental; shallow daily / deep weekly), `prune.mjs` (drop de-whitelisted), **`playlists.mjs`** (community-playlist discovery — seed-search → whitelist-filter → quality-gate → store; revalidate prunes stale). |
+| `harness/` | Ported InnerTube layer: `clients.mjs`, `lib.mjs`, `parsers.mjs`; **`net.mjs`** (gzip disk cache + bounded-concurrency rate-paced limiter + anti-bot circuit breaker; `cacheOnly` option for offline report passes); `browse.mjs` (artist/album/playlist parsers); **`search.mjs`** (IP-safe search via `net.mjs` — community-playlist discovery); **`player.mjs`** (IP-safe `/player` — the real release date, ISO `uploadDate`); `whitelist.mjs` (fetch Firestore whitelist, read-only); `status.mjs` (maintenance progress channel). Browse + search + player are **unauthenticated** — no cookie, no `visitorData`. |
+| `harvester/` | `core.mjs` (shared per-artist harvest; shallow/deep), `harvest.mjs` (initial bulk), `onboard.mjs` (new artists), `refresh.mjs` (incremental; shallow daily / deep weekly), `prune.mjs` (drop de-whitelisted), **`playlists.mjs`** (community-playlist discovery — seed-search → whitelist-filter → quality-gate → store; revalidate prunes stale), **`releases.mjs`** (date releases precisely — one `/player` per album → `album.uploadDate`; makes New Releases accurate). |
 | `scripts/`, `deploy/` | `maintain.sh` (refresh orchestrator: whitelist→onboard→prune→refresh under flock) + systemd timer/service units. |
 | `corpus/store.mjs` | **SQLite** schema + store API (artist/track/album/playlist/album_track **+ community_playlist/community_playlist_track**). |
 | `index/` | `normalize.mjs` (skeleton + Damerau + `skeletonKey`), **`search.mjs`** (the matcher), `synonyms.mjs`, `categories.mjs` (grouped/by-category search), `build-subset.mjs`, `*.test.mjs`. |
@@ -51,6 +51,7 @@ node harvester/onboard.mjs                                    # harvest only NEW
 node harvester/refresh.mjs                                    # re-harvest existing artists; DEFAULT deep (full); SHALLOW=1 = fast landing-only
 node harvester/prune.mjs                                      # drop de-whitelisted artists (survivor-guard) + apply data/blocklist.json
 node harvester/playlists.mjs                                  # discover COMMUNITY playlists (SEEDS=both FIRSTNAMES=1 N=4000 = full sweep; REVALIDATE=1 prunes stale)
+node harvester/releases.mjs                                   # date releases via /player → album.uploadDate (MIN_YEAR=2025 = recent only); makes New Releases real-date-accurate
 scripts/maintain.sh shallow|deep                             # orchestrate whitelist→onboard→prune→refresh (flock; cron/systemd; shallow daily / deep weekly)
 npm test                                                      # unit tests (index/ + corpus/ + harvester/)
 npm run verify                                                # FULL accuracy gate: test + audit + fuzz + deep-test (must stay green)
@@ -124,6 +125,13 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
     from a whitelisted track** (`store.mjs` read funcs, NOT the curator's cover image, which can show
     non-whitelisted art), and **title/curator text is screened** at admission via `blocklist.playlistTerms`
     (+ `playlistIds` to remove specific ones). `REVALIDATE=1` reapplies all of this to existing rows.
+15. **Community playlists rank by TITLE only** (`allCommunityPlaylists` sets `artistName: ""`, keeps the
+    curator in `author` for display). The curator is a random uploader; matching/boosting on it ranked
+    curator-name hits above title-begins-with hits. Artist-owned playlists still rank on the (real) artist.
+16. **New Releases = REAL dates, not index time.** `album.uploadDate` (ISO, from one `/player` per release —
+    `harvester/releases.mjs`) drives `recentAlbums`/`recentTracks`; `/new` shows only items with a real date
+    **inside a window** (default 10 days). Undated items (no `/player` date yet — incl. standalone videos)
+    are excluded from the window, NOT shown as "new". `harvestedAt` is only a last-resort fallback ordering.
 
 ## Editing the matcher safely
 

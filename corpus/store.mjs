@@ -35,6 +35,7 @@ export function openCorpus(file = DB_PATH) {
   db.pragma("journal_mode = WAL");
   db.pragma("synchronous = NORMAL");
   db.pragma("foreign_keys = ON");
+  db.pragma("busy_timeout = 8000"); // WAL has one writer; multiple maintenance processes queue, not error
   db.exec(`
     CREATE TABLE IF NOT EXISTS artist (
       id               TEXT PRIMARY KEY,
@@ -60,7 +61,8 @@ export function openCorpus(file = DB_PATH) {
       artistId   TEXT NOT NULL REFERENCES artist(id),
       type       TEXT NOT NULL DEFAULT 'album', -- album | single | ep
       year       INTEGER,
-      thumbnail  TEXT
+      thumbnail  TEXT,
+      uploadDate TEXT                           -- REAL release date (ISO-8601), dated via /player; NULL until dated
     );
     CREATE TABLE IF NOT EXISTS playlist (
       id        TEXT PRIMARY KEY,            -- playlistId
@@ -76,6 +78,7 @@ export function openCorpus(file = DB_PATH) {
     );
     CREATE INDEX IF NOT EXISTS idx_track_artist ON track(artistId);
     CREATE INDEX IF NOT EXISTS idx_albumtrack_album ON album_track(albumId);
+    CREATE INDEX IF NOT EXISTS idx_albumtrack_video ON album_track(videoId);
     CREATE INDEX IF NOT EXISTS idx_album_artist ON album(artistId);
     CREATE INDEX IF NOT EXISTS idx_playlist_artist ON playlist(artistId);
     -- Community playlists (pilot): YTM playlists curated by community members, NOT owned by a whitelisted
@@ -105,6 +108,10 @@ export function openCorpus(file = DB_PATH) {
   // Migrate existing DBs (CREATE TABLE IF NOT EXISTS won't add a new column to an existing table).
   if (!db.prepare("PRAGMA table_info(artist)").all().some((c) => c.name === "regularChannelId"))
     db.exec("ALTER TABLE artist ADD COLUMN regularChannelId TEXT");
+  // album.uploadDate: the release's REAL date (ISO-8601), dated via one /player on a sample track (see
+  // harvester/releases.mjs). Browse pages only carry a year; this is what makes New Releases accurate.
+  if (!db.prepare("PRAGMA table_info(album)").all().some((c) => c.name === "uploadDate"))
+    db.exec("ALTER TABLE album ADD COLUMN uploadDate TEXT");
   return db;
 }
 
@@ -208,9 +215,12 @@ const COVER_SQL = "(SELECT videoId FROM community_playlist_track WHERE playlistI
 
 // For the search index: community playlists shaped like the artist-playlist docs (title + artistName so
 // buildIndex/search treat them uniformly), tagged source:"community" and carrying their counts.
+// artistName is "" on purpose: a community playlist's "artist" is a random curator, NOT a real artist, so
+// matching/boosting on it ranks curator-name hits above title-begins-with hits (wrong). Community playlists
+// rank by TITLE only; the curator is kept in `author` for DISPLAY (categories maps it to the row's artist).
 export const allCommunityPlaylists = (db) => db.prepare(
   `SELECT id,title,author,whitelisted,total, ${COVER_SQL} AS cover FROM community_playlist`).all()
-  .map((r) => ({ id: r.id, title: r.title, artistName: r.author || "", thumbnail: ytThumb(r.cover),
+  .map((r) => ({ id: r.id, title: r.title, artistName: "", author: r.author || "", thumbnail: ytThumb(r.cover),
     source: "community", whitelisted: r.whitelisted, total: r.total }));
 
 // Detail-header metadata for the /playlist endpoint when the id is a community playlist (not in `playlist`).
@@ -289,41 +299,66 @@ export const whitelistedChannelIds = (db) => new Set([
   ...db.prepare("SELECT regularChannelId FROM artist WHERE regularChannelId IS NOT NULL").all().map((r) => r.regularChannelId),
 ]);
 
-// Recently-added tracks, newest first — powers the "New Releases" view. `addedAt` is when we first
-// indexed the track (harvestedAt), a proxy for release recency; true upload dates would need a per-track
-// /player fetch (a follow-up). Carries the artist content flags so the API can apply the same filters.
+// Recent tracks, newest first — powers the "New Releases" view. Ordered by the REAL release date when we
+// have it (a track inherits the `uploadDate` of its album; dated via /player — see harvester/releases.mjs);
+// tracks without a dated album fall back to `harvestedAt` (when we first indexed it) and sort below the
+// dated ones. `releaseDate` is the precise ISO date when known; `addedAt` is the best-available ms date
+// (release date when known, else index time) so the UI's "ago" is accurate. Carries the artist flags.
 export function recentTracks(db, limit = 100) {
   return db.prepare(`
     SELECT t.videoId, t.title, a.name AS artistName, t.isVideo, t.explicit, t.harvestedAt,
-           a.isFemale, a.isChasid, a.isKidZone
-    FROM track t JOIN artist a ON a.id = t.artistId
+           a.isFemale, a.isChasid, a.isKidZone, MAX(al.uploadDate) AS uploadDate
+    FROM track t
+    JOIN artist a ON a.id = t.artistId
+    LEFT JOIN album_track at ON at.videoId = t.videoId
+    LEFT JOIN album al ON al.id = at.albumId
     WHERE t.harvestedAt IS NOT NULL
-    ORDER BY t.harvestedAt DESC, t.videoId
+    GROUP BY t.videoId
+    ORDER BY (MAX(al.uploadDate) IS NULL), MAX(al.uploadDate) DESC, t.harvestedAt DESC, t.videoId
     LIMIT ?`).all(Math.max(1, limit | 0))
     .map((r) => ({ videoId: r.videoId, title: r.title, artist: r.artistName, isVideo: !!r.isVideo,
-      explicit: !!r.explicit, addedAt: r.harvestedAt,
+      explicit: !!r.explicit, releaseDate: r.uploadDate || null,
+      addedAt: r.uploadDate ? Date.parse(r.uploadDate) : r.harvestedAt,
       isFemale: !!r.isFemale, isChasid: !!r.isChasid, isKidZone: !!r.isKidZone }));
 }
 
-// Recent albums/singles/EPs — ordered by when their tracks were first indexed (a new release's tracks
-// have a fresh harvestedAt; re-confirming an existing one doesn't touch it). Powers the New Releases
-// Albums/Singles chips. Carries artist flags for the same content filtering.
+// Recent albums/singles/EPs — ordered by REAL release date (`album.uploadDate`, dated via /player) newest
+// first; undated albums fall back to their tracks' first-indexed time and sort below. Powers the New
+// Releases Albums/Singles chips. `releaseDate` = precise ISO when known. Carries artist flags.
 export function recentAlbums(db, limit = 100) {
   return db.prepare(`
-    SELECT al.id, al.playlistId, al.title, al.type, al.year, al.thumbnail, a.name AS artistName,
-           a.isFemale, a.isChasid, a.isKidZone, MAX(t.harvestedAt) AS addedAt
+    SELECT al.id, al.playlistId, al.title, al.type, al.year, al.thumbnail, al.uploadDate, a.name AS artistName,
+           a.isFemale, a.isChasid, a.isKidZone, MAX(t.harvestedAt) AS harvestedAt
     FROM album al
     JOIN album_track at ON at.albumId = al.id
     JOIN track t ON t.videoId = at.videoId
     JOIN artist a ON a.id = al.artistId
     WHERE t.harvestedAt IS NOT NULL
     GROUP BY al.id
-    ORDER BY addedAt DESC, al.id
+    ORDER BY (al.uploadDate IS NULL), al.uploadDate DESC, MAX(t.harvestedAt) DESC, al.id
     LIMIT ?`).all(Math.max(1, limit | 0))
     .map((r) => ({ id: r.id, playlistId: r.playlistId, title: r.title, artist: r.artistName, type: r.type,
-      year: r.year, thumbnail: r.thumbnail, addedAt: r.addedAt,
+      year: r.year, thumbnail: r.thumbnail, releaseDate: r.uploadDate || null,
+      addedAt: r.uploadDate ? Date.parse(r.uploadDate) : r.harvestedAt,
       isFemale: !!r.isFemale, isChasid: !!r.isChasid, isKidZone: !!r.isKidZone }));
 }
+
+// Releases that still need a precise date but have a sample track we can /player-date. Recent first
+// (year desc); pass minYear to restrict to recent releases (what New Releases actually needs dated).
+export function albumsNeedingDate(db, { minYear = 0, limit = 100000 } = {}) {
+  return db.prepare(`
+    SELECT al.id, al.title, al.year,
+           (SELECT videoId FROM album_track WHERE albumId = al.id ORDER BY pos LIMIT 1) AS sampleVideoId
+    FROM album al
+    WHERE al.uploadDate IS NULL AND (al.year IS NULL OR al.year >= ?)
+    ORDER BY (al.type='single'), (al.year IS NULL), al.year DESC, al.id
+    LIMIT ?`).all(minYear, Math.max(1, limit | 0))
+    .filter((r) => r.sampleVideoId);
+}
+export const setAlbumUploadDate = (db, id, uploadDate) =>
+  db.prepare("UPDATE album SET uploadDate=? WHERE id=?").run(uploadDate, id).changes;
+export const datedAlbumCount = (db) =>
+  db.prepare("SELECT COUNT(*) c FROM album WHERE uploadDate IS NOT NULL").get().c;
 
 export const harvestedArtistIds = (db) => db.prepare("SELECT DISTINCT artistId FROM track").all().map((r) => r.artistId);
 // Every artist that has a row (incl. 0-track ones) — used by onboarding to skip already-known artists.

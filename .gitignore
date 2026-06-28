@@ -20,6 +20,7 @@ data/subset.json.gz
 
 # transient maintenance progress status (runtime only — written by the harvest/refresh steps)
 data/.maintain-status.json*
+data/.releases-status.json*
 
 # local DB/whitelist backups (timestamped snapshots; never published)
 backups/
@@ -30,6 +31,7 @@ data/.harvest-sqlite.log
 data/.api.log
 data/.playlists-*.log
 data/.meta-validate.log
+data/.releases.log
 
 # generated review report — non-whitelisted artists seen in community playlists (regenerated each run)
 data/rejected-artists.txt

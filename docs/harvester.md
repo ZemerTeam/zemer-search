@@ -142,6 +142,22 @@ community playlists (discover|check) — N / total"; results get their **own Com
 `/community`, no search needed). Stored in `community_playlist` / `community_playlist_track`
 ([store.md](store.md)); separate from the artist-owned `playlist` table, so the pilot is fully reversible.
 
+## Release dating (New Releases accuracy)
+
+Browse pages carry only a release **year**; the real date lives in the `/player` microformat (`uploadDate`,
+full ISO-8601). **`harvester/releases.mjs`** (`npm run releases`) dates releases *cheaply*: for each album
+lacking `uploadDate` but with a sample track (we already store `album_track`), it fetches **one `/player`**
+on that sample and stores the date on the album — **one request per release, never per track**. Incremental
+(skips already-dated albums; `/player` responses are cached, so re-runs replay free), album-type + recent-year
+first, IP-safe (paced, aborts on a block → exit 75). A song inherits its album's date, so dating albums also
+orders the New Releases Songs list.
+
+This is what makes New Releases truthful: `recentAlbums`/`recentTracks` order by the real date, and `/new`
+shows **only items dated within a window** (default 10 days). Without it, ordering fell back to `harvestedAt`
+(index time) and old catalog we'd *just indexed* looked "new". Env: `MIN_YEAR` (restrict to recent),
+`LIMIT`, plus the usual `net.mjs` pacing vars. Standalone **videos** (not in an album) aren't dated yet, so
+they don't appear in the windowed view — closing that would need a `/player` per video.
+
 ## The channel map & issue #108
 
 The whitelist holds YouTube **Music** channel ids. Artists' *uploads* (live videos, older content, music

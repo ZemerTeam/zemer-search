@@ -130,12 +130,18 @@ async function startServer() {
         const allowFemale = u.searchParams.get("allowFemale") !== "0";
         const kidZoneOnly = u.searchParams.get("kidZone") === "1";
         const blockVideos = u.searchParams.get("blockVideos") === "1";
+        // New Releases = only items with a REAL release date within the window (default 7 days). Undated
+        // items (no /player date yet) can't be confirmed recent, so they're excluded — this is what keeps
+        // "not-really-new" catalog out of the view. `days` overrides the window.
+        const days = Math.min(3650, Math.max(1, Number(u.searchParams.get("days") || 10)));
+        const cutoff = Date.now() - days * 86400000;
+        const fresh = (x) => x.releaseDate && Date.parse(x.releaseDate) >= cutoff;
         // content filter (only when explicitly requested — gotcha #7)
         const keepArtist = (x) => (allowFemale || !x.isFemale) && (!kidZoneOnly || x.isKidZone);
-        const tracks = recentTracks(liveDb, k * 4).filter(keepArtist);
-        const albums = recentAlbums(liveDb, k * 4).filter(keepArtist);
-        const song = (t) => ({ videoId: t.videoId, title: t.title, artist: t.artist, explicit: t.explicit, isVideo: t.isVideo, addedAt: t.addedAt });
-        const al = (a) => ({ id: a.id, playlistId: a.playlistId, title: a.title, artist: a.artist, year: a.year, thumbnail: a.thumbnail, addedAt: a.addedAt });
+        const tracks = recentTracks(liveDb, k * 8).filter(keepArtist).filter(fresh);
+        const albums = recentAlbums(liveDb, k * 8).filter(keepArtist).filter(fresh);
+        const song = (t) => ({ videoId: t.videoId, title: t.title, artist: t.artist, explicit: t.explicit, isVideo: t.isVideo, addedAt: t.addedAt, releaseDate: t.releaseDate });
+        const al = (a) => ({ id: a.id, playlistId: a.playlistId, title: a.title, artist: a.artist, year: a.year, thumbnail: a.thumbnail, addedAt: a.addedAt, releaseDate: a.releaseDate });
         const categories = {
           songs: tracks.filter((t) => !t.isVideo).slice(0, k).map(song),
           videos: blockVideos ? [] : tracks.filter((t) => t.isVideo).slice(0, k).map(song),

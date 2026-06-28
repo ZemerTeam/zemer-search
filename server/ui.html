@@ -139,18 +139,25 @@ let sel = 'all', lastData = null, newData = null, newSel = 'all', communityData 
 
 // New Releases view: categorized (songs/videos/albums/singles), each row dated "added Xd ago".
 const NEWCATS = [['songs','Songs'], ['videos','Videos'], ['albums','Albums'], ['singles','Singles & EPs']];
-function ago(ms) {
+function ago(ms, verb) {
   if (!ms) return '';
+  const v = verb || 'added';
   const s = Math.max(0, (Date.now() - ms) / 1000);
-  if (s < 3600) return 'added ' + Math.max(1, Math.round(s/60)) + 'm ago';
-  if (s < 86400) return 'added ' + Math.round(s/3600) + 'h ago';
-  return 'added ' + Math.round(s/86400) + 'd ago';
+  if (s < 3600) return v + ' ' + Math.max(1, Math.round(s/60)) + 'm ago';
+  if (s < 86400) return v + ' ' + Math.round(s/3600) + 'h ago';
+  return v + ' ' + Math.round(s/86400) + 'd ago';
 }
+const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function fmtDate(iso) { const d = new Date(iso); return isNaN(d) ? '' : `${MON[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`; }
+// New Releases rows show the ACTUAL release date + how long ago (when known); index-time fallback otherwise.
+const when = (x) => x.releaseDate
+  ? ` &nbsp;·&nbsp; ${fmtDate(x.releaseDate)} &nbsp;·&nbsp; ${ago(x.addedAt, 'released')}`
+  : (x.addedAt ? ` &nbsp;·&nbsp; ${ago(x.addedAt, 'added')}` : '');
 function rowNewSong(t) { return row(`https://music.youtube.com/watch?v=${t.videoId}`, yt(t.videoId), false,
   esc(t.title) + (t.explicit?'<span class="e">E</span>':''),
-  esc(t.artist||'') + (t.addedAt ? ` &nbsp;·&nbsp; ${ago(t.addedAt)}` : ''), 'song'); }
+  esc(t.artist||'') + when(t), 'song'); }
 function rowNewAlbum(a) { return row(`openAlbum('${a.id}')`, a.thumbnail, false, esc(a.title),
-  esc(a.artist||'') + (a.addedAt ? ` &nbsp;·&nbsp; ${ago(a.addedAt)}` : ''), 'open'); }
+  esc(a.artist||'') + when(a), 'open'); }
 const NEWRENDER = { songs:rowNewSong, videos:rowNewSong, albums:rowNewAlbum, singles:rowNewAlbum };
 function npick(k) { newSel = k; render(); }
 async function loadNew() {
@@ -161,7 +168,7 @@ async function loadNew() {
   catch { newData = {}; }
   newSel = 'all';
   const total = Object.values(newData).reduce((n, a) => n + (a ? a.length : 0), 0);
-  $('#meta').textContent = `${total} new releases`;
+  $('#meta').textContent = `${total} new this week`;
   render();
 }
 
@@ -188,7 +195,7 @@ stat(); setInterval(stat, 3000);
 function renderMaint(m) {
   const el = $('#maint');
   if (!m || !m.phase || m.phase === 'idle' || m.phase === 'done') { el.classList.remove('show'); el.innerHTML = ''; return; }
-  const LABEL = { whitelist:'Updating whitelist', onboard:'Onboarding new artists', refresh:'Refreshing catalog', prune:'Pruning removed artists', playlists:'Discovering community playlists' };
+  const LABEL = { whitelist:'Updating whitelist', onboard:'Onboarding new artists', refresh:'Refreshing catalog', prune:'Pruning removed artists', playlists:'Discovering community playlists', releases:'Dating new releases' };
   const label = LABEL[m.phase] || 'Working';
   const mode = m.mode ? ` (${m.mode})` : '';
   const pct = Math.min(100, m.pct || 0); // defensive: never render >100%
@@ -239,7 +246,7 @@ function render() {
     closeDetail();
     const c = newData || {};
     const nonEmpty = NEWCATS.filter(([k]) => (c[k] || []).length);
-    if (!nonEmpty.length) { $('#results').innerHTML = `<div class="empty">No recent releases.</div>`; return; }
+    if (!nonEmpty.length) { $('#results').innerHTML = `<div class="empty">No new releases this week.</div>`; return; }
     const chips = [['all','All'], ...nonEmpty];
     let html = `<div class="chips">` + chips.map(([k,l]) =>
       `<div class="chip ${k===newSel?'sel':''}" onclick="npick('${k}')">${k===newSel?CHECK:''}${l}</div>`).join('') + `</div>`;

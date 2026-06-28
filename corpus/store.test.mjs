@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistIds } from "./store.mjs";
+import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, recentAlbums, recentTracks } from "./store.mjs";
 
 const seed = (db) => upsertArtistCatalog(db, { id: "UCmusic", name: "Test Artist" }, {
   regularChannelId: "UCregular",
@@ -111,6 +111,44 @@ test("pruneBlocklisted removes only the listed videoIds (+ album_track membershi
   assert.equal(artistDetail(db, "UCmusic"), null);
 });
 
+// ---- release dating (New Releases accuracy) ----------------------------------------------------
+
+test("albumsNeedingDate returns undated albums with a sample track; setAlbumUploadDate dates them", () => {
+  const db = openCorpus(":memory:"); seed(db); // MPRE_album has vid00000001 in album_track; MPRE_single has none
+  let need = albumsNeedingDate(db);
+  const ids = need.map((r) => r.id);
+  assert.ok(ids.includes("MPRE_album"), "album with a sample track is datable");
+  assert.ok(!ids.includes("MPRE_single"), "album with no album_track row is skipped (nothing to /player)");
+  assert.equal(need.find((r) => r.id === "MPRE_album").sampleVideoId, "vid00000001");
+  assert.equal(datedAlbumCount(db), 0);
+  setAlbumUploadDate(db, "MPRE_album", "2026-05-17T07:33:33-07:00");
+  assert.equal(datedAlbumCount(db), 1);
+  assert.equal(albumsNeedingDate(db).some((r) => r.id === "MPRE_album"), false, "dated album no longer needs dating");
+});
+
+test("albumsNeedingDate minYear restricts to recent releases", () => {
+  const db = openCorpus(":memory:"); seed(db); // MPRE_album year 2020, MPRE_single year 2021
+  const recent = albumsNeedingDate(db, { minYear: 2021 }).map((r) => r.id);
+  assert.ok(!recent.includes("MPRE_album"), "2020 album excluded when minYear=2021");
+});
+
+test("recentAlbums/recentTracks order by REAL release date when present, index-time fallback below", () => {
+  const db = openCorpus(":memory:"); seed(db);
+  // add a second, newer-INDEXED album whose real date is OLDER than MPRE_album's real date
+  upsertArtistCatalog(db, { id: "UCmusic", name: "Test Artist" }, {
+    tracks: [{ videoId: "vid00000009", title: "Newer Indexed", isVideo: false }],
+    albums: [{ id: "MPRE_old", playlistId: "PLo", title: "Old Release", type: "album", year: 2010 }],
+    albumTracks: [{ albumId: "MPRE_old", videoId: "vid00000009", pos: 0 }],
+  }, Date.now() + 1000); // indexed later
+  setAlbumUploadDate(db, "MPRE_album", "2026-05-17T00:00:00Z"); // real: new
+  setAlbumUploadDate(db, "MPRE_old", "2010-01-01T00:00:00Z");   // real: old
+  const albums = recentAlbums(db, 10).filter((a) => a.type !== "single");
+  assert.equal(albums[0].id, "MPRE_album", "newest REAL release date leads, despite older index time");
+  assert.equal(albums[0].releaseDate, "2026-05-17T00:00:00Z");
+  // the track on the newest-dated album leads recentTracks
+  assert.equal(recentTracks(db, 10)[0].videoId, "vid00000001", "track inherits its album's real date for ordering");
+});
+
 // ---- community playlists (pilot) ---------------------------------------------------------------
 
 test("community playlist round-trips: counts, source tag, membership, and meta lookup", () => {
@@ -121,7 +159,8 @@ test("community playlist round-trips: counts, source tag, membership, and meta l
   const all = allCommunityPlaylists(db);
   assert.equal(all.length, 1);
   assert.equal(all[0].id, "PLcomm");
-  assert.equal(all[0].artistName, "DJ Moshe", "author surfaces as artistName for the index");
+  assert.equal(all[0].artistName, "", "curator is NOT indexed as artistName (community ranks by title only)");
+  assert.equal(all[0].author, "DJ Moshe", "curator kept in author for display");
   assert.equal(all[0].source, "community");
   assert.equal(all[0].whitelisted, 3);
   assert.equal(all[0].total, 20);

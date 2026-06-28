@@ -8,8 +8,9 @@ network) except `loadtest` (hits a running API). Run any via `npm run <name>`.
 Pinned regression tests, one or more per **gotcha** (see [gotchas.md](gotchas.md)). If one goes red,
 you've reintroduced a known bug. Covers: cross-script alignment, Damerau transposition, no-false-
 positives, synonyms, begins-with > contains, skeleton-collapse, fuzzy-no-affinity, apostrophe-join, IDF,
-the store's detail accessors + channel map + community-playlist round-trip/removal, and the
-community-playlist admission gate + seed builder (`harvester/`).
+the store's detail accessors + channel map + community-playlist round-trip/removal + release dating
+(`albumsNeedingDate`/`setAlbumUploadDate` + real-date ordering of New Releases), and the community-playlist
+admission gate + seed builder + rejected-artist formatter (`harvester/`).
 
 ## `relevance` — track ranking quality
 

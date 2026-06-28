@@ -21,7 +21,8 @@ album (
   id TEXT PRIMARY KEY,           -- album browseId (MPRE…)
   playlistId TEXT, title TEXT, artistId TEXT REFERENCES artist(id),
   type TEXT,                     -- 'album' | 'single' | 'ep'
-  year INTEGER, thumbnail TEXT
+  year INTEGER, thumbnail TEXT,
+  uploadDate TEXT                -- REAL release date (ISO-8601), dated via one /player on a sample track; NULL until dated
 )
 playlist (id TEXT PRIMARY KEY, title TEXT, artistId TEXT REFERENCES artist(id), thumbnail TEXT)
 album_track (albumId TEXT, videoId TEXT, pos INTEGER, PRIMARY KEY(albumId, videoId))  -- album → tracks
@@ -67,6 +68,8 @@ writer. Indexes on every `artistId` and `album_track.albumId`.
 | `tracksByIds(db, ids)` | Which of `ids` are whitelisted tracks we hold (chunked for the 999-var limit) — for playlist filtering. |
 | `whitelistedChannelIds(db)` | Set of **music ids ∪ regular channel ids** — for playlist whitelisting. |
 | `harvestedArtistIds(db)` | Distinct artist ids with tracks (refresh iterates these). |
+| `recentTracks/recentAlbums(db)` | New Releases rows ordered by REAL release date (`album.uploadDate`; a track inherits its album's) newest-first, undated falling back to `harvestedAt` below. Each carries `releaseDate` (ISO when known). |
+| `albumsNeedingDate(db,{minYear})` / `setAlbumUploadDate` / `datedAlbumCount` | Releases still lacking a date but with a sample track (album-type first, recent-year first) / store a date / count dated. Powers `harvester/releases.mjs`. |
 | `upsertCommunityPlaylist(db, pl, whitelistedTracks)` | **One transaction**: upsert a community playlist + re-snapshot its whitelisted membership (drops blocklisted ids; re-check shrinks the set cleanly). |
 | `allCommunityPlaylists(db)` | Community playlists shaped like the artist-playlist docs (`{id, title, artistName=author, thumbnail, source:"community", whitelisted, total}`) — merged into the playlists index. |
 | `communityPlaylistMeta(db, id)` / `communityPlaylistIds(db)` | Detail-header lookup for `/playlist`; the set of already-discovered ids (so a re-run skips them unless `RECHECK=1`). |

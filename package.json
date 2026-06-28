@@ -16,6 +16,7 @@
     "refresh:deep": "DEEP=1 node harvester/refresh.mjs",
     "prune": "node harvester/prune.mjs",
     "playlists": "node harvester/playlists.mjs",
+    "releases": "node harvester/releases.mjs",
     "maintain": "bash scripts/maintain.sh",
     "test": "node --test index/ corpus/ harvester/",
     "bench": "node bench/bench.mjs",
