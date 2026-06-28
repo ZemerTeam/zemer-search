@@ -32,6 +32,7 @@ data/.api.log
 data/.playlists-*.log
 data/.meta-validate.log
 data/.releases.log
+data/.wrapup.log
 
 # generated review report — non-whitelisted artists seen in community playlists (regenerated each run)
 data/rejected-artists.txt
