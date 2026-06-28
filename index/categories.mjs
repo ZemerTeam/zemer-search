@@ -36,6 +36,6 @@ export function searchCategories(cats, q, o = {}) {
     singles: pick(cats.singles, albumRow, 6),
     videos: pick(cats.videos, (t) => ({ videoId: t.videoId, title: t.title, artist: t.artistName, explicit: t.explicit }), 6),
     playlists: pick(cats.playlists, (p) => ({ id: p.id, title: p.title, artist: p.artistName, thumbnail: p.thumbnail, source: p.source || "artist", whitelisted: p.whitelisted }), 6),
-    community: pick(cats.community, (p) => ({ id: p.id, title: p.title, artist: p.artistName, thumbnail: p.thumbnail, source: "community", whitelisted: p.whitelisted }), 6),
+    community: pick(cats.community, (p) => ({ id: p.id, title: p.title, artist: p.artistName, thumbnail: p.thumbnail, source: "community", whitelisted: p.whitelisted })), // respect k (chip → up to 100), not capped at 6
   };
 }
