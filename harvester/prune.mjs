@@ -12,7 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { setStatus } from "./status.mjs";
-import { openCorpus, pruneArtists, existingArtistIds, prunePlan, stats } from "../corpus/store.mjs";
+import { openCorpus, pruneArtists, existingArtistIds, prunePlan, pruneBlocklisted, stats } from "../corpus/store.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DATA = path.resolve(HERE, "../data");
@@ -20,6 +20,12 @@ const DATA = path.resolve(HERE, "../data");
 const whitelist = JSON.parse(fs.readFileSync(path.join(DATA, "whitelist.json"), "utf8"));
 const keep = new Set(whitelist.filter((a) => /^UC/.test(a.id || "")).map((a) => a.id));
 const db = openCorpus();
+
+// Blocklist prune first — always safe + independent of the whitelist guard (removes only explicitly
+// listed junk videoIds/artists; upserts already skip them so they can't come back).
+const bl = pruneBlocklisted(db);
+if (bl.tracks || bl.artists) console.log(`prune: blocklist removed ${bl.tracks} track(s), ${bl.artists} artist(s)`);
+
 const plan = prunePlan(existingArtistIds(db), keep, process.env.PRUNE_MIN_RATIO);
 
 if (!plan.safe) {

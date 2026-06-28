@@ -75,7 +75,11 @@ on a block so the wrapper can stop the pipeline):
     shelf. Preserves the historical refresh behavior, so an existing cron keeps catching items anywhere.
   - **shallow** (`SHALLOW=1`): landing page + its carousels + (new) album expansion only — ~1 request/
     artist; new releases surface at the top of the landing carousels. The fast daily pass.
-- **`harvester/prune.mjs`** (`PRUNE_MIN_RATIO` default 0.5): removes artists no longer on the whitelist
+- **Blocklist (`data/blocklist.json`** — `{videoIds:[…], artistIds:[…]}`, committed like `synonyms.json`):
+  curated junk to exclude **regardless of the whitelist** — for track-level junk under an otherwise-wanted
+  artist (the whitelist is artist-granularity). `upsertArtistCatalog` never stores a blocklisted id (so a
+  re-harvest can't re-add it) and `prune.mjs` deletes any existing blocklisted rows (`pruneBlocklisted`).
+- **`harvester/prune.mjs`** (`PRUNE_MIN_RATIO` default 0.5): applies the blocklist, then removes artists no longer on the whitelist
   (and all their rows, one transaction) so a de-whitelisted artist stops being searchable. **Safety guard
   (`prunePlan`, unit-tested):** refuses unless ≥ `PRUNE_MIN_RATIO` of the **current** artists *survive*
   (corpus ∩ whitelist) — comparing survivors, not raw whitelist size, so a plausibly-sized-but-wrong

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, whitelistedChannelIds, pruneArtists, prunePlan, stats } from "./store.mjs";
+import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats } from "./store.mjs";
 
 const seed = (db) => upsertArtistCatalog(db, { id: "UCmusic", name: "Test Artist" }, {
   regularChannelId: "UCregular",
@@ -96,4 +96,17 @@ test("prunePlan: NaN/out-of-range PRUNE_MIN_RATIO falls back to 0.5 (can't silen
 test("prunePlan: empty corpus is safe (nothing to wipe)", () => {
   const p = prunePlan([], new Set([]));
   assert.equal(p.safe, true); assert.equal(p.before, 0); assert.equal(p.toRemove, 0);
+});
+
+test("pruneBlocklisted removes only the listed videoIds (+ album_track membership) and artists", () => {
+  const db = openCorpus(":memory:"); seed(db); // UCmusic: vid00000001 (in MPRE_album), vid00000002
+  let r = pruneBlocklisted(db, { videoIds: new Set(["vid00000001"]), artistIds: new Set() });
+  assert.equal(r.tracks, 1);
+  assert.equal(db.prepare("SELECT COUNT(*) c FROM track WHERE videoId='vid00000001'").get().c, 0);
+  assert.equal(db.prepare("SELECT COUNT(*) c FROM album_track WHERE videoId='vid00000001'").get().c, 0, "album_track membership cleared");
+  assert.ok(db.prepare("SELECT 1 FROM track WHERE videoId='vid00000002'").get(), "other track intact");
+  // blocklisting an artist removes the artist + all its rows
+  r = pruneBlocklisted(db, { videoIds: new Set(), artistIds: new Set(["UCmusic"]) });
+  assert.equal(r.artists, 1);
+  assert.equal(artistDetail(db, "UCmusic"), null);
 });

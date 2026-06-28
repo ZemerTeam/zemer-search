@@ -3,12 +3,28 @@
 // WAL mode for durable, concurrent reads. The harvester upserts ONE artist's whole catalog per
 // transaction, so a long harvest checkpoints continuously (crash/kill safe) instead of only at the end.
 import Database from "better-sqlite3";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // Env-configurable so it deploys to a server unchanged (CORPUS_DB=/var/lib/zemer-search/corpus.db).
 export const DB_PATH = process.env.CORPUS_DB || path.resolve(HERE, "../data/corpus.db");
+
+// Curated blocklist (data/blocklist.json, committed like synonyms.json): specific junk videoIds and/or
+// artist ids to keep OUT of the corpus regardless of the whitelist — for track-level junk under an
+// otherwise-wanted artist (the whitelist is artist-granularity and can't express that). Honored by
+// upsertArtistCatalog (never stores a blocklisted id) and pruneBlocklisted (removes existing rows).
+const BLOCKLIST_PATH = process.env.BLOCKLIST || path.resolve(HERE, "../data/blocklist.json");
+let _blocklist = null;
+export function blocklist() {
+  if (_blocklist) return _blocklist;
+  let v = [], a = [];
+  try { const j = JSON.parse(fs.readFileSync(BLOCKLIST_PATH, "utf8")); v = j.videoIds || []; a = j.artistIds || []; }
+  catch { /* no/invalid blocklist → empty */ }
+  _blocklist = { videoIds: new Set(v), artistIds: new Set(a) };
+  return _blocklist;
+}
 
 export function openCorpus(file = DB_PATH) {
   const db = new Database(file);
@@ -68,7 +84,13 @@ export function openCorpus(file = DB_PATH) {
 // Upsert one artist's whole catalog (tracks + albums + playlists) in a single transaction — the durable
 // per-artist checkpoint. Returns processed counts (for logging; refresh measures "new" via stats deltas).
 export function upsertArtistCatalog(db, artist, catalog, ts = Date.now()) {
-  const { tracks = [], albums = [], playlists = [], albumTracks = [], thumbnail = null, regularChannelId = null } = catalog;
+  const bl = blocklist();
+  if (bl.artistIds.has(artist.id)) return { tracks: 0, albums: 0, playlists: 0, blocked: true }; // never store a blocklisted artist
+  let { tracks = [], albums = [], playlists = [], albumTracks = [], thumbnail = null, regularChannelId = null } = catalog;
+  if (bl.videoIds.size) { // never store blocklisted junk tracks (so a re-harvest can't re-add them)
+    tracks = tracks.filter((t) => !bl.videoIds.has(t.videoId));
+    albumTracks = albumTracks.filter((at) => !bl.videoIds.has(at.videoId));
+  }
   const upArtist = db.prepare(
     `INSERT INTO artist(id,name,thumbnail,regularChannelId,isFemale,isChasid,isKidZone) VALUES(@id,@name,@thumbnail,@regularChannelId,@isFemale,@isChasid,@isKidZone)
      ON CONFLICT(id) DO UPDATE SET name=excluded.name, thumbnail=COALESCE(excluded.thumbnail, artist.thumbnail),
@@ -248,6 +270,29 @@ export function pruneArtists(db, keepIds) {
   });
   tx(drop);
   return { artists: drop.length, ids: drop };
+}
+
+// Delete blocklisted videoIds (+ blocklisted artists and all their rows) from the corpus — the cleanup
+// that complements upsertArtistCatalog's skip (which keeps them out going forward). One transaction.
+export function pruneBlocklisted(db, bl = blocklist()) {
+  let tracks = 0, artists = 0;
+  const tx = db.transaction(() => {
+    for (const vid of bl.videoIds) {
+      db.prepare("DELETE FROM album_track WHERE videoId=?").run(vid);
+      tracks += db.prepare("DELETE FROM track WHERE videoId=?").run(vid).changes;
+    }
+    for (const id of bl.artistIds) {
+      if (!db.prepare("SELECT 1 FROM artist WHERE id=?").get(id)) continue;
+      db.prepare("DELETE FROM album_track WHERE albumId IN (SELECT id FROM album WHERE artistId=?)").run(id);
+      db.prepare("DELETE FROM track WHERE artistId=?").run(id);
+      db.prepare("DELETE FROM album WHERE artistId=?").run(id);
+      db.prepare("DELETE FROM playlist WHERE artistId=?").run(id);
+      db.prepare("DELETE FROM artist WHERE id=?").run(id);
+      artists++;
+    }
+  });
+  tx();
+  return { tracks, artists };
 }
 export const stats = (db) => ({
   tracks: db.prepare("SELECT COUNT(*) c FROM track").get().c,

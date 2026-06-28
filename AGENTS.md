@@ -38,7 +38,7 @@ whitelist (Firestore)  →  harvester (InnerTube, IP-safe)  →  corpus.db (SQLi
 | `index/` | `normalize.mjs` (skeleton + Damerau + `skeletonKey`), **`search.mjs`** (the matcher), `synonyms.mjs`, `categories.mjs` (grouped/by-category search), `build-subset.mjs`, `*.test.mjs`. |
 | `server/` | `api.mjs` (HTTP API + cluster + LRU cache; `/search` `/artist` `/album` `/playlist` `/new` `/health`+`maintenance`), `ui.html` (web UI: search chips + **New Releases** chip + live refresh-progress bar). |
 | `bench/` | `relevance` `category-relevance` `audit` `fuzz` `deep-test` `loadtest` `bench` `diag-typos`. |
-| `data/` | `corpus.db`, `whitelist.json`, `synonyms.json`, `.httpcache/` (gzipped, prunable). |
+| `data/` | `corpus.db`, `whitelist.json`, `synonyms.json`, `blocklist.json` (curated junk videoIds/artistIds to exclude), `.httpcache/` (gzipped, prunable). |
 | `docs/` | Comprehensive deep-dive docs — read `docs/README.md`. |
 
 ## Commands
@@ -49,7 +49,7 @@ node harness/whitelist.mjs                                    # → data/whiteli
 N=100 node harvester/harvest.mjs                             # → corpus.db (per-artist durable upserts; no cookie — browse is unauthenticated)
 node harvester/onboard.mjs                                    # harvest only NEW whitelisted artists (diff vs corpus)
 node harvester/refresh.mjs                                    # re-harvest existing artists; DEFAULT deep (full); SHALLOW=1 = fast landing-only
-node harvester/prune.mjs                                      # drop de-whitelisted artists (survivor-guard; refuses on a bad whitelist)
+node harvester/prune.mjs                                      # drop de-whitelisted artists (survivor-guard) + apply data/blocklist.json
 scripts/maintain.sh shallow|deep                             # orchestrate whitelist→onboard→prune→refresh (flock; cron/systemd; shallow daily / deep weekly)
 npm test                                                      # unit tests (index/ + corpus/)
 npm run verify                                                # FULL accuracy gate: test + audit + fuzz + deep-test (must stay green)

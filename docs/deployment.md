@@ -28,6 +28,7 @@ the first server-side harvest free.
 | `MAX_AGE_H` | 20 | refresh | TTL (hours) for re-fetching landing/shelf pages. |
 | `SHALLOW` | — | refresh | `1` = fast landing-only pass (daily). Unset = **deep** full pagination (default; weekly). |
 | `PRUNE_MIN_RATIO` | 0.5 | prune | Refuse to prune unless ≥ this fraction of **current** artists survive (corpus-wipe guard; bad value → 0.5). |
+| `BLOCKLIST` | `data/blocklist.json` | store | Curated `{videoIds,artistIds}` excluded regardless of whitelist (upsert skips them; prune removes them). |
 | `ZEMER_APP` | `../zemer-app` | whitelist | Path to the app repo for `google-services.json` (whitelist creds). |
 | `N` | 20 | harvest | (initial) how many whitelisted artists to harvest. |
 
