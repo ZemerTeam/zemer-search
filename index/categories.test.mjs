@@ -42,3 +42,49 @@ test("blockVideos empties the Videos category; allowFemale=false hides the femal
   assert.equal(noFem.artists.length, 0);
   assert.equal(noFem.songs.length, 0);
 });
+
+// ---- community playlists in search results respect the content filter --------------------------
+// clsMask bit = (isFemale*4 + isVideo*2 + isKidZone): female-audio=1<<4, male-audio=1<<0, male-video=1<<2.
+const CP = (id, title, clsMask, fb = 0) => ({ id, title, artistName: "", author: "DJ", thumbnail: null, source: "community", whitelisted: 5, total: 5, fb, clsMask });
+
+test("community search: an ALL-female playlist is hidden when female is blocked; a mixed one survives", () => {
+  const community = [CP("PLallfem", "Shabbos Female", 1 << 4), CP("PLmixed", "Shabbos Mixed", (1 << 4) | (1 << 0))];
+  const cats = buildCategories({ ...corpus, community });
+  const open = searchCategories(cats, "shabbos", { k: 20 }).community.map((p) => p.id);
+  assert.ok(open.includes("PLallfem") && open.includes("PLmixed"), "both shown by default");
+  const filtered = searchCategories(cats, "shabbos", { k: 20, allowFemale: false }).community.map((p) => p.id);
+  assert.ok(!filtered.includes("PLallfem"), "all-female community playlist hidden in search when female blocked");
+  assert.ok(filtered.includes("PLmixed"), "mixed community playlist still shown");
+});
+
+test("community search: an all-video playlist is hidden when videos are blocked", () => {
+  const community = [CP("PLvid", "Shabbos Clips", 1 << 2), CP("PLaud", "Shabbos Audio", 1 << 0)];
+  const cats = buildCategories({ ...corpus, community });
+  const ids = searchCategories(cats, "shabbos", { k: 20, blockVideos: true }).community.map((p) => p.id);
+  assert.ok(!ids.includes("PLvid"), "all-video community playlist hidden when videos blocked");
+  assert.ok(ids.includes("PLaud"), "audio playlist still shown");
+});
+
+test("community search: conjunction is EXACT — female+video blocked hides a list with no member passing BOTH", () => {
+  // members: female-audio (1<<4) + male-video (1<<2) — neither is both non-female AND non-video
+  const community = [CP("PLconj", "Shabbos Conj", (1 << 4) | (1 << 2))];
+  const cats = buildCategories({ ...corpus, community });
+  assert.ok(searchCategories(cats, "shabbos", { k: 20 }).community.some((p) => p.id === "PLconj"), "shown by default");
+  assert.equal(searchCategories(cats, "shabbos", { k: 20, allowFemale: false, blockVideos: true }).community.some((p) => p.id === "PLconj"), false,
+    "hidden when BOTH blocked (no member is non-female AND non-video)");
+  assert.ok(searchCategories(cats, "shabbos", { k: 20, allowFemale: false }).community.some((p) => p.id === "PLconj"),
+    "female-only block keeps it (the male video member survives)");
+});
+
+test("community search: a not-yet-in-corpus (fallback) member keeps a playlist regardless of filter", () => {
+  const community = [CP("PLfb", "Shabbos Fallback", 1 << 4, 1)]; // looks all-female but has a fallback member
+  const cats = buildCategories({ ...corpus, community });
+  assert.ok(searchCategories(cats, "shabbos", { k: 20, allowFemale: false }).community.some((p) => p.id === "PLfb"),
+    "fallback member (unknown flags) keeps it (fail-open, matches /playlist)");
+});
+
+test("community search: no filter = unchanged (every matching community playlist shown)", () => {
+  const community = [CP("PLa", "Shabbos A", 1 << 4), CP("PLb", "Shabbos B", 1 << 2)];
+  const cats = buildCategories({ ...corpus, community });
+  assert.equal(searchCategories(cats, "shabbos", { k: 20 }).community.length, 2, "default shows all");
+});

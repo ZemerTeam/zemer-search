@@ -24,6 +24,25 @@ export function buildCategories({ tracks = [], artists = [], albums = [], playli
 // allowFemale=false / kidZone=true gate every entity via its artist's flags.
 const allowed = (t, o) => (o.allowFemale === false ? !t.isFemale : true) && (o.kidZoneOnly ? t.isKidZone : true) && (o.blockVideos ? !t.isVideo : true);
 
+// A community playlist survives the content filter iff ≥1 of its whitelisted members would survive (same
+// rule the /community list + /playlist serve-time filter use), so an ALL-female list is hidden when female
+// is blocked, an all-video list when videos are blocked, etc. `clsMask` packs which (isFemale,isVideo,
+// isKidZone) member classes are present; `fb` = has a member not yet in the corpus (unknown → always kept).
+// Fail-open when there's no class data (a real playlist always has ≥1 member).
+function communitySurvives(p, o) {
+  if (o.allowFemale !== false && !o.kidZoneOnly && !o.blockVideos) return true; // no filter active
+  if (p.fb) return true;
+  const mask = p.clsMask | 0;
+  if (!mask) return true; // no data → don't hide
+  for (let c = 0; c < 8; c++) {
+    if (!(mask & (1 << c))) continue;
+    const female = (c >> 2) & 1, video = (c >> 1) & 1, kidzone = c & 1;
+    const excluded = (female && o.allowFemale === false) || (video && o.blockVideos) || (!kidzone && o.kidZoneOnly);
+    if (!excluded) return true;
+  }
+  return false;
+}
+
 export function searchCategories(cats, q, o = {}) {
   const k = o.k || 8;
   const pick = (idx, map, n = k) =>
@@ -36,6 +55,9 @@ export function searchCategories(cats, q, o = {}) {
     singles: pick(cats.singles, albumRow, 6),
     videos: pick(cats.videos, (t) => ({ videoId: t.videoId, title: t.title, artist: t.artistName, explicit: t.explicit }), 6),
     playlists: pick(cats.playlists, (p) => ({ id: p.id, title: p.title, artist: p.artistName, thumbnail: p.thumbnail, source: p.source || "artist", whitelisted: p.whitelisted }), 6),
-    community: pick(cats.community, (p) => ({ id: p.id, title: p.title, artist: p.author || "", thumbnail: p.thumbnail, source: "community", whitelisted: p.whitelisted })), // title-only ranking; curator kept for display. respect k (not capped at 6)
+    // title-only ranking; curator kept for display; respects k (not capped at 6). Hides community playlists
+    // with no track surviving the content filter (all-female list when female is blocked, etc.).
+    community: search(cats.community, q, k * 4).map((r) => r.track).filter((p) => communitySurvives(p, o)).slice(0, k)
+      .map((p) => ({ id: p.id, title: p.title, artist: p.author || "", thumbnail: p.thumbnail, source: "community", whitelisted: p.whitelisted })),
   };
 }

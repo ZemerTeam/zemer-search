@@ -218,10 +218,25 @@ const COVER_SQL = "(SELECT videoId FROM community_playlist_track WHERE playlistI
 // artistName is "" on purpose: a community playlist's "artist" is a random curator, NOT a real artist, so
 // matching/boosting on it ranks curator-name hits above title-begins-with hits (wrong). Community playlists
 // rank by TITLE only; the curator is kept in `author` for DISPLAY (categories maps it to the row's artist).
+// Per-community-playlist content summary for SEARCH-time filtering: `fb`=1 if any member isn't in the
+// corpus yet (unknown flags → always kept); `clsMask` ORs one bit per present member class, indexed
+// (isFemale*4 + isVideo*2 + isKidZone). Lets searchCategories hide a playlist with no member surviving
+// the active filter (e.g. an all-female list when female is blocked) without a per-query DB hit.
+const COMMUNITY_CONTENT_SQL = `SELECT cpt.playlistId AS pid,
+    MAX(t.videoId IS NULL) AS fb,
+    COALESCE(SUM(DISTINCT CASE WHEN t.videoId IS NOT NULL
+      THEN (1 << (a.isFemale*4 + t.isVideo*2 + a.isKidZone)) END), 0) AS clsMask
+  FROM community_playlist_track cpt
+  LEFT JOIN track t ON t.videoId=cpt.videoId
+  LEFT JOIN artist a ON a.id=t.artistId
+  GROUP BY cpt.playlistId`;
+
 export const allCommunityPlaylists = (db) => db.prepare(
-  `SELECT id,title,author,whitelisted,total, ${COVER_SQL} AS cover FROM community_playlist`).all()
+  `SELECT community_playlist.id, community_playlist.title, community_playlist.author, community_playlist.whitelisted,
+          community_playlist.total, ${COVER_SQL} AS cover, c.fb, c.clsMask
+   FROM community_playlist LEFT JOIN (${COMMUNITY_CONTENT_SQL}) c ON c.pid=community_playlist.id`).all()
   .map((r) => ({ id: r.id, title: r.title, artistName: "", author: r.author || "", thumbnail: ytThumb(r.cover),
-    source: "community", whitelisted: r.whitelisted, total: r.total }));
+    source: "community", whitelisted: r.whitelisted, total: r.total, fb: r.fb ? 1 : 0, clsMask: r.clsMask || 0 }));
 
 // Detail-header metadata for the /playlist endpoint when the id is a community playlist (not in `playlist`).
 export const communityPlaylistMeta = (db, id) => {

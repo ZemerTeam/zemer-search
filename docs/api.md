@@ -35,10 +35,13 @@ drill-in (`contentFlags()` in `api.mjs`):
 - **Where applied:** `/search`, `/new`, `/artist`, `/album`, `/playlist`, `/community`. Artist/album detail
   return **404** when the whole artist is filtered; album/playlist additionally filter **per track**, so a
   mixed playlist keeps its allowed songs and drops only the filtered ones — never blocked wholesale.
-- **`/community`** (browse-all list) hides any playlist with **zero** members surviving the filter: an
-  **all-female list is hidden when female is blocked** (it would open empty), an all-video list when videos
-  are blocked, a non-KidZone list in KidZone mode. A **mixed** list still shows — `whitelisted` is reduced
-  to the kept count and the cover is taken from a kept track (so the thumbnail isn't a filtered one).
+- **Community playlists** — in **both** the `/community` browse list **and** the `community` category of
+  `/search` — hide any playlist with **zero** members surviving the filter: an **all-female list is hidden
+  when female is blocked** (it would open empty), an all-video list when videos are blocked, a non-KidZone
+  list in KidZone mode. The survival test is **exact** including conjunctions (female+video blocked hides a
+  list whose only non-female tracks are videos). A **mixed** list still shows. In `/community` the
+  displayed `whitelisted` is reduced to the kept count and the cover comes from a kept track; `/search`
+  uses a compact per-playlist class bitmask carried in the in-memory index (no per-query DB hit).
 - **Defense-in-depth:** the app should also drop any `isVideo`/female item it receives. One edge: a
   playlist track on a whitelisted channel but **not yet in the corpus** has an unknown `isVideo`, so
   `blockVideos` can't catch it server-side (female/KidZone still filter via the artist) — the client
