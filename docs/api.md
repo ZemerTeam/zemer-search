@@ -13,7 +13,7 @@ process + one `corpus.db` file** — no external search engine.
 | `GET /album?id=MPRE…&allowFemale=0&kidZone=1&blockVideos=1` | `{album, tracks}` (from the DB, ordered). Honors the flags: a female/non-KidZone artist's album → **404**; `blockVideos` drops video tracks; filtered **per track** so a mixed compilation keeps only allowed tracks. |
 | `GET /playlist?id=…&allowFemale=0&kidZone=1&blockVideos=1` | `{playlist, tracks, total, whitelisted}` — fetched **on demand** (cached) from YouTube and filtered to whitelisted-corpus / whitelisted-channel tracks. Works for **any** playlist id: artist-owned, community-discovered, or even an unindexed id (the filter is purely id-based, so it can never serve a non-whitelisted track). The header meta falls back to `community_playlist` when the id isn't an artist playlist. The content-filter flags are applied **per song** — a mixed (e.g. male+female) playlist keeps the allowed songs and drops only the filtered ones; it is **never** blocked wholesale (an all-female list just opens empty for a blocked-female user). |
 | `GET /new?k=60&days=10&allowFemale=0&kidZone=1&blockVideos=1` | `{count, categories:{songs, videos, albums, singles}, source}` — recent releases with REAL release dates, **within the window** (`days`, default 10), newest first; each item carries `releaseDate` (ISO) + `addedAt`. **Primary source = the releases feed** (`RELEASES_FEED`, real `/player` dates maintained off-datacenter, same Firestore whitelist) → `source:"feed"`; filtered by our corpus' artist content-flags. If the feed is unreachable it **falls back to corpus** `recentAlbums`/`recentTracks` (real `album.uploadDate` where dated, else `harvestedAt`) → `source:"corpus"`. The web UI labels feed-sourced results ("Pulled from … latest-releases feed"). Not LRU-cached (the feed has its own ~5-min TTL). Same content-filter params as `/search`. |
-| `GET /community` | `{count, playlists}` — **every** community-discovered playlist (no cap by default; `k` is just a sanity bound), best-populated first (`whitelisted` desc). Powers the **Community** chip's "show all without a search" browse view. Each row `{id, title, artist (curator), thumbnail (from a whitelisted track), source:"community", whitelisted, total}`. |
+| `GET /community?allowFemale=0&kidZone=1&blockVideos=1` | `{count, playlists}` — community-discovered playlists (no cap by default; `k` is just a sanity bound), best-populated first (`whitelisted` desc). Powers the **Community** chip's "show all without a search" browse view. Each row `{id, title, artist (curator), thumbnail (from a whitelisted track), source:"community", whitelisted, total}`. **Honors the content flags:** a playlist is shown only if ≥1 of its whitelisted tracks survives the filter — so an **all-female list is hidden when female is blocked** (an all-video list when videos are blocked, etc.); a **mixed** list still shows, with `whitelisted` reduced to the kept count and the cover taken from a kept track. |
 | `GET /health` | Live `{tracks, artists, videos, albums, singles, playlists, communityPlaylists, indexed, whitelistTotal, worker, maintenance}`. `maintenance` is `{phase, mode, done, total, pct, newTracks, blocks}` while a harvest/refresh/**playlist-discovery** run is active (written to `data/.maintain-status.json` by the harvester steps; `null`/absent once a run stops updating). `whitelistTotal` is re-read each reload so it isn't stale after a whitelist refetch. |
 | `POST /reload` | Rebuild the in-memory index now. |
 
@@ -32,12 +32,13 @@ drill-in (`contentFlags()` in `api.mjs`):
   catalog (gotcha #7). **The app must send all three explicitly** for a restricted user and should
   **fail closed** (never omit one). Polarity is mixed by design (`allowFemale` vs `blockVideos`) — send the
   right sense. The API passes explicit booleans through, so defaults are well-defined.
-- **Where applied:** `/search`, `/new`, `/artist`, `/album`, `/playlist`. Artist/album detail return
-  **404** when the whole artist is filtered; album/playlist additionally filter **per track**, so a mixed
-  playlist keeps its allowed songs and drops only the filtered ones — never blocked wholesale.
-- **`/community`** (browse-all list) is **not** filtered at the list level (a playlist is a mixed container
-  with no single gender/video dimension); its **contents are filtered when opened** via `/playlist`, so an
-  all-female list still appears in the browse list but opens empty for a blocked-female user.
+- **Where applied:** `/search`, `/new`, `/artist`, `/album`, `/playlist`, `/community`. Artist/album detail
+  return **404** when the whole artist is filtered; album/playlist additionally filter **per track**, so a
+  mixed playlist keeps its allowed songs and drops only the filtered ones — never blocked wholesale.
+- **`/community`** (browse-all list) hides any playlist with **zero** members surviving the filter: an
+  **all-female list is hidden when female is blocked** (it would open empty), an all-video list when videos
+  are blocked, a non-KidZone list in KidZone mode. A **mixed** list still shows — `whitelisted` is reduced
+  to the kept count and the cover is taken from a kept track (so the thumbnail isn't a filtered one).
 - **Defense-in-depth:** the app should also drop any `isVideo`/female item it receives. One edge: a
   playlist track on a whitelisted channel but **not yet in the corpus** has an unknown `isVideo`, so
   `blockVideos` can't catch it server-side (female/KidZone still filter via the artist) — the client

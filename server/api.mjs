@@ -208,7 +208,7 @@ async function startServer() {
         // Browse ALL community playlists (no query) — powers the Community chip's "show all" view.
         // Defaults to every playlist (cap is just a sanity bound), so the UI isn't silently truncated.
         const k = Math.min(100000, Math.max(1, Number(u.searchParams.get("k") || 100000)));
-        const playlists = communityPlaylistList(liveDb, k);
+        const playlists = communityPlaylistList(liveDb, k, contentFlags(u.searchParams));
         return cacheSet(req.url, send(res, 200, { count: playlists.length, playlists }));
       }
       if (u.pathname === "/artist") {

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, recentAlbums, recentTracks } from "./store.mjs";
+import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistList, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, recentAlbums, recentTracks } from "./store.mjs";
 
 const seed = (db) => upsertArtistCatalog(db, { id: "UCmusic", name: "Test Artist" }, {
   regularChannelId: "UCregular",
@@ -299,4 +299,29 @@ test("detail filters default to OPEN — absent opts = no filtering (gotcha #7)"
   assert.ok(artistDetail(db, "UCfem"), "female visible when no flag passed");
   assert.equal(artistDetail(db, "UCmale").videos.length, 1, "videos present when no flag passed");
   assert.equal(albumDetail(db, "MPRE_mix").tracks.length, 2);
+});
+
+test("communityPlaylistList: an ALL-female playlist is HIDDEN when female is blocked; a mixed one survives", () => {
+  const db = openCorpus(":memory:"); seedFlags(db);
+  upsertCommunityPlaylist(db, { id: "PLallfem", title: "All Female", total: 2 }, [{ videoId: "fem00song01", pos: 0 }]);
+  upsertCommunityPlaylist(db, { id: "PLmixed", title: "Mixed", total: 3 }, [{ videoId: "fem00song01", pos: 0 }, { videoId: "male0song01", pos: 1 }]);
+  const open = communityPlaylistList(db, 100).map((p) => p.id);
+  assert.ok(open.includes("PLallfem") && open.includes("PLmixed"), "both visible by default");
+  const filtered = communityPlaylistList(db, 100, { allowFemale: false });
+  const ids = filtered.map((p) => p.id);
+  assert.ok(!ids.includes("PLallfem"), "ALL-female playlist hidden when female is blocked");
+  assert.ok(ids.includes("PLmixed"), "mixed playlist still shows");
+  const mixed = filtered.find((p) => p.id === "PLmixed");
+  assert.equal(mixed.whitelisted, 1, "displayed count = kept (male) tracks only");
+  assert.equal(mixed.thumbnail, "https://i.ytimg.com/vi/male0song01/mqdefault.jpg", "cover taken from the kept (male) track, not the female one");
+});
+
+test("communityPlaylistList: an all-video playlist is HIDDEN when videos are blocked", () => {
+  const db = openCorpus(":memory:"); seedFlags(db);
+  upsertCommunityPlaylist(db, { id: "PLvid", title: "Clips", total: 1 }, [{ videoId: "male0vid001", pos: 0 }]);
+  upsertCommunityPlaylist(db, { id: "PLaud", title: "Audio", total: 1 }, [{ videoId: "male0song01", pos: 0 }]);
+  assert.ok(communityPlaylistList(db, 100).map((p) => p.id).includes("PLvid"), "video playlist visible by default");
+  const ids = communityPlaylistList(db, 100, { blockVideos: true }).map((p) => p.id);
+  assert.ok(!ids.includes("PLvid"), "all-video playlist hidden when videos blocked");
+  assert.ok(ids.includes("PLaud"), "audio playlist still shows");
 });

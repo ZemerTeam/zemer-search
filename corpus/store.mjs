@@ -231,10 +231,38 @@ export const communityPlaylistMeta = (db, id) => {
 
 // Browse-all list (powers the Community chip's "show all, no search" view). Best-populated first, so the
 // richest community lists lead. Already-display-shaped rows (author → artist).
-export const communityPlaylistList = (db, limit = 500) => db.prepare(
-  `SELECT id,title,author,whitelisted,total, ${COVER_SQL} AS cover FROM community_playlist ORDER BY whitelisted DESC, total DESC, id LIMIT ?`)
-  .all(Math.max(1, limit | 0))
-  .map((r) => ({ id: r.id, title: r.title, artist: r.author || "Community playlist", thumbnail: ytThumb(r.cover), source: "community", whitelisted: r.whitelisted, total: r.total }));
+// With a content filter active, a playlist is KEPT only if ≥1 of its whitelisted members survives the
+// filter — so an ALL-female playlist is hidden when female is blocked (it would open empty), an all-video
+// list is hidden when videos are blocked, etc.; a MIXED list still shows (its allowed songs remain). The
+// kept count becomes the displayed `whitelisted`, and the cover is taken from the first KEPT member. A
+// member not in `track` (whitelisted channel, not yet in the corpus) has unknown flags → counted as kept,
+// mirroring the /playlist serve-time behavior.
+export const communityPlaylistList = (db, limit = 500, { allowFemale = true, kidZoneOnly = false, blockVideos = false } = {}) => {
+  const lim = Math.max(1, limit | 0);
+  if (allowFemale && !kidZoneOnly && !blockVideos) // fast path: no filter
+    return db.prepare(`SELECT id,title,author,whitelisted,total, ${COVER_SQL} AS cover FROM community_playlist ORDER BY whitelisted DESC, total DESC, id LIMIT ?`)
+      .all(lim)
+      .map((r) => ({ id: r.id, title: r.title, artist: r.author || "Community playlist", thumbnail: ytThumb(r.cover), source: "community", whitelisted: r.whitelisted, total: r.total }));
+  const keep = "(t.videoId IS NULL OR ((@allowFemale=1 OR a.isFemale=0) AND (@kidZoneOnly=0 OR a.isKidZone=1) AND (@blockVideos=0 OR t.isVideo=0)))";
+  return db.prepare(`
+    SELECT cp.id, cp.title, cp.author, cp.total, k.kept AS kept,
+      (SELECT videoId FROM community_playlist_track WHERE playlistId=cp.id AND pos=k.coverPos) AS cover
+    FROM community_playlist cp
+    JOIN (
+      SELECT cpt.playlistId AS pid,
+        SUM(CASE WHEN ${keep} THEN 1 ELSE 0 END) AS kept,
+        MIN(CASE WHEN ${keep} THEN cpt.pos END) AS coverPos
+      FROM community_playlist_track cpt
+      LEFT JOIN track t ON t.videoId=cpt.videoId
+      LEFT JOIN artist a ON a.id=t.artistId
+      GROUP BY cpt.playlistId
+    ) k ON k.pid=cp.id
+    WHERE k.kept > 0
+    ORDER BY k.kept DESC, cp.total DESC, cp.id
+    LIMIT @limit`)
+    .all({ allowFemale: allowFemale ? 1 : 0, kidZoneOnly: kidZoneOnly ? 1 : 0, blockVideos: blockVideos ? 1 : 0, limit: lim })
+    .map((r) => ({ id: r.id, title: r.title, artist: r.author || "Community playlist", thumbnail: ytThumb(r.cover), source: "community", whitelisted: r.kept, total: r.total }));
+};
 
 // Ids we've already discovered — so a re-run skips re-fetching them (unless RECHECK forces a re-validate).
 export const communityPlaylistIds = (db) =>
