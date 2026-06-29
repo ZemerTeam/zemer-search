@@ -12,6 +12,9 @@ Environment=CORPUS_DB=/var/lib/zemer-search/corpus.db
 # stale, refresh counts, regenerate the rejected-artists review report). Browse+search only — no /player —
 # so this runs fine on a datacenter IP. Heavier artist-name sweeps are a manual op (SEEDS=both FIRSTNAMES=1).
 Environment=SEEDS=topics
+# N caps the seed count — set it ≥ the number of topical seeds (data/playlist-seeds.json) so none are
+# truncated (the default is only 40). Bump if you add many more seed terms.
+Environment=N=200
 Environment=PAGES=2
 Environment=REVALIDATE=1
 # Re-fetch searches older than 24h so each scheduled run surfaces NEW playlists (otherwise forever-cached).
