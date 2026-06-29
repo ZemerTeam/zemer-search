@@ -279,6 +279,22 @@ export const communityPlaylistList = (db, limit = 500, { allowFemale = true, kid
     .map((r) => ({ id: r.id, title: r.title, artist: r.author || "Community playlist", thumbnail: ytThumb(r.cover), source: "community", whitelisted: r.kept, total: r.total }));
 };
 
+// Post-filter whitelisted-track count for specific community playlists, so the COUNT shown next to a
+// community playlist matches what actually plays under the filter (e.g. a mixed list's count excludes its
+// female songs) — the same `keep` rule communityPlaylistList uses, so /search and /community agree. Returns
+// Map(id -> keptCount); null when no filter is active (caller keeps the stored full count).
+export function communityKeptCounts(db, ids, { allowFemale = true, kidZoneOnly = false, blockVideos = false } = {}) {
+  if (!ids || !ids.length || (allowFemale && !kidZoneOnly && !blockVideos)) return null;
+  const keep = "(t.videoId IS NULL OR ((@allowFemale=1 OR a.isFemale=0) AND (@kidZoneOnly=0 OR a.isKidZone=1) AND (@blockVideos=0 OR t.isVideo=0)))";
+  const stmt = db.prepare(`SELECT SUM(CASE WHEN ${keep} THEN 1 ELSE 0 END) AS kept
+    FROM community_playlist_track cpt LEFT JOIN track t ON t.videoId=cpt.videoId LEFT JOIN artist a ON a.id=t.artistId
+    WHERE cpt.playlistId=@pid`);
+  const flags = { allowFemale: allowFemale ? 1 : 0, kidZoneOnly: kidZoneOnly ? 1 : 0, blockVideos: blockVideos ? 1 : 0 };
+  const out = new Map();
+  for (const id of ids) out.set(id, stmt.get({ ...flags, pid: id })?.kept || 0);
+  return out;
+}
+
 // Ids we've already discovered — so a re-run skips re-fetching them (unless RECHECK forces a re-validate).
 export const communityPlaylistIds = (db) =>
   new Set(db.prepare("SELECT id FROM community_playlist").all().map((r) => r.id));

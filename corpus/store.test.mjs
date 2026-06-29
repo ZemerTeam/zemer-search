@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistList, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, recentAlbums, recentTracks } from "./store.mjs";
+import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistList, communityKeptCounts, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, recentAlbums, recentTracks } from "./store.mjs";
 
 const seed = (db) => upsertArtistCatalog(db, { id: "UCmusic", name: "Test Artist" }, {
   regularChannelId: "UCregular",
@@ -324,4 +324,15 @@ test("communityPlaylistList: an all-video playlist is HIDDEN when videos are blo
   const ids = communityPlaylistList(db, 100, { blockVideos: true }).map((p) => p.id);
   assert.ok(!ids.includes("PLvid"), "all-video playlist hidden when videos blocked");
   assert.ok(ids.includes("PLaud"), "audio playlist still shows");
+});
+
+test("communityKeptCounts: a mixed playlist's count is reduced to the post-filter total (no female songs)", () => {
+  const db = openCorpus(":memory:"); seedFlags(db);
+  upsertCommunityPlaylist(db, { id: "PLmix", title: "Mixed", total: 9 }, [
+    { videoId: "fem00song01", pos: 0 }, { videoId: "male0song01", pos: 1 }, { videoId: "male0vid001", pos: 2 },
+  ]);
+  assert.equal(communityKeptCounts(db, ["PLmix"], {}), null, "no filter active → null (caller keeps stored count)");
+  assert.equal(communityKeptCounts(db, ["PLmix"], { allowFemale: false }).get("PLmix"), 2, "female blocked → counts only the 2 non-female tracks");
+  assert.equal(communityKeptCounts(db, ["PLmix"], { blockVideos: true }).get("PLmix"), 2, "videos blocked → counts only the 2 non-video tracks");
+  assert.equal(communityKeptCounts(db, ["PLmix"], { allowFemale: false, blockVideos: true }).get("PLmix"), 1, "both blocked → only the male audio track");
 });

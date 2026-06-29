@@ -14,7 +14,7 @@ import path from "node:path";
 import cluster from "node:cluster";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, recentTracks, recentAlbums, stats } from "../corpus/store.mjs";
+import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, recentTracks, recentAlbums, stats } from "../corpus/store.mjs";
 import { buildCategories, searchCategories } from "../index/categories.mjs";
 import { loadDefaultSynonyms } from "../index/synonyms.mjs";
 import { postBrowse, parsePlaylistPage, parseArtistItemsContinuation } from "../harness/browse.mjs";
@@ -156,6 +156,12 @@ async function startServer() {
         if (!q.trim()) return send(res, 400, { error: "missing q" });
         const o = { ...contentFlags(u.searchParams), k: Math.min(200, Math.max(1, Number(u.searchParams.get("k") || 8))) };
         const categories = searchCategories(cats, q, o);
+        // Reduce each community playlist's count to its post-filter total (so a mixed list's count excludes
+        // its female songs, matching /community + what actually plays). No-op when no filter is active.
+        if (categories.community?.length) {
+          const counts = communityKeptCounts(liveDb, categories.community.map((p) => p.id), o);
+          if (counts) for (const p of categories.community) { const c = counts.get(p.id); if (c != null) p.whitelisted = c; }
+        }
         return cacheSet(req.url, send(res, 200, { q, count: Object.values(categories).reduce((n, a) => n + a.length, 0), categories }));
       }
       if (u.pathname === "/new") {
