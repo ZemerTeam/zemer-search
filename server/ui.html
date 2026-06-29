@@ -89,6 +89,16 @@
   .more:hover { background:var(--surfaceContainerHigh); color:var(--onSurface); }
   .empty { color:var(--onSurfaceVariant); padding:48px 14px; text-align:center; font-size:14px; }
   .feednote { color:var(--onSurfaceVariant); font-size:12px; padding:4px 8px 8px; opacity:.85; }
+  /* "get the app" dialog (Material 3) */
+  .scrim { position:fixed; inset:0; background:rgba(0,0,0,.55); display:none; align-items:center; justify-content:center; padding:24px; z-index:100; }
+  .scrim.show { display:flex; animation:fade .15s ease; }
+  @keyframes fade { from { opacity:0 } to { opacity:1 } }
+  .dialog2 { background:var(--surfaceContainerHigh); color:var(--onSurface); border-radius:28px; padding:24px; width:100%; max-width:340px; box-shadow:0 8px 30px rgba(0,0,0,.5); }
+  .dialog2 h3 { margin:0 0 10px; font-size:20px; font-weight:600; }
+  .dialog2 p { margin:0 0 24px; font-size:14px; line-height:20px; color:var(--onSurfaceVariant); }
+  .dialog2 .acts { display:flex; justify-content:flex-end; align-items:center; gap:8px; }
+  .dialog2 .txtbtn { background:transparent; border:0; color:var(--primary); font:inherit; font-weight:600; padding:10px 12px; border-radius:20px; cursor:pointer; }
+  .dialog2 .fillbtn { background:var(--primary); color:#2b0b0f; text-decoration:none; font-weight:600; font-size:14px; padding:10px 20px; border-radius:20px; }
 
   /* detail view */
   #detail { display:none; }
@@ -226,15 +236,19 @@ function rowPlaylist(p) { const sub = (p.artist||'Playlist') + (p.source==='comm
 const RENDER = { songs:rowSong, videos:rowSong, albums:rowAlbum, singles:rowAlbum, artists:rowArtist, playlists:rowPlaylist, community:rowPlaylist };
 
 function row(action, img, round, title, sub, kind) {
-  const open = kind === 'song'
-    ? `onclick="window.open('${action}','_blank','noopener')"`
-    : `onclick="${action}"`;
-  return `<div class="item" ${open}>
+  // Songs don't link out to YouTube Music — playback is in the app; show the "get the app" dialog instead.
+  const tap = kind === 'song' ? 'listen()' : action;
+  return `<div class="item" onclick="${tap}">
     <img class="thumb ${round?'round':''}" loading="lazy" src="${img||''}" onerror="this.style.visibility='hidden'">
     <div class="text"><div class="title">${title}</div><div class="sub">${sub}</div></div>
-    <button class="more" onclick="event.stopPropagation();${kind==='song'?`window.open('${action}','_blank','noopener')`:action}">⋮</button>
+    <button class="more" onclick="event.stopPropagation();${tap}">⋮</button>
   </div>`;
 }
+
+// ---- "get the app" dialog (songs play in the app, not in the browser) ----
+function listen() { document.getElementById('listenDlg').classList.add('show'); }
+function closeListen() { document.getElementById('listenDlg').classList.remove('show'); }
+addEventListener('keydown', (e) => { if (e.key === 'Escape') closeListen(); });
 
 // ---- render the active view from the last fetched data ----
 function render() {
@@ -366,5 +380,15 @@ addEventListener('wheel', (e) => {
   e.preventDefault();
 }, { passive:false });
 </script>
+<div class="scrim" id="listenDlg" onclick="if(event.target===this)closeListen()">
+  <div class="dialog2" role="dialog" aria-modal="true" aria-labelledby="listenTitle">
+    <h3 id="listenTitle">Download the app to listen</h3>
+    <p>Playback happens in the Zemer app — search here, listen there.</p>
+    <div class="acts">
+      <button class="txtbtn" onclick="closeListen()">Close</button>
+      <a class="fillbtn" href="https://ghtrack.zemer.io" target="_blank" rel="noopener">Get the app</a>
+    </div>
+  </div>
+</div>
 </body>
 </html>
