@@ -27,6 +27,7 @@
   .stat { font-size:11px; color:var(--onSurfaceVariant); padding:4px 14px 6px; font-variant-numeric:tabular-nums; }
   .stat b { color:var(--primary); font-weight:600; }
   .stat .hv { color:var(--onSurfaceVariant); }
+  html.embed .stat { display:none; } /* embedded on zemer.io (?embed=1): hide the live stats line */
   .live { display:inline-block; width:7px; height:7px; border-radius:50%; background:#5ad17a; margin-right:7px; vertical-align:1px; animation:pulse 1.6s ease-in-out infinite; }
   @keyframes pulse { 0%,100%{opacity:.3} 50%{opacity:1} }
   #stat.bump b { animation:bump 1s ease-out; }
@@ -111,6 +112,7 @@
   .dtitle { font-size:22px; font-weight:700; }
   .dsub { color:var(--onSurfaceVariant); font-size:13px; margin-top:2px; }
 </style>
+<script>if(location.search.indexOf("embed=1")>-1)document.documentElement.classList.add("embed");</script>
 </head>
 <body>
 <header>
