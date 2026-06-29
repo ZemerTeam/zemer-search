@@ -15,6 +15,12 @@ A `SearchProvider` interface producing today's `SearchSummaryPage` / `SearchResu
 - **`RemoteIndexSearchProvider`** (primary) — calls the zemer-search `/search` API, maps the grouped JSON
   back to `YTItem`s. The user's content settings (`allowFemaleSingers`, `blockVideos`, KidZone) map to the
   `allowFemale`/`blockVideos`/`kidZone` query params.
+  - ⚠️ **The server is DEFAULT-OPEN** (omit a flag → unfiltered for it) and the Zemer provider renders
+    results **raw** (it is NOT run through `filterWhitelisted` like the YouTube provider). So the server is
+    the **sole** filter for Zemer results — the app must send **all** flags on **every** request
+    (summary / each category / suggestions / pagination), explicitly, **fail-closed**. The server then does
+    the rest: hides all-female community playlists, reduces mixed counts, 404s filtered detail. See the
+    full APK guide (`../../ZEMER_SEARCH_CONTENT_FILTER_APK_GUIDE.md`).
 - **`LocalIndexSearchProvider`** (offline fallback) — the **same matcher as `index/search.mjs`, ported to
   pure Kotlin**, over a bundled gzipped subset (`index/build-subset.mjs` output). Must be pure Kotlin/JVM:
   **no SQLite-FTS, no platform ICU** → identical on Android 8 → 15 (see [architecture.md](architecture.md)).

@@ -90,9 +90,14 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
 6. **In-word apostrophes / geresh ׳ / gershayim ״ / quotes JOIN, not split** (`JOINMARK` in
    `normalize.mjs`). So `L'Chaim` → `lchaim`, and "lchaim" == "l'chaim". Splitting made "oconnor" return
    nothing and "lchaim" rank wrong.
-7. **Content filters apply only when EXPLICITLY requested.** `allowed()` filters female/kidzone/video
-   *only* when the flag is set — an unset `allowFemale` must NOT silently drop female artists. (The API
-   always passes explicit booleans; a caller that omits one gets everyone.)
+7. **Content filters apply only when EXPLICITLY requested, and on EVERY result endpoint.** `allowed()`
+   filters female/kidzone/video *only* when the flag is set — an unset `allowFemale` must NOT silently drop
+   female artists (the API passes explicit booleans; a caller that omits one gets everyone — **default-OPEN**).
+   The flags (`allowFemale`/`blockVideos`/`kidZone`) are honored not just by `/search` + `/new` but by
+   `/artist` `/album` `/playlist` `/community` too (added so nothing leaks on drill-in): detail returns 404
+   when the whole artist is filtered; album/playlist filter per-track; **community playlists are hidden when
+   no member survives the filter** (all-female list hidden when female blocked — exact incl. conjunctions, via
+   `communitySurvives`/`clsMask`), with their displayed count reduced to the post-filter total.
 8. **Videos are their own category, not songs.** A live-recording track is in `videos`, not `songs` —
    benchmarks must check the right category or you'll see phantom "recall misses".
 9. **Same-title collisions are not bugs.** Many tracks share a title; returning *a* same-title track is

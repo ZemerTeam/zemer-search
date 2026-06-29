@@ -110,15 +110,24 @@ Deterministic: stable sort by `score → shorter title → id`.
 
 ## 5. Category (grouped) search (`categories.mjs`)
 
-`buildCategories(corpus)` builds **six** independent in-memory indexes — `artists`, `songs`, `videos`,
-`albums`, `singles`, `playlists` — each a `buildIndex` over that entity type shaped as `{title,
-artistName, …payload}`. `searchCategories(cats, q, opts)` runs `search()` on each and returns the top-k
-per category, applying the content filter.
+`buildCategories(corpus)` builds **seven** independent in-memory indexes — `artists`, `songs`, `videos`,
+`albums`, `singles`, `playlists` (artist-owned), and `community` (community-curated) — each a `buildIndex`
+over that entity type shaped as `{title, artistName, …payload}`. `searchCategories(cats, q, opts)` runs
+`search()` on each and returns the top-k per category, applying the content filter.
 
 **`allowed(t, o)` — content filters apply ONLY when explicitly requested** (Gotcha #7):
 `o.allowFemale === false` filters female; `o.kidZoneOnly` keeps only KidZone; `o.blockVideos` removes
 videos. An *unset* flag means no filtering. (The API maps the user's settings to explicit booleans; a
 caller that omits one must get everyone, not silently zero female artists.)
+
+**Community playlists filter by SURVIVAL, not `allowed()`** (a community playlist has no single artist).
+`communitySurvives(p, o)` keeps one only if ≥1 of its whitelisted members would survive the filter — so an
+all-female list is hidden when female is blocked, an all-video list when videos are blocked; **exact,
+including conjunctions** (female+video blocked hides a list whose only non-female tracks are videos). It
+reads a compact per-playlist class bitmask (`clsMask`) + a fallback flag (`fb` = a not-yet-in-corpus member
+→ always kept) carried in the index doc, so there's **no per-query DB hit**. The `/search` endpoint then
+reduces each surviving community playlist's displayed `whitelisted` to its post-filter count
+(`communityKeptCounts`), so the number matches `/community` and what actually plays.
 
 ## 6. Synonyms (`synonyms.mjs`)
 

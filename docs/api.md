@@ -39,9 +39,12 @@ drill-in (`contentFlags()` in `api.mjs`):
   `/search` — hide any playlist with **zero** members surviving the filter: an **all-female list is hidden
   when female is blocked** (it would open empty), an all-video list when videos are blocked, a non-KidZone
   list in KidZone mode. The survival test is **exact** including conjunctions (female+video blocked hides a
-  list whose only non-female tracks are videos). A **mixed** list still shows. In `/community` the
-  displayed `whitelisted` is reduced to the kept count and the cover comes from a kept track; `/search`
-  uses a compact per-playlist class bitmask carried in the in-memory index (no per-query DB hit).
+  list whose only non-female tracks are videos). A **mixed** list still shows, and its `whitelisted` count
+  is **reduced to the post-filter total in BOTH `/community` and `/search`** (so the number matches what
+  actually plays — e.g. a mixed list shows `67` unfiltered, `62` with `allowFemale=0`, identical on both
+  endpoints). `/community` also takes the cover from a kept track. Survival is computed from a compact
+  per-playlist class bitmask carried in the in-memory index for `/search` (no per-query DB hit) and a direct
+  query for `/community`; the reduced `/search` count comes from `communityKeptCounts`.
 - **Defense-in-depth:** the app should also drop any `isVideo`/female item it receives. One edge: a
   playlist track on a whitelisted channel but **not yet in the corpus** has an unknown `isVideo`, so
   `blockVideos` can't catch it server-side (female/KidZone still filter via the artist) — the client

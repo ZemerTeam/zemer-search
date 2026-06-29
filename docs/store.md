@@ -63,15 +63,17 @@ writer. Indexes on every `artistId` and `album_track.albumId`.
 | `openCorpus(file?)` | Open + create schema + run migrations (see below). |
 | `upsertArtistCatalog(db, artist, catalog)` | **One transaction**: upsert the artist (+ thumbnail + regularChannelId) and *all* its tracks/albums/playlists/album_tracks. The durable per-artist checkpoint. |
 | `allTracks/allArtists/allAlbums/allPlaylists(db)` | Denormalized rows the index/bench/subset consume (artist flags joined in). |
-| `artistDetail(db, id)` | Artist page: `{artist, songs, videos, albums, singles, playlists}`. |
-| `albumDetail(db, id)` | Album page: `{album, tracks}` (ordered via `album_track.pos`). |
-| `tracksByIds(db, ids)` | Which of `ids` are whitelisted tracks we hold (chunked for the 999-var limit) — for playlist filtering. |
+| `artistDetail(db, id, opts?)` | Artist page: `{artist, songs, videos, albums, singles, playlists}`. `opts` = `{allowFemale, kidZoneOnly, blockVideos}`: a female (when `allowFemale:false`) / non-KidZone (when `kidZoneOnly`) artist returns **`null`** (→ 404); `blockVideos` empties `videos`. |
+| `albumDetail(db, id, opts?)` | Album page: `{album, tracks}` (ordered via `album_track.pos`). Same `opts`: female/non-KidZone artist → `null`; tracks filtered **per-track** (compilations). |
+| `tracksByIds(db, ids)` | Which of `ids` are whitelisted tracks we hold (chunked for the 999-var limit) — for playlist filtering. Each row carries `isVideo/isFemale/isKidZone` so `/playlist` filters per song. |
 | `whitelistedChannelIds(db)` | Set of **music ids ∪ regular channel ids** — for playlist whitelisting. |
 | `harvestedArtistIds(db)` | Distinct artist ids with tracks (refresh iterates these). |
 | `recentTracks/recentAlbums(db)` | New Releases rows ordered by REAL release date (`album.uploadDate`; a track inherits its album's) newest-first, undated falling back to `harvestedAt` below. Each carries `releaseDate` (ISO when known). |
 | `albumsNeedingDate(db,{minYear})` / `setAlbumUploadDate` / `datedAlbumCount` | Releases still lacking a date but with a sample track (album-type first, recent-year first) / store a date / count dated. Powers `harvester/releases.mjs`. |
 | `upsertCommunityPlaylist(db, pl, whitelistedTracks)` | **One transaction**: upsert a community playlist + re-snapshot its whitelisted membership (drops blocklisted ids; re-check shrinks the set cleanly). |
-| `allCommunityPlaylists(db)` | Community playlists shaped like the artist-playlist docs (`{id, title, artistName=author, thumbnail, source:"community", whitelisted, total}`) — merged into the playlists index. |
+| `allCommunityPlaylists(db)` | Community playlists shaped like the artist-playlist docs (`{id, title, artistName:"", author, thumbnail, source:"community", whitelisted, total}`) for the search index. Also carries `fb` (has a not-yet-in-corpus member → unknown flags) + `clsMask` (one bit per present `isFemale·isVideo·isKidZone` member class) so `searchCategories` can hide a playlist with no member surviving the filter. |
+| `communityPlaylistList(db, limit, opts?)` | Browse-all list for `/community`. With a filter active (`opts`), hides playlists with **zero** surviving members (all-female list when female blocked, etc.), reduces `whitelisted` to the kept count, and takes the cover from a kept track. |
+| `communityKeptCounts(db, ids, opts?)` | `Map(id → post-filter track count)` for the given community playlists, so `/search` shows the **same reduced count** as `/community`. Returns `null` when no filter is active (caller keeps the stored full count). |
 | `communityPlaylistMeta(db, id)` / `communityPlaylistIds(db)` | Detail-header lookup for `/playlist`; the set of already-discovered ids (so a re-run skips them unless `RECHECK=1`). |
 | `stats(db)` | `{tracks, artists, videos, albums, singles, playlists, communityPlaylists}` — the live `/health` numbers. |
 
@@ -89,6 +91,11 @@ writer. Indexes on every `artistId` and `album_track.albumId`.
   atomically. Never split a row's writes across two operations.
 - **Content flags live on `artist`** and are joined onto tracks/albums/playlists at read time
   (`allTracks` etc.). The search's content filter reads them off the denormalized result.
+- **Content filters apply on EVERY result function, not just `/search`.** `artistDetail`/`albumDetail` gate
+  the whole artist (`null` → 404) and filter tracks; `communityPlaylistList`/`communityKeptCounts` (+
+  `allCommunityPlaylists.clsMask/fb`) hide community playlists with **no** member surviving the filter (e.g.
+  an all-female list when female is blocked) and report the **post-filter** count. **Default-OPEN**: an
+  absent flag = no filtering (so callers that omit it get everyone — gotcha #7).
 - **`tracksByIds` chunks** the `IN (…)` to ≤ 500 ids per statement (SQLite's bound-variable limit).
 - The DB is read **concurrently** by the API (a persistent WAL reader) while the harvester writes —
   that's exactly what WAL is for. The API sees the harvester's latest committed per-artist upserts.
