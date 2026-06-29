@@ -14,13 +14,14 @@ import path from "node:path";
 import cluster from "node:cluster";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { openCorpus, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, recentTracks, recentAlbums, stats } from "../corpus/store.mjs";
+import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, recentTracks, recentAlbums, stats } from "../corpus/store.mjs";
 import { buildCategories, searchCategories } from "../index/categories.mjs";
 import { loadDefaultSynonyms } from "../index/synonyms.mjs";
 import { postBrowse, parsePlaylistPage, parseArtistItemsContinuation } from "../harness/browse.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 7700);
+const HOST = process.env.HOST || "0.0.0.0"; // set HOST=127.0.0.1 in production (behind a reverse proxy)
 const RELOAD_MS = Number(process.env.RELOAD_MS || 30000);
 const CACHE_MAX = Number(process.env.CACHE_MAX || 5000);
 // WORKERS=0/"auto" → one per core; default 1 (dev). Production: set to the core count.
@@ -66,16 +67,28 @@ async function startServer() {
   };
   const cache = new Map();     // url -> response body (LRU; cleared on reload)
   let cats, indexedCount = 0, indexedAt = 0, whitelistTotal = 0;
-  function reload() {
+  let lastSig = null;
+  // Rebuild the in-memory index ONLY when the corpus actually changed (a fresh corpus.db is synced, or a
+  // local harvest wrote to the WAL). The periodic tick then just stats the files — cheap — so a steady
+  // server never pays the rebuild stall. `force` (initial build + POST /reload) always rebuilds.
+  function reload(force = false) {
+    let sig = null;
+    try {
+      const a = fs.statSync(DB_PATH);
+      let w = 0; try { w = fs.statSync(DB_PATH + "-wal").mtimeMs; } catch { /* no -wal */ }
+      sig = `${a.mtimeMs}:${a.size}:${w}`;
+    } catch { /* stat failed → fall through and rebuild */ }
+    if (!force && sig && sig === lastSig) return indexedCount; // unchanged → keep the current index
     const tracks = allTracks(liveDb);
     // Artist-owned playlists and community-discovered playlists are indexed separately → separate chips.
     cats = buildCategories({ tracks, artists: allArtists(liveDb), albums: allAlbums(liveDb), playlists: allPlaylists(liveDb), community: allCommunityPlaylists(liveDb) }, loadDefaultSynonyms());
     indexedCount = tracks.length; indexedAt = Date.now();
     whitelistTotal = countWhitelist();
     cache.clear();
+    lastSig = sig;
     return tracks.length;
   }
-  reload();
+  reload(true);
   // Stagger reloads across workers so only one rebuilds (and briefly stalls) at a time.
   const wIndex = Number(process.env.WORKER_INDEX || 0);
   setTimeout(() => setInterval(reload, RELOAD_MS).unref(), Math.floor((RELOAD_MS * wIndex) / Math.max(1, WORKERS)));
@@ -105,7 +118,7 @@ async function startServer() {
       const u = new URL(req.url, "http://localhost");
       if (u.pathname === "/" || u.pathname === "/ui.html") { res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }); return res.end(UI); }
       if (u.pathname === "/health") return send(res, 200, { ok: true, ...stats(liveDb), indexed: indexedCount, indexedAt, worker: wIndex, whitelistTotal, maintenance: maintenance() });
-      if (u.pathname === "/reload" && req.method === "POST") return send(res, 200, { ok: true, tracks: reload() });
+      if (u.pathname === "/reload" && req.method === "POST") return send(res, 200, { ok: true, tracks: reload(true) });
 
       // LRU cache for the hot read endpoints (cleared on reload, so never stale beyond one cycle).
       if (req.method === "GET" && CACHEABLE.has(u.pathname)) {
@@ -186,5 +199,5 @@ async function startServer() {
     } catch (e) { send(res, 500, { error: e.message }); }
   });
 
-  server.listen(PORT, () => console.log(`zsearch worker ${wIndex} (pid ${process.pid}) → http://localhost:${PORT}  (corpus ${stats(liveDb).tracks} tracks)`));
+  server.listen(PORT, HOST, () => console.log(`zsearch worker ${wIndex} (pid ${process.pid}) → http://${HOST}:${PORT}  (corpus ${stats(liveDb).tracks} tracks)`));
 }

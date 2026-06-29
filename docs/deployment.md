@@ -34,11 +34,19 @@ the first server-side harvest free.
 
 ## Typical production setup
 
-**Serve** (systemd), one worker per core. Put it behind a reverse proxy (TLS, gzip); `/health` is a
-cheap liveness probe:
+**Serve** (systemd, boot-enabled, `Restart=always`). Bind **localhost** and put it behind a co-located
+reverse proxy or **Cloudflare tunnel** (the tunnel/proxy is the only ingress; `HOST=127.0.0.1` keeps the
+port off the public internet). `/health` is a cheap liveness probe. Install the API unit from
+[`deploy/zemer-search-api.service`](../deploy/zemer-search-api.service) (edit `WorkingDirectory`):
 ```bash
-PORT=7700 WORKERS=auto CORPUS_DB=/var/lib/zemer-search/corpus.db node server/api.mjs
+sudo cp deploy/zemer-search-api.service /etc/systemd/system/zemer-search.service
+sudo systemctl daemon-reload && sudo systemctl enable --now zemer-search
+# Cloudflare tunnel / nginx ingress → http://localhost:7700
 ```
+Or run it directly (dev): `HOST=127.0.0.1 PORT=7700 WORKERS=auto node server/api.mjs`. The index reload is
+**change-gated** (rebuilds only when `corpus.db`/`-wal` changes), so a steady server has no periodic stall
+and picks up a freshly-synced corpus within one `RELOAD_MS` tick; `POST /reload` forces it. On a shared box,
+`WORKERS=1` is lean; raise it (or `auto`) for multi-core throughput (rebuilds then stagger across workers).
 
 **Maintain the corpus** with the orchestrator `scripts/maintain.sh [shallow|deep]` (no cookie needed). It
 runs the whole pipeline under a `flock`, in order: `whitelist` refetch → `onboard` new artists → `prune`

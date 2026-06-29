@@ -75,6 +75,12 @@ exact dark surfaces/typography from `zemer-app`'s `Theme.kt`/`Dimensions.kt`):
 
 ## Env config
 
-`PORT` (7700), `WORKERS` (1 | a number | `auto`), `RELOAD_MS` (30000), `CACHE_MAX` (5000), `CORPUS_DB`,
-`REL_FLOOR` (matcher precision floor, 0.4). See [deployment.md](deployment.md).
+`PORT` (7700), `HOST` (`0.0.0.0`; set `127.0.0.1` in production behind a reverse proxy / Cloudflare tunnel
+so the port isn't exposed), `WORKERS` (1 | a number | `auto`), `RELOAD_MS` (30000), `CACHE_MAX` (5000),
+`CORPUS_DB`, `REL_FLOOR` (matcher precision floor, 0.4). See [deployment.md](deployment.md).
 (The `/playlist` endpoint does a live **unauthenticated** browse — no cookie.)
+
+**Reload is change-gated:** the `RELOAD_MS` tick only rebuilds the in-memory index when `corpus.db`
+(or its `-wal`) actually changed (mtime/size) — so a steady server never pays the rebuild stall; it picks
+up a freshly-synced corpus within one tick. `POST /reload` forces a rebuild. With `WORKERS>1`, rebuilds are
+staggered across workers so a rebuild never stalls serving.

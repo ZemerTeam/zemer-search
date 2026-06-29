@@ -1,0 +1,30 @@
+[Unit]
+Description=zemer-search API + web UI (whitelist-scoped, Hebrew-aware search)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# --- EDIT WorkingDirectory for your deployment ---
+WorkingDirectory=/opt/zemer-search
+# Bind localhost-only: reachable by a co-located reverse proxy / Cloudflare tunnel (http://localhost:7700),
+# NOT the public internet. The tunnel/proxy is the only ingress.
+Environment=HOST=127.0.0.1
+Environment=PORT=7700
+# WORKERS: 1 is lean (good neighbour on a shared box). Set a number or "auto" for multi-core throughput;
+# with >1, index rebuilds stagger across workers so a rebuild never stalls serving.
+Environment=WORKERS=1
+# Index reload is change-gated, so this tick is a cheap stat unless corpus.db actually changed.
+Environment=RELOAD_MS=30000
+# CORPUS_DB defaults to <WorkingDirectory>/data/corpus.db; set it if the DB lives elsewhere (must match
+# whatever the maintenance pipeline writes).
+# Environment=CORPUS_DB=/var/lib/zemer-search/corpus.db
+ExecStart=/usr/bin/node server/api.mjs
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+# light hardening (read-only search service)
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
