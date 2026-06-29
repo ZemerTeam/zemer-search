@@ -53,7 +53,7 @@ export function searchCategories(cats, q, o = {}) {
     songs: pick(cats.songs, (t) => ({ videoId: t.videoId, title: t.title, artist: t.artistName, explicit: t.explicit })),
     albums: pick(cats.albums, albumRow, 6),
     singles: pick(cats.singles, albumRow, 6),
-    videos: pick(cats.videos, (t) => ({ videoId: t.videoId, title: t.title, artist: t.artistName, explicit: t.explicit }), 6),
+    videos: pick(cats.videos, (t) => ({ videoId: t.videoId, title: t.title, artist: t.artistName, explicit: t.explicit })), // respect k (like songs/community) so the Videos pill isn't capped at 6
     playlists: pick(cats.playlists, (p) => ({ id: p.id, title: p.title, artist: p.artistName, thumbnail: p.thumbnail, source: p.source || "artist", whitelisted: p.whitelisted }), 6),
     // title-only ranking; curator kept for display; respects k (not capped at 6). Hides community playlists
     // with no track surviving the content filter (all-female list when female is blocked, etc.).

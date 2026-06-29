@@ -35,6 +35,13 @@ test("cross-script query reaches every category", () => {
   assert.ok(r.songs.some((s) => s.videoId === "aaaaaaaaaaa"));
 });
 
+test("videos category respects k (not capped at 6) so the Videos pill isn't truncated", () => {
+  const vids = Array.from({ length: 8 }, (_, i) => ({ videoId: `vvvvvvvvv0${i}`, title: `Simcha Clip ${i}`, artistName: "דודי פולק", isVideo: true, explicit: false, ...flags(artist) }));
+  const cats = buildCategories({ ...corpus, tracks: [...corpus.tracks, ...vids] });
+  assert.ok(searchCategories(cats, "simcha clip", { k: 8 }).videos.length >= 7, "more than the old hard cap of 6 videos");
+  assert.equal(searchCategories(cats, "simcha clip", { k: 8, blockVideos: true }).videos.length, 0, "blockVideos still empties the category");
+});
+
 test("blockVideos empties the Videos category; allowFemale=false hides the female artist", () => {
   const cats = buildCategories(corpus);
   assert.equal(searchCategories(cats, "dudi polak", { blockVideos: true }).videos.length, 0);
