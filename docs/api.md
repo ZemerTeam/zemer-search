@@ -9,16 +9,39 @@ process + one `corpus.db` file** — no external search engine.
 |-------------|---------|
 | `GET /` | The web UI (`ui.html`). |
 | `GET /search?q=…&allowFemale=0&kidZone=1&blockVideos=1&k=8` | Ranked, **category-grouped**, content-filtered results: `{q, count, categories:{artists, songs, albums, singles, videos, playlists}}`. The `playlists` category includes both artist-owned **and** community-discovered playlists (each row carries `source: "artist"\|"community"`). |
-| `GET /artist?id=UC…` | Artist catalog `{artist, songs, videos, albums, singles, playlists}` (from the DB). |
-| `GET /album?id=MPRE…` | `{album, tracks}` (from the DB, ordered). |
-| `GET /playlist?id=…` | `{playlist, tracks, total, whitelisted}` — fetched **on demand** (cached) from YouTube and filtered to whitelisted-corpus / whitelisted-channel tracks. Works for **any** playlist id: artist-owned, community-discovered, or even an unindexed id (the filter is purely id-based, so it can never serve a non-whitelisted track). The header meta falls back to `community_playlist` when the id isn't an artist playlist. |
+| `GET /artist?id=UC…&allowFemale=0&kidZone=1&blockVideos=1` | Artist catalog `{artist, songs, videos, albums, singles, playlists}` (from the DB). Honors the content-filter flags: a female artist (`allowFemale=0`) or a non-KidZone artist (`kidZone=1`) returns **404** (treated as not-found); `blockVideos` empties the `videos` category. |
+| `GET /album?id=MPRE…&allowFemale=0&kidZone=1&blockVideos=1` | `{album, tracks}` (from the DB, ordered). Honors the flags: a female/non-KidZone artist's album → **404**; `blockVideos` drops video tracks; filtered **per track** so a mixed compilation keeps only allowed tracks. |
+| `GET /playlist?id=…&allowFemale=0&kidZone=1&blockVideos=1` | `{playlist, tracks, total, whitelisted}` — fetched **on demand** (cached) from YouTube and filtered to whitelisted-corpus / whitelisted-channel tracks. Works for **any** playlist id: artist-owned, community-discovered, or even an unindexed id (the filter is purely id-based, so it can never serve a non-whitelisted track). The header meta falls back to `community_playlist` when the id isn't an artist playlist. The content-filter flags are applied **per song** — a mixed (e.g. male+female) playlist keeps the allowed songs and drops only the filtered ones; it is **never** blocked wholesale (an all-female list just opens empty for a blocked-female user). |
 | `GET /new?k=60&days=10&allowFemale=0&kidZone=1&blockVideos=1` | `{count, categories:{songs, videos, albums, singles}, source}` — recent releases with REAL release dates, **within the window** (`days`, default 10), newest first; each item carries `releaseDate` (ISO) + `addedAt`. **Primary source = the releases feed** (`RELEASES_FEED`, real `/player` dates maintained off-datacenter, same Firestore whitelist) → `source:"feed"`; filtered by our corpus' artist content-flags. If the feed is unreachable it **falls back to corpus** `recentAlbums`/`recentTracks` (real `album.uploadDate` where dated, else `harvestedAt`) → `source:"corpus"`. The web UI labels feed-sourced results ("Pulled from … latest-releases feed"). Not LRU-cached (the feed has its own ~5-min TTL). Same content-filter params as `/search`. |
 | `GET /community` | `{count, playlists}` — **every** community-discovered playlist (no cap by default; `k` is just a sanity bound), best-populated first (`whitelisted` desc). Powers the **Community** chip's "show all without a search" browse view. Each row `{id, title, artist (curator), thumbnail (from a whitelisted track), source:"community", whitelisted, total}`. |
 | `GET /health` | Live `{tracks, artists, videos, albums, singles, playlists, communityPlaylists, indexed, whitelistTotal, worker, maintenance}`. `maintenance` is `{phase, mode, done, total, pct, newTracks, blocks}` while a harvest/refresh/**playlist-discovery** run is active (written to `data/.maintain-status.json` by the harvester steps; `null`/absent once a run stops updating). `whitelistTotal` is re-read each reload so it isn't stale after a whitelist refetch. |
 | `POST /reload` | Rebuild the in-memory index now. |
 
-Content-filter query params map to `searchCategories` options; the API always passes **explicit
-booleans** (e.g. `allowFemale = param !== "0"`), so defaults are well-defined.
+### Content-filter flags (the app forwards the user's Firebase settings)
+
+Every result-bearing endpoint accepts the same three flags, applied uniformly so nothing leaks on
+drill-in (`contentFlags()` in `api.mjs`):
+
+| Flag | Sense | Effect |
+|------|-------|--------|
+| `allowFemale=0` | allow (omit/`1` = allow) | drop female artists, and their songs inside albums/playlists |
+| `blockVideos=1` | block (omit/`0` = allow) | drop video tracks / empty the `videos` category |
+| `kidZone=1` | mode (omit/`0` = off) | restrict to KidZone artists only |
+
+- **Default-OPEN:** an **absent** flag = no filtering, so the web demo and other callers get the full
+  catalog (gotcha #7). **The app must send all three explicitly** for a restricted user and should
+  **fail closed** (never omit one). Polarity is mixed by design (`allowFemale` vs `blockVideos`) — send the
+  right sense. The API passes explicit booleans through, so defaults are well-defined.
+- **Where applied:** `/search`, `/new`, `/artist`, `/album`, `/playlist`. Artist/album detail return
+  **404** when the whole artist is filtered; album/playlist additionally filter **per track**, so a mixed
+  playlist keeps its allowed songs and drops only the filtered ones — never blocked wholesale.
+- **`/community`** (browse-all list) is **not** filtered at the list level (a playlist is a mixed container
+  with no single gender/video dimension); its **contents are filtered when opened** via `/playlist`, so an
+  all-female list still appears in the browse list but opens empty for a blocked-female user.
+- **Defense-in-depth:** the app should also drop any `isVideo`/female item it receives. One edge: a
+  playlist track on a whitelisted channel but **not yet in the corpus** has an unknown `isVideo`, so
+  `blockVideos` can't catch it server-side (female/KidZone still filter via the artist) — the client
+  backstop covers that case.
 
 ## Scaling to thousands of concurrent users
 

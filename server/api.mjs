@@ -33,6 +33,16 @@ const WORKERS = process.env.WORKERS === "auto" ? os.availableParallelism() : Num
 const CORS = { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json; charset=utf-8" };
 const UI = fs.readFileSync(path.join(HERE, "ui.html"));
 
+// Per-request content filters (the app forwards the user's Firebase settings as these query params).
+// Semantics are DEFAULT-OPEN: an absent param = no filtering (so the web demo + other callers get the full
+// catalog). The app must send all three explicitly for a restricted user (gotcha #7). Applied uniformly by
+// /search /new /artist /album /playlist so nothing leaks on drill-in.
+const contentFlags = (sp) => ({
+  allowFemale: sp.get("allowFemale") !== "0", // allowFemale=0 → drop female artists
+  kidZoneOnly: sp.get("kidZone") === "1",     // kidZone=1   → only KidZone artists
+  blockVideos: sp.get("blockVideos") === "1", // blockVideos=1 → drop video tracks/category
+});
+
 if (cluster.isPrimary && WORKERS > 1) {
   console.log(`zsearch primary (pid ${process.pid}) → forking ${WORKERS} workers on :${PORT}`);
   for (let i = 0; i < WORKERS; i++) cluster.fork({ WORKER_INDEX: String(i) });
@@ -144,20 +154,13 @@ async function startServer() {
       if (u.pathname === "/search") {
         const q = (u.searchParams.get("q") || "").replace(/^\s+/, ""); // keep a TRAILING space — it signals a completed last word
         if (!q.trim()) return send(res, 400, { error: "missing q" });
-        const o = {
-          allowFemale: u.searchParams.get("allowFemale") !== "0",
-          kidZoneOnly: u.searchParams.get("kidZone") === "1",
-          blockVideos: u.searchParams.get("blockVideos") === "1",
-          k: Math.min(200, Math.max(1, Number(u.searchParams.get("k") || 8))),
-        };
+        const o = { ...contentFlags(u.searchParams), k: Math.min(200, Math.max(1, Number(u.searchParams.get("k") || 8))) };
         const categories = searchCategories(cats, q, o);
         return cacheSet(req.url, send(res, 200, { q, count: Object.values(categories).reduce((n, a) => n + a.length, 0), categories }));
       }
       if (u.pathname === "/new") {
         const k = Math.min(300, Math.max(1, Number(u.searchParams.get("k") || 100)));
-        const allowFemale = u.searchParams.get("allowFemale") !== "0";
-        const kidZoneOnly = u.searchParams.get("kidZone") === "1";
-        const blockVideos = u.searchParams.get("blockVideos") === "1";
+        const { allowFemale, kidZoneOnly, blockVideos } = contentFlags(u.searchParams);
         // New Releases = only items with a REAL release date within the window (default 7 days). Undated
         // items (no /player date yet) can't be confirmed recent, so they're excluded — this is what keeps
         // "not-really-new" catalog out of the view. `days` overrides the window.
@@ -209,11 +212,11 @@ async function startServer() {
         return cacheSet(req.url, send(res, 200, { count: playlists.length, playlists }));
       }
       if (u.pathname === "/artist") {
-        const d = u.searchParams.get("id") && artistDetail(liveDb, u.searchParams.get("id"));
+        const d = u.searchParams.get("id") && artistDetail(liveDb, u.searchParams.get("id"), contentFlags(u.searchParams));
         return d ? cacheSet(req.url, send(res, 200, d)) : send(res, 404, { error: "artist not found" });
       }
       if (u.pathname === "/album") {
-        const d = u.searchParams.get("id") && albumDetail(liveDb, u.searchParams.get("id"));
+        const d = u.searchParams.get("id") && albumDetail(liveDb, u.searchParams.get("id"), contentFlags(u.searchParams));
         return d ? cacheSet(req.url, send(res, 200, d)) : send(res, 404, { error: "album not found" });
       }
       if (u.pathname === "/playlist") {
@@ -224,12 +227,21 @@ async function startServer() {
         const playlist = { id, title: meta?.title || "Playlist", artist: meta?.artistName || "", thumbnail: meta?.thumbnail || null };
         const songs = await fetchPlaylistTracks(id);
         if (songs === null) return send(res, 200, { playlist, tracks: [], note: "playlist contents unavailable" });
+        const cf = contentFlags(u.searchParams);
         const corpus = tracksByIds(liveDb, songs.map((s) => s.videoId));
         const wl = whitelistedChannelIds(liveDb);
-        const tracks = songs.map((s) =>
-          corpus.get(s.videoId) ||
-          (s.rowArtistId && wl.has(s.rowArtistId) ? { videoId: s.videoId, title: s.title, artist: s.rowArtistName, explicit: !!s.explicit } : null)
-        ).filter(Boolean);
+        const aflags = new Map(allArtists(liveDb).map((a) => [a.id, a])); // content flags for fallback (non-corpus) tracks
+        const pass = (isFemale, isKidZone, isVideo) => (cf.allowFemale || !isFemale) && (!cf.kidZoneOnly || isKidZone) && (!cf.blockVideos || !isVideo);
+        const tracks = [];
+        for (const s of songs) {
+          const c = corpus.get(s.videoId);
+          if (c) { // in corpus → real per-track flags
+            if (pass(c.isFemale, c.isKidZone, c.isVideo)) tracks.push({ videoId: c.videoId, title: c.title, artist: c.artist, explicit: c.explicit });
+          } else if (s.rowArtistId && wl.has(s.rowArtistId)) { // whitelisted channel, not in corpus: filter by artist flags (isVideo unknown → kept)
+            const f = aflags.get(s.rowArtistId) || {};
+            if (pass(!!f.isFemale, !!f.isKidZone, false)) tracks.push({ videoId: s.videoId, title: s.title, artist: s.rowArtistName, explicit: !!s.explicit });
+          }
+        }
         return cacheSet(req.url, send(res, 200, { playlist, tracks, total: songs.length, whitelisted: tracks.length }));
       }
       send(res, 404, { error: "not found" });

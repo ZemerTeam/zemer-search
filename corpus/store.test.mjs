@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, recentAlbums, recentTracks } from "./store.mjs";
+import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, recentAlbums, recentTracks } from "./store.mjs";
 
 const seed = (db) => upsertArtistCatalog(db, { id: "UCmusic", name: "Test Artist" }, {
   regularChannelId: "UCregular",
@@ -220,4 +220,83 @@ test("pruneBlocklisted removes blocklisted videoIds from community membership an
   pruneBlocklisted(db, { videoIds: new Set(["drop0000002"]), artistIds: new Set() });
   assert.equal(db.prepare("SELECT COUNT(*) c FROM community_playlist_track WHERE playlistId='PLp'").get().c, 2, "blocklisted membership row gone");
   assert.equal(communityPlaylistMeta(db, "PLp").whitelisted, 2, "stored count re-synced to membership");
+});
+
+// ---- per-user content filters (female / videos / KidZone), applied server-side on drill-in --------
+
+const seedFlags = (db) => {
+  // male artist: a song + a video; both also placed in an album (to exercise blockVideos on albumDetail)
+  upsertArtistCatalog(db, { id: "UCmale", name: "Male Artist" }, {
+    tracks: [
+      { videoId: "male0song01", title: "Nice Niggun", isVideo: false },
+      { videoId: "male0vid001", title: "Live Clip", isVideo: true },
+    ],
+    albums: [{ id: "MPRE_mix", playlistId: "PLm", title: "Mixed Album", type: "album", year: 2024 }],
+    albumTracks: [{ albumId: "MPRE_mix", videoId: "male0song01", pos: 0 }, { albumId: "MPRE_mix", videoId: "male0vid001", pos: 1 }],
+  });
+  // female artist: a song + an album
+  upsertArtistCatalog(db, { id: "UCfem", name: "Female Singer", isFemale: true }, {
+    tracks: [{ videoId: "fem00song01", title: "Her Song", isVideo: false }],
+    albums: [{ id: "MPRE_fem", playlistId: "PLf", title: "Her Album", type: "album", year: 2024 }],
+    albumTracks: [{ albumId: "MPRE_fem", videoId: "fem00song01", pos: 0 }],
+  });
+  // KidZone artist
+  upsertArtistCatalog(db, { id: "UCkid", name: "Kids Choir", isKidZone: true }, {
+    tracks: [{ videoId: "kid00song01", title: "Aleph Bais", isVideo: false }],
+  });
+};
+
+test("artistDetail: blockVideos empties the videos category, leaves songs", () => {
+  const db = openCorpus(":memory:"); seedFlags(db);
+  const open = artistDetail(db, "UCmale");
+  assert.equal(open.songs.length, 1);
+  assert.equal(open.videos.length, 1, "videos present by default");
+  const filtered = artistDetail(db, "UCmale", { blockVideos: true });
+  assert.equal(filtered.songs.length, 1, "songs untouched");
+  assert.equal(filtered.videos.length, 0, "videos dropped when blockVideos");
+});
+
+test("artistDetail: a blocked-female user can't open a female artist (treated as not-found)", () => {
+  const db = openCorpus(":memory:"); seedFlags(db);
+  assert.ok(artistDetail(db, "UCfem"), "female artist visible by default (allowFemale unset)");
+  assert.equal(artistDetail(db, "UCfem", { allowFemale: false }), null, "allowFemale:false hides the female artist");
+  assert.ok(artistDetail(db, "UCmale", { allowFemale: false }), "male artist still visible when female blocked");
+});
+
+test("artistDetail: kidZoneOnly hides non-KidZone artists, keeps KidZone ones", () => {
+  const db = openCorpus(":memory:"); seedFlags(db);
+  assert.ok(artistDetail(db, "UCkid", { kidZoneOnly: true }), "kidzone artist visible in kidZone-only mode");
+  assert.equal(artistDetail(db, "UCmale", { kidZoneOnly: true }), null, "non-kidzone artist hidden in kidZone-only mode");
+});
+
+test("albumDetail: blockVideos filters video tracks; a female-artist album is gated for a blocked-female user", () => {
+  const db = openCorpus(":memory:"); seedFlags(db);
+  assert.equal(albumDetail(db, "MPRE_mix").tracks.length, 2, "song + video present by default");
+  const noVid = albumDetail(db, "MPRE_mix", { blockVideos: true });
+  assert.equal(noVid.tracks.length, 1, "video track dropped");
+  assert.equal(noVid.tracks[0].videoId, "male0song01");
+  assert.ok(albumDetail(db, "MPRE_fem"), "female album visible by default");
+  assert.equal(albumDetail(db, "MPRE_fem", { allowFemale: false }), null, "female artist's album hidden when female blocked");
+});
+
+test("tracksByIds carries content flags so /playlist can filter songs WITHIN a mixed playlist", () => {
+  const db = openCorpus(":memory:"); seedFlags(db);
+  const m = tracksByIds(db, ["male0song01", "male0vid001", "fem00song01", "kid00song01"]);
+  assert.equal(m.get("male0vid001").isVideo, true);
+  assert.equal(m.get("male0song01").isVideo, false);
+  assert.equal(m.get("fem00song01").isFemale, true);
+  assert.equal(m.get("kid00song01").isKidZone, true);
+  assert.equal(m.get("male0song01").isFemale, false);
+  // A mixed (male+female) playlist, for a blocked-female user, keeps the male song and drops the female one
+  // (this is exactly what the /playlist endpoint does with these flags — per-song, not whole-playlist).
+  const inPlaylist = ["male0song01", "fem00song01"];
+  const keptForBlockedFemale = inPlaylist.filter((id) => !m.get(id).isFemale);
+  assert.deepEqual(keptForBlockedFemale, ["male0song01"]);
+});
+
+test("detail filters default to OPEN — absent opts = no filtering (gotcha #7)", () => {
+  const db = openCorpus(":memory:"); seedFlags(db);
+  assert.ok(artistDetail(db, "UCfem"), "female visible when no flag passed");
+  assert.equal(artistDetail(db, "UCmale").videos.length, 1, "videos present when no flag passed");
+  assert.equal(albumDetail(db, "MPRE_mix").tracks.length, 2);
 });

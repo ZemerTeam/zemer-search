@@ -251,9 +251,12 @@ export function removeCommunityPlaylist(db, id) {
 }
 
 // Detail pages -----------------------------------------------------------------------------------
-export function artistDetail(db, artistId) {
-  const a = db.prepare("SELECT id,name,thumbnail FROM artist WHERE id=?").get(artistId);
+export function artistDetail(db, artistId, { allowFemale = true, kidZoneOnly = false, blockVideos = false } = {}) {
+  const a = db.prepare("SELECT id,name,thumbnail,isFemale,isKidZone FROM artist WHERE id=?").get(artistId);
   if (!a) return null;
+  // Content gate (defense-in-depth, same predicate `/search` uses): a blocked-female user must never get a
+  // female artist's page, and a KidZone-only user must never get a non-KidZone artist. Treat as not-found.
+  if ((!allowFemale && a.isFemale) || (kidZoneOnly && !a.isKidZone)) return null;
   const trk = db.prepare("SELECT videoId,title,isVideo,explicit FROM track WHERE artistId=? ORDER BY harvestedAt").all(artistId);
   const alb = db.prepare("SELECT id,playlistId,title,type,year,thumbnail FROM album WHERE artistId=? ORDER BY (year IS NULL), year DESC").all(artistId);
   const pl = db.prepare("SELECT id,title,thumbnail FROM playlist WHERE artistId=?").all(artistId);
@@ -262,19 +265,23 @@ export function artistDetail(db, artistId) {
   return {
     artist: { id: a.id, name: a.name, thumbnail: a.thumbnail },
     songs: trk.filter((t) => !t.isVideo).map(song),
-    videos: trk.filter((t) => t.isVideo).map(song),
+    videos: blockVideos ? [] : trk.filter((t) => t.isVideo).map(song),
     albums: alb.filter((x) => x.type !== "single").map(al),
     singles: alb.filter((x) => x.type === "single").map(al),
     playlists: pl.map((p) => ({ id: p.id, title: p.title, artist: a.name, thumbnail: p.thumbnail })),
   };
 }
 
-export function albumDetail(db, albumId) {
-  const al = db.prepare("SELECT al.id,al.title,al.year,al.thumbnail,a.name artistName FROM album al JOIN artist a ON a.id=al.artistId WHERE al.id=?").get(albumId);
+export function albumDetail(db, albumId, { allowFemale = true, kidZoneOnly = false, blockVideos = false } = {}) {
+  const al = db.prepare("SELECT al.id,al.title,al.year,al.thumbnail,a.name artistName,a.isFemale,a.isKidZone FROM album al JOIN artist a ON a.id=al.artistId WHERE al.id=?").get(albumId);
   if (!al) return null;
-  const tracks = db.prepare(`SELECT t.videoId,t.title,t.explicit,a.name artistName
+  // Gate the whole album by its artist (same as artistDetail); then filter the track list per-track (a
+  // compilation can mix artists / include video tracks).
+  if ((!allowFemale && al.isFemale) || (kidZoneOnly && !al.isKidZone)) return null;
+  const tracks = db.prepare(`SELECT t.videoId,t.title,t.explicit,t.isVideo,a.name artistName,a.isFemale,a.isKidZone
     FROM album_track at JOIN track t ON t.videoId=at.videoId JOIN artist a ON a.id=t.artistId
     WHERE at.albumId=? ORDER BY at.pos`).all(albumId)
+    .filter((t) => (allowFemale || !t.isFemale) && (!kidZoneOnly || t.isKidZone) && (!blockVideos || !t.isVideo))
     .map((t) => ({ videoId: t.videoId, title: t.title, artist: t.artistName, explicit: !!t.explicit }));
   return { album: { id: al.id, title: al.title, year: al.year, thumbnail: al.thumbnail, artist: al.artistName }, tracks };
 }
@@ -285,9 +292,10 @@ export function tracksByIds(db, ids) {
   const found = new Map();
   for (let i = 0; i < ids.length; i += 500) {
     const chunk = ids.slice(i, i + 500);
-    const rows = db.prepare(`SELECT t.videoId,t.title,t.explicit,a.name artistName
+    const rows = db.prepare(`SELECT t.videoId,t.title,t.explicit,t.isVideo,a.name artistName,a.isFemale,a.isKidZone
       FROM track t JOIN artist a ON a.id=t.artistId WHERE t.videoId IN (${chunk.map(() => "?").join(",")})`).all(...chunk);
-    for (const r of rows) found.set(r.videoId, { videoId: r.videoId, title: r.title, artist: r.artistName, explicit: !!r.explicit });
+    // Carries the content flags so callers (the /playlist endpoint) can filter; membership users (.has) ignore them.
+    for (const r of rows) found.set(r.videoId, { videoId: r.videoId, title: r.title, artist: r.artistName, explicit: !!r.explicit, isVideo: !!r.isVideo, isFemale: !!r.isFemale, isKidZone: !!r.isKidZone });
   }
   return found;
 }
