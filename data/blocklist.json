@@ -1,6 +1,6 @@
 {
   "_comment": "Curated exclusions, committed like synonyms.json. videoIds/artistIds: junk to keep OUT of the corpus regardless of the whitelist. playlistIds: community playlists to remove (your manual backstop). playlistTerms: case-insensitive substrings that, if found in a community playlist's TITLE or CURATOR name, reject it at discovery and remove it on revalidate (you own this list — what's off-policy is your call).",
-  "videoIds": ["GvgdDBdrZTg"],
+  "videoIds": ["GvgdDBdrZTg", "y5qjgbT2dXQ"],
   "artistIds": [],
   "playlistIds": [],
   "playlistTerms": ["explicit"]
