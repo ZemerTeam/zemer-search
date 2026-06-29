@@ -74,6 +74,8 @@ exact dark surfaces/typography from `zemer-app`'s `Theme.kt`/`Dimensions.kt`):
   run shows live progress in the UI just like a refresh.
 - **As-you-type speed:** debounced + an **AbortController** cancels the previous in-flight request on
   every keystroke (no wasted server work, no stale results), system font (no web-font fetch).
+- **Embed mode:** loading with `?embed=1` adds `class="embed"` to `<html>` and hides the live-corpus stats
+  line — for embedding the search UI inside zemer.io.
 
 ## Env config
 
