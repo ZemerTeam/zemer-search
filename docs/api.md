@@ -57,8 +57,8 @@ exact dark surfaces/typography from `zemer-app`'s `Theme.kt`/`Dimensions.kt`):
   with **its own category sub-chips** (Songs · Videos · Albums · Singles & EPs; empty ones hidden) and an
   "added Xd ago" date per row; typing a query leaves it back into search. (True upload dates would need a per-track
   `/player` fetch — a planned follow-up; today it shows when the track was indexed.)
-- A single **Material 3 switch** — "Hide female singers" — the only on-screen content filter (sets
-  `allowFemale=0`); **videos and KidZone content are included by default**.
+- **No on-screen content filters** — the web UI always shows everything (never sends `allowFemale`/
+  `kidZone`/`blockVideos`). The API still honors those query params for other callers (gotcha #7).
 - **Minimum 3 characters** before any results appear — 1–2 char queries are too broad to rank accurately.
 - App-style 64dp rows: 48dp thumbnail (circle for artists), `titleSmall`/`bodySmall`, `⋮` overflow.
 - **Detail pages** for artist/album/playlist; the **artist page has its own category chips** (All ·
