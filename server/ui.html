@@ -89,6 +89,7 @@
     font-size:20px; line-height:1; cursor:pointer; border-radius:50%; }
   .more:hover { background:var(--surfaceContainerHigh); color:var(--onSurface); }
   .empty { color:var(--onSurfaceVariant); padding:48px 14px; text-align:center; font-size:14px; }
+  .feednote { color:var(--onSurfaceVariant); font-size:12px; padding:4px 8px 8px; opacity:.85; }
 
   /* detail view */
   #detail { display:none; }
@@ -135,7 +136,7 @@ const CATS = [
   ['all','All'], ['artists','Artists'], ['albums','Albums'], ['songs','Songs'],
   ['singles','Singles & EPs'], ['videos','Videos'], ['playlists','Playlists'], ['community','Community'], ['new','New Releases'],
 ];
-let sel = 'all', lastData = null, newData = null, newSel = 'all', communityData = null;
+let sel = 'all', lastData = null, newData = null, newSel = 'all', communityData = null, newSource = null;
 
 // New Releases view: categorized (songs/videos/albums/singles), each row dated "added Xd ago".
 const NEWCATS = [['songs','Songs'], ['videos','Videos'], ['albums','Albums'], ['singles','Singles & EPs']];
@@ -164,8 +165,8 @@ async function loadNew() {
   const p = new URLSearchParams();
   if ($('#noFemale').checked) p.set('allowFemale','0');
   p.set('k','60');
-  try { const d = await (await fetch('/new?'+p)).json(); newData = d.categories || {}; }
-  catch { newData = {}; }
+  try { const d = await (await fetch('/new?'+p)).json(); newData = d.categories || {}; newSource = d.source || null; }
+  catch { newData = {}; newSource = null; }
   newSel = 'all';
   const total = Object.values(newData).reduce((n, a) => n + (a ? a.length : 0), 0);
   $('#meta').textContent = `${total} new this week`;
@@ -245,10 +246,12 @@ function render() {
   if (sel === 'new') {
     closeDetail();
     const c = newData || {};
+    const feedNote = newSource === 'feed'
+      ? `<div class="feednote">Pulled from flipphoneguy's latest-releases feed</div>` : '';
     const nonEmpty = NEWCATS.filter(([k]) => (c[k] || []).length);
-    if (!nonEmpty.length) { $('#results').innerHTML = `<div class="empty">No new releases this week.</div>`; return; }
+    if (!nonEmpty.length) { $('#results').innerHTML = feedNote + `<div class="empty">No new releases this week.</div>`; return; }
     const chips = [['all','All'], ...nonEmpty];
-    let html = `<div class="chips">` + chips.map(([k,l]) =>
+    let html = feedNote + `<div class="chips">` + chips.map(([k,l]) =>
       `<div class="chip ${k===newSel?'sel':''}" onclick="npick('${k}')">${k===newSel?CHECK:''}${l}</div>`).join('') + `</div>`;
     const cat = (k) => `<div class="sechead">${NEWCATS.find(x=>x[0]===k)[1]}</div>` + (c[k]||[]).map(NEWRENDER[k]).join('');
     if (newSel === 'all') html += nonEmpty.map(([k]) => cat(k)).join('');

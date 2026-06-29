@@ -12,7 +12,7 @@ process + one `corpus.db` file** — no external search engine.
 | `GET /artist?id=UC…` | Artist catalog `{artist, songs, videos, albums, singles, playlists}` (from the DB). |
 | `GET /album?id=MPRE…` | `{album, tracks}` (from the DB, ordered). |
 | `GET /playlist?id=…` | `{playlist, tracks, total, whitelisted}` — fetched **on demand** (cached) from YouTube and filtered to whitelisted-corpus / whitelisted-channel tracks. Works for **any** playlist id: artist-owned, community-discovered, or even an unindexed id (the filter is purely id-based, so it can never serve a non-whitelisted track). The header meta falls back to `community_playlist` when the id isn't an artist playlist. |
-| `GET /new?k=60&days=10&allowFemale=0&kidZone=1&blockVideos=1` | `{count, categories:{songs, videos, albums, singles}}` — releases with a REAL release date (`album.uploadDate`, dated via `/player`) **within the window** (`days`, default 10), newest first. Each item carries `releaseDate` (ISO) + `addedAt` (ms). Undated items (no `/player` date yet — incl. standalone videos) are excluded, so this is genuinely "new", not "recently indexed". Powers the **New Releases** chip; the UI shows the actual date. Same content-filter params as `/search`. |
+| `GET /new?k=60&days=10&allowFemale=0&kidZone=1&blockVideos=1` | `{count, categories:{songs, videos, albums, singles}, source}` — recent releases with REAL release dates, **within the window** (`days`, default 10), newest first; each item carries `releaseDate` (ISO) + `addedAt`. **Primary source = the releases feed** (`RELEASES_FEED`, real `/player` dates maintained off-datacenter, same Firestore whitelist) → `source:"feed"`; filtered by our corpus' artist content-flags. If the feed is unreachable it **falls back to corpus** `recentAlbums`/`recentTracks` (real `album.uploadDate` where dated, else `harvestedAt`) → `source:"corpus"`. The web UI labels feed-sourced results ("Pulled from … latest-releases feed"). Not LRU-cached (the feed has its own ~5-min TTL). Same content-filter params as `/search`. |
 | `GET /community` | `{count, playlists}` — **every** community-discovered playlist (no cap by default; `k` is just a sanity bound), best-populated first (`whitelisted` desc). Powers the **Community** chip's "show all without a search" browse view. Each row `{id, title, artist (curator), thumbnail (from a whitelisted track), source:"community", whitelisted, total}`. |
 | `GET /health` | Live `{tracks, artists, videos, albums, singles, playlists, communityPlaylists, indexed, whitelistTotal, worker, maintenance}`. `maintenance` is `{phase, mode, done, total, pct, newTracks, blocks}` while a harvest/refresh/**playlist-discovery** run is active (written to `data/.maintain-status.json` by the harvester steps; `null`/absent once a run stops updating). `whitelistTotal` is re-read each reload so it isn't stale after a whitelist refetch. |
 | `POST /reload` | Rebuild the in-memory index now. |
@@ -77,7 +77,8 @@ exact dark surfaces/typography from `zemer-app`'s `Theme.kt`/`Dimensions.kt`):
 
 `PORT` (7700), `HOST` (`0.0.0.0`; set `127.0.0.1` in production behind a reverse proxy / Cloudflare tunnel
 so the port isn't exposed), `WORKERS` (1 | a number | `auto`), `RELOAD_MS` (30000), `CACHE_MAX` (5000),
-`CORPUS_DB`, `REL_FLOOR` (matcher precision floor, 0.4). See [deployment.md](deployment.md).
+`CORPUS_DB`, `REL_FLOOR` (matcher precision floor, 0.4), `RELEASES_FEED` (New Releases feed URL),
+`FEED_TTL_MS` (feed cache, 300000). See [deployment.md](deployment.md).
 (The `/playlist` endpoint does a live **unauthenticated** browse — no cookie.)
 
 **Reload is change-gated:** the `RELOAD_MS` tick only rebuilds the in-memory index when `corpus.db`

@@ -23,6 +23,10 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 7700);
 const HOST = process.env.HOST || "0.0.0.0"; // set HOST=127.0.0.1 in production (behind a reverse proxy)
 const RELOAD_MS = Number(process.env.RELOAD_MS || 30000);
+// New Releases feed (real /player dates, maintained off-datacenter). Just for the web UI's New Releases
+// view to display; cached briefly, with a corpus fallback if unreachable.
+const RELEASES_FEED = process.env.RELEASES_FEED || "https://api.flipphoneguy.duckdns.org/zemer/recent-releases.json";
+const FEED_TTL_MS = Number(process.env.FEED_TTL_MS || 300000); // ~5 min
 const CACHE_MAX = Number(process.env.CACHE_MAX || 5000);
 // WORKERS=0/"auto" → one per core; default 1 (dev). Production: set to the core count.
 const WORKERS = process.env.WORKERS === "auto" ? os.availableParallelism() : Number(process.env.WORKERS || 1);
@@ -93,6 +97,17 @@ async function startServer() {
   const wIndex = Number(process.env.WORKER_INDEX || 0);
   setTimeout(() => setInterval(reload, RELOAD_MS).unref(), Math.floor((RELOAD_MS * wIndex) / Math.max(1, WORKERS)));
 
+  // Fetch the releases feed, cached ~5 min; on any failure keep serving the last-good copy (null until first success).
+  let feedCache = { at: 0, data: null };
+  async function getReleasesFeed() {
+    if (feedCache.data && Date.now() - feedCache.at < FEED_TTL_MS) return feedCache.data;
+    try {
+      const r = await fetch(RELEASES_FEED, { signal: AbortSignal.timeout(6000) });
+      if (r.ok) feedCache = { at: Date.now(), data: await r.json() };
+    } catch { /* unreachable → keep last-good (or null → corpus fallback) */ }
+    return feedCache.data;
+  }
+
   async function fetchPlaylistTracks(playlistId, cap = 300) {
     const first = await postBrowse({ browseId: "VL" + playlistId });
     if (!first.json) return null;
@@ -111,7 +126,7 @@ async function startServer() {
 
   const send = (res, code, obj) => { const body = JSON.stringify(obj); res.writeHead(code, CORS); res.end(body); return body; };
   const cacheSet = (key, body) => { cache.set(key, body); if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value); };
-  const CACHEABLE = new Set(["/search", "/artist", "/album", "/playlist", "/new", "/community"]);
+  const CACHEABLE = new Set(["/search", "/artist", "/album", "/playlist", "/community"]); // /new self-caches via the feed TTL
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -148,8 +163,30 @@ async function startServer() {
         // "not-really-new" catalog out of the view. `days` overrides the window.
         const days = Math.min(3650, Math.max(1, Number(u.searchParams.get("days") || 10)));
         const cutoff = Date.now() - days * 86400000;
+
+        // PRIMARY: the releases feed (real /player dates, maintained off-datacenter; same Firestore whitelist).
+        const feed = await getReleasesFeed();
+        if (feed && Array.isArray(feed.releases)) {
+          const flags = new Map(allArtists(liveDb).map((a) => [a.id, a])); // content flags by artistId
+          const keep = (r) => {
+            if (!r.uploadDate || Date.parse(r.uploadDate) < cutoff) return false;
+            const f = flags.get(r.artistId) || {};
+            return (allowFemale || !f.isFemale) && (!kidZoneOnly || f.isKidZone);
+          };
+          const rel = feed.releases.filter(keep).sort((a, b) => new Date(b.uploadDate) - new Date(a.uploadDate));
+          const row = (r) => ({ id: r.browseId, playlistId: r.playlistId, title: r.title, artist: r.artistName,
+            year: r.year, thumbnail: r.thumbnail, addedAt: Date.parse(r.uploadDate), releaseDate: r.uploadDate, trackCount: r.trackCount });
+          const categories = {
+            songs: [], videos: [],
+            albums: rel.filter((r) => (r.trackCount || 1) > 1).slice(0, k).map(row),
+            singles: rel.filter((r) => (r.trackCount || 1) === 1).slice(0, k).map(row),
+          };
+          const count = categories.albums.length + categories.singles.length;
+          return send(res, 200, { count, categories, source: "feed", feedGeneratedAt: feed.generatedAt || null, windowDays: days });
+        }
+
+        // FALLBACK (feed unreachable): corpus recent, by real album.uploadDate where we have it.
         const fresh = (x) => x.releaseDate && Date.parse(x.releaseDate) >= cutoff;
-        // content filter (only when explicitly requested — gotcha #7)
         const keepArtist = (x) => (allowFemale || !x.isFemale) && (!kidZoneOnly || x.isKidZone);
         const tracks = recentTracks(liveDb, k * 8).filter(keepArtist).filter(fresh);
         const albums = recentAlbums(liveDb, k * 8).filter(keepArtist).filter(fresh);
@@ -162,7 +199,7 @@ async function startServer() {
           singles: albums.filter((a) => a.type === "single").slice(0, k).map(al),
         };
         const count = Object.values(categories).reduce((n, a) => n + a.length, 0);
-        return cacheSet(req.url, send(res, 200, { count, categories }));
+        return send(res, 200, { count, categories, source: "corpus" });
       }
       if (u.pathname === "/community") {
         // Browse ALL community playlists (no query) — powers the Community chip's "show all" view.
@@ -200,4 +237,5 @@ async function startServer() {
   });
 
   server.listen(PORT, HOST, () => console.log(`zsearch worker ${wIndex} (pid ${process.pid}) → http://${HOST}:${PORT}  (corpus ${stats(liveDb).tracks} tracks)`));
+  setTimeout(() => getReleasesFeed().catch(() => {}), 500); // warm the releases-feed cache so the first /new isn't a cold corpus fallback
 }
