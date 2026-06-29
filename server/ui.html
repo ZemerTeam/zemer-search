@@ -22,7 +22,7 @@
     background:var(--surfaceContainerLow); border-radius:24px; }
   .searchbar svg { width:22px; height:22px; fill:var(--onSurfaceVariant); flex:none; }
   .searchbar input { flex:1; border:0; outline:0; background:transparent; color:var(--onSurface);
-    font-size:16px; font-family:inherit; }
+    font-size:16px; font-family:inherit; caret-color:var(--primary); }
   .searchbar input::placeholder { color:var(--onSurfaceVariant); }
   .stat { font-size:11px; color:var(--onSurfaceVariant); padding:4px 14px 6px; font-variant-numeric:tabular-nums; }
   .stat b { color:var(--primary); font-weight:600; }
@@ -45,8 +45,18 @@
   .maint .bar > i { display:block; height:100%; background:var(--primary); border-radius:2px; transition:width .5s ease; }
 
   /* filter chips — pill, horizontally scrollable (like the app's ChipsRow) */
-  .chips { display:flex; gap:8px; overflow-x:auto; padding:6px 12px 10px; scrollbar-width:none; }
+  .chips { display:flex; gap:8px; overflow-x:auto; padding:6px 12px 10px; scrollbar-width:none; overscroll-behavior-x:contain; }
   .chips::-webkit-scrollbar { display:none; }
+  /* Desktop (mouse): show a clear rounded scrollbar so it's obvious the pills scroll (touch keeps it hidden) */
+  @media (hover:hover) and (pointer:fine) {
+    .chips { scrollbar-width:thin; scrollbar-color:var(--onSurfaceVariant) transparent; }
+    .chips { padding-bottom:14px; margin-bottom:14px; }
+    .chips::-webkit-scrollbar { display:block; height:16px; }
+    .chips::-webkit-scrollbar-track { background:transparent; }
+    .chips::-webkit-scrollbar-thumb { background:var(--onSurfaceVariant); border-radius:7px;
+      border:5px solid transparent; background-clip:padding-box; min-width:48px; transition:background .15s; }
+    .chips::-webkit-scrollbar-thumb:hover { background:var(--primary); }
+  }
   .chip { flex:none; display:inline-flex; align-items:center; gap:6px; height:34px; padding:0 14px;
     border-radius:17px; background:var(--surfaceContainer); color:var(--onSurface);
     font-size:14px; font-weight:500; border:1px solid transparent; cursor:pointer; white-space:nowrap;
@@ -361,6 +371,17 @@ async function openPlaylist(id) {
   pushView({ title:d.playlist.title, sub:d.note||(d.playlist.artist+(d.whitelisted!=null?` · ${d.whitelisted} of ${d.total}`:'')), thumb:d.playlist.thumbnail, sections:[{ key:'tracks', label:'Tracks', items:d.tracks||[], render:rowSong }] });
 }
 renderChips();
+
+// Desktop: translate a vertical mouse wheel into horizontal scrolling on the chip rows (they have no
+// visible scrollbar on touch, and a mouse can't scroll a horizontal row otherwise). Works for the
+// dynamically-added New Releases / artist-detail chip rows too, via event delegation.
+addEventListener('wheel', (e) => {
+  const row = e.target.closest && e.target.closest('.chips');
+  if (!row || row.scrollWidth <= row.clientWidth) return;     // nothing to scroll
+  if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;       // already a horizontal gesture
+  row.scrollLeft += e.deltaY;
+  e.preventDefault();
+}, { passive:false });
 </script>
 </body>
 </html>
