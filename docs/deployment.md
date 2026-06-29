@@ -43,6 +43,11 @@ sudo cp deploy/zemer-search-api.service /etc/systemd/system/zemer-search.service
 sudo systemctl daemon-reload && sudo systemctl enable --now zemer-search
 # Cloudflare tunnel / nginx ingress → http://localhost:7700
 ```
+> **Cloudflare tunnel in a Docker container?** A bridge-network `cloudflared` can't reach the host's
+> `127.0.0.1`. Either run it with `--network host` (keep `HOST=127.0.0.1`), or set `HOST=172.17.0.1` (the
+> docker bridge gateway — private, not public), point the ingress at `http://172.17.0.1:7700`, and order the
+> service `After=docker.service` so the bridge interface exists before it binds.
+
 Or run it directly (dev): `HOST=127.0.0.1 PORT=7700 WORKERS=auto node server/api.mjs`. The index reload is
 **change-gated** (rebuilds only when `corpus.db`/`-wal` changes), so a steady server has no periodic stall
 and picks up a freshly-synced corpus within one `RELOAD_MS` tick; `POST /reload` forces it. On a shared box,
