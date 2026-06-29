@@ -130,7 +130,7 @@ curator name, and cover are user-generated:
 - **Specific removals** — `blocklist.json` `playlistIds` (your manual backstop). `upsertCommunityPlaylist`
   refuses a blocklisted id; `pruneBlocklisted` deletes existing ones.
 
-**Whitelist-review report.** Each run writes `data/rejected-artists.txt` (gitignored, regenerated per run):
+**Whitelist-review report.** Each run writes `data/rejected-artists.json` (gitignored, regenerated per run):
 the **non-whitelisted artist channels** whose tracks were dropped from the community playlists, tallied and
 sorted by frequency (`count  artistName  channelId  channelUrl  sample_track`) — the strongest candidates
 to add to the whitelist lead. It can also be produced **from cache** (no live requests) via the net layer's

@@ -47,16 +47,16 @@ test("screenText flags blocklisted terms in the title OR curator name (case-inse
   assert.equal(screenText("anything", "anyone", []), null, "empty term list → null (screen disabled)");
 });
 
-test("formatRejectedArtists sorts by count desc and emits channel id + url + sample per row", () => {
+test("formatRejectedArtists emits JSON sorted by count desc with channelId/url/sample", () => {
   const map = new Map([
     ["UCaaa", { name: "Artist A", count: 2, sample: "Song A" }],
     ["UCbbb", { name: "Artist B", count: 9, sample: "Song B" }],
   ]);
-  const out = formatRejectedArtists(map);
-  const rows = out.trim().split("\n").filter((l) => !l.startsWith("#") && l.trim());
-  assert.match(rows[0], /^9\tArtist B\tUCbbb\thttps:\/\/music\.youtube\.com\/channel\/UCbbb\tSong B$/, "highest count first; name before id");
-  assert.match(rows[1], /^2\tArtist A\tUCaaa\t/);
-  assert.equal(formatRejectedArtists(new Map()).includes("UC"), false, "empty map → header only, no rows");
+  const out = JSON.parse(formatRejectedArtists(map));
+  assert.equal(out.count, 2);
+  assert.deepEqual(out.artists[0], { count: 9, name: "Artist B", channelId: "UCbbb", url: "https://music.youtube.com/channel/UCbbb", sample: "Song B" }, "highest count first");
+  assert.equal(out.artists[1].channelId, "UCaaa");
+  assert.equal(JSON.parse(formatRejectedArtists(new Map())).count, 0, "empty map → valid JSON, 0 artists");
 });
 
 test("buildSeeds firstNames adds each artist's leading token (deduped, ≥3 chars), as its own seed", () => {

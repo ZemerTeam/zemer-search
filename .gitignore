@@ -35,6 +35,7 @@ data/.releases.log
 data/.wrapup.log
 
 # generated review report — non-whitelisted artists seen in community playlists (regenerated each run)
+data/rejected-artists.json
 data/rejected-artists.txt
 
 # secrets (not in this dir by default, but guard against accidents)

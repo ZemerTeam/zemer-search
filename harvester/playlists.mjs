@@ -69,20 +69,24 @@ export function buildSeeds({ topics = [], artistNames = [] }, { mode = "both", n
   return out.slice(0, Math.max(0, n));
 }
 
-// Render the non-whitelisted artist tally (channelId -> {name,count,sample}) to a reviewable text file.
-// Most-seen first → the strongest whitelist candidates lead. Tab-separated for easy spreadsheet import.
+// Render the non-whitelisted artist tally (channelId -> {name,count,sample}) to a reviewable JSON report.
+// Most-seen first → the strongest whitelist-review candidates lead. `count` = how many of this channel's
+// tracks were dropped (not whitelisted) across the processed community playlists.
 export function formatRejectedArtists(map) {
-  const rows = [...map.entries()].sort((a, b) => b[1].count - a[1].count || a[0].localeCompare(b[0]));
-  const head = [
-    "# Non-whitelisted artist channels found INSIDE community playlists — candidates for whitelist review.",
-    "# Each is a YT Music channel whose track(s) were dropped (not whitelisted) when serving a community playlist.",
-    "# Columns (tab-separated): rejected_track_count  artistName  channelId  channelUrl  sample_track",
-    "# Sorted by count desc (most-seen non-whitelisted artists first).",
-    "",
-  ].join("\n");
-  const body = rows.map(([id, e]) =>
-    `${e.count}\t${e.name || "?"}\t${id}\thttps://music.youtube.com/channel/${id}\t${e.sample || ""}`).join("\n");
-  return head + body + (rows.length ? "\n" : "");
+  const artists = [...map.entries()]
+    .sort((a, b) => b[1].count - a[1].count || a[0].localeCompare(b[0]))
+    .map(([id, e]) => ({
+      count: e.count,
+      name: e.name || null,
+      channelId: id,
+      url: `https://music.youtube.com/channel/${id}`,
+      sample: e.sample || null,
+    }));
+  return JSON.stringify({
+    description: "Non-whitelisted artist channels found inside community playlists — candidates for whitelist review, sorted by dropped-track count.",
+    count: artists.length,
+    artists,
+  }, null, 2) + "\n";
 }
 
 // ---- live pipeline (IP-safe; throws BlockError on an anti-bot page) ------------------------------
@@ -219,9 +223,9 @@ async function main() {
 
   // Write the non-whitelisted artist channels seen inside the processed playlists — for whitelist review.
   if (rejectedArtists.size) {
-    const file = path.join(DATA, "rejected-artists.txt");
+    const file = path.join(DATA, "rejected-artists.json");
     fs.writeFileSync(file, formatRejectedArtists(rejectedArtists));
-    console.log(`wrote ${rejectedArtists.size} non-whitelisted artist channels → data/rejected-artists.txt`);
+    console.log(`wrote ${rejectedArtists.size} non-whitelisted artist channels → data/rejected-artists.json`);
   }
 
   const s = stats(db);
