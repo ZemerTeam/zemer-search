@@ -1,0 +1,13 @@
+[Unit]
+Description=Weekly community-playlist discovery + revalidate for zemer-search
+
+[Timer]
+# Sunday 05:00 — after the Sunday deep refresh (03:00), so they don't contend on the DB writer.
+# Shabbat-aware: Saturday is skipped entirely; Sunday is fine. Incremental + mostly cache → cheap.
+Unit=zemer-playlists.service
+OnCalendar=Sun *-*-* 05:00:00
+Persistent=true
+RandomizedDelaySec=900
+
+[Install]
+WantedBy=timers.target

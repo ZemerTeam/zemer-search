@@ -1,0 +1,24 @@
+[Unit]
+Description=zemer-search community-playlist discovery + revalidate
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# --- EDIT WorkingDirectory for your deployment ---
+WorkingDirectory=/opt/zemer-search
+Environment=CORPUS_DB=/var/lib/zemer-search/corpus.db
+# Discover from the topical seeds (data/playlist-seeds.json) + REVALIDATE all stored playlists (prune
+# stale, refresh counts, regenerate the rejected-artists review report). Browse+search only — no /player —
+# so this runs fine on a datacenter IP. Heavier artist-name sweeps are a manual op (SEEDS=both FIRSTNAMES=1).
+Environment=SEEDS=topics
+Environment=PAGES=2
+Environment=REVALIDATE=1
+# Re-fetch searches older than 24h so each scheduled run surfaces NEW playlists (otherwise forever-cached).
+Environment=SEARCH_MAX_AGE_H=24
+Environment=CONCURRENCY=5
+Environment=MIN_INTERVAL_MS=200
+Nice=10
+IOSchedulingClass=idle
+ExecStart=/usr/bin/node harvester/playlists.mjs
+TimeoutStartSec=4h

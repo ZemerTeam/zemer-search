@@ -91,15 +91,15 @@ export function formatRejectedArtists(map) {
 
 // ---- live pipeline (IP-safe; throws BlockError on an anti-bot page) ------------------------------
 
-async function searchPlaylists(query, pages) {
+async function searchPlaylists(query, pages, maxAgeMs) {
   const found = new Map(); // id -> {id,title,author,thumbnail}
-  let res = await postSearch({ query, params: FILTERS.FILTER_COMMUNITY_PLAYLIST });
+  let res = await postSearch({ query, params: FILTERS.FILTER_COMMUNITY_PLAYLIST, maxAgeMs });
   if (res.blocked) throw new BlockError();
   for (let p = 0; p < pages; p++) {
     const { rows, continuation } = parseSearchShelf(res.json || {});
     for (const r of rows) { const pl = playlistFromRow(r); if (pl && !found.has(pl.id)) found.set(pl.id, pl); }
     if (!continuation || p + 1 >= pages) break;
-    res = await postSearch({ continuation });
+    res = await postSearch({ continuation, maxAgeMs });
     if (res.blocked) throw new BlockError();
   }
   return [...found.values()];
@@ -134,6 +134,9 @@ async function main() {
   const RECHECK = process.env.RECHECK === "1";       // re-validate re-discovered playlists (remove failures)
   const REVALIDATE = process.env.REVALIDATE === "1"; // re-validate EVERY stored playlist, even if not re-found
   const FIRSTNAMES = process.env.FIRSTNAMES === "1"; // also seed each artist's first name (broader sweep)
+  // Discovery searches are forever-cached by default (a re-run finds nothing new). SEARCH_MAX_AGE_H makes
+  // them re-fetch when older than N hours — set it on the scheduled timer so each run surfaces NEW playlists.
+  const SEARCH_MAX_AGE_MS = process.env.SEARCH_MAX_AGE_H ? Number(process.env.SEARCH_MAX_AGE_H) * 3600000 : undefined;
 
   const db = openCorpus();
   const topics = (() => { try { return JSON.parse(fs.readFileSync(path.join(DATA, "playlist-seeds.json"), "utf8")).topics || []; } catch { return []; } })();
@@ -153,7 +156,7 @@ async function main() {
   try {
     let s = 0;
     for (const q of seeds) {
-      for (const pl of await searchPlaylists(q, PAGES)) if (!already.has(pl.id) && !cand.has(pl.id)) cand.set(pl.id, pl);
+      for (const pl of await searchPlaylists(q, PAGES, SEARCH_MAX_AGE_MS)) if (!already.has(pl.id) && !cand.has(pl.id)) cand.set(pl.id, pl);
       if (seeds.length) setStatus({ done: ++s });
     }
   } catch (e) {

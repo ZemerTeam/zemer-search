@@ -91,6 +91,16 @@ sudo systemctl enable --now zemer-refresh-daily.timer zemer-refresh-weekly.timer
 systemctl list-timers 'zemer-refresh*'     # next-run times   ·   journalctl -u 'zemer-refresh@*' -f
 ```
 
+**Community-playlist discovery** runs on its own weekly timer (separate from `maintain.sh`; browse+search
+only, no `/player`, so it's fine on a datacenter IP). It discovers from the topical seeds + revalidates the
+stored playlists (prune stale, refresh counts, regenerate the rejected-artists review list). It's cheap and
+incremental: the searches re-fetch on a TTL (`SEARCH_MAX_AGE_H`, so each run surfaces NEW playlists) while
+the revalidation of already-stored playlists is served from the gzip cache (no network):
+```bash
+sudo cp deploy/zemer-playlists.service deploy/zemer-playlists-weekly.timer /etc/systemd/system/  # edit WorkingDirectory
+sudo systemctl daemon-reload && sudo systemctl enable --now zemer-playlists-weekly.timer         # Sun 05:00, Shabbat-aware
+```
+
 Cron alternative (Shabbat-aware — Mon–Fri AM + Sat after Shabbat shallow, Sunday deep):
 ```cron
 0 3  * * 1-5  cd /path/to/zemer-search && ZEMER_APP=/path/to/zemer-app scripts/maintain.sh shallow >> /var/log/zemer-refresh.log 2>&1
