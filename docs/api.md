@@ -61,7 +61,7 @@ exact dark surfaces/typography from `zemer-app`'s `Theme.kt`/`Dimensions.kt`):
   `kidZone`/`blockVideos`). The API still honors those query params for other callers (gotcha #7).
 - **Minimum 3 characters** before any results appear — 1–2 char queries are too broad to rank accurately.
 - App-style 64dp rows: 48dp thumbnail (circle for artists), `titleSmall`/`bodySmall`, `⋮` overflow.
-  Tapping a **song** opens a Material-3 "Download the app to listen" dialog (link to `ghtrack.zemer.io`) —
+  Tapping a **song** opens a Material-3 "Download the app to listen" dialog (link to `ghtrack.zemer.io/download`) —
   playback is in the app, not the browser; it does **not** link out to YouTube Music.
 - **Detail pages** for artist/album/playlist; the **artist page has its own category chips** (All ·
   Albums · Singles & EPs · Songs · Videos · Playlists — only the non-empty ones).
