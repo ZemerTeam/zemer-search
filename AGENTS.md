@@ -32,7 +32,7 @@ whitelist (Firestore)  →  harvester (InnerTube, IP-safe)  →  corpus.db (SQLi
 | Dir | What |
 |-----|------|
 | `harness/` | Ported InnerTube layer: `clients.mjs`, `lib.mjs`, `parsers.mjs`; **`net.mjs`** (gzip disk cache + bounded-concurrency rate-paced limiter + anti-bot circuit breaker; `cacheOnly` option for offline report passes); `browse.mjs` (artist/album/playlist parsers); **`search.mjs`** (IP-safe search via `net.mjs` — community-playlist discovery); **`player.mjs`** (IP-safe `/player` — the real release date, ISO `uploadDate`); `whitelist.mjs` (fetch Firestore whitelist, read-only); `status.mjs` (maintenance progress channel). Browse + search + player are **unauthenticated** — no cookie, no `visitorData`. |
-| `harvester/` | `core.mjs` (shared per-artist harvest; shallow/deep), `harvest.mjs` (initial bulk), `onboard.mjs` (new artists), `refresh.mjs` (incremental; shallow daily / deep weekly), `prune.mjs` (drop de-whitelisted), **`playlists.mjs`** (community-playlist discovery — seed-search → whitelist-filter → quality-gate → store; revalidate prunes stale), **`releases.mjs`** (date releases precisely — one `/player` per album → `album.uploadDate`; makes New Releases accurate). |
+| `harvester/` | `core.mjs` (shared per-artist harvest; shallow/deep), `harvest.mjs` (initial bulk), `onboard.mjs` (new artists), `refresh.mjs` (incremental; shallow daily / deep weekly), `prune.mjs` (drop de-whitelisted), **`reconcile.mjs`** (purge tracks whose row-artist is a non-whitelisted uploader — cleans YT Music's polluted artist shelves; offline/cache-only), **`playlists.mjs`** (community-playlist discovery — seed-search → whitelist-filter → quality-gate → store; revalidate prunes stale), **`releases.mjs`** (date releases precisely — one `/player` per album → `album.uploadDate`; makes New Releases accurate). |
 | `scripts/`, `deploy/` | `maintain.sh` (refresh orchestrator: whitelist→onboard→prune→refresh under flock) + systemd timer/service units. |
 | `corpus/store.mjs` | **SQLite** schema + store API (artist/track/album/playlist/album_track **+ community_playlist/community_playlist_track**). |
 | `index/` | `normalize.mjs` (skeleton + Damerau + `skeletonKey`), **`search.mjs`** (the matcher), `synonyms.mjs`, `categories.mjs` (grouped/by-category search), `build-subset.mjs`, `*.test.mjs`. |
@@ -50,6 +50,7 @@ N=100 node harvester/harvest.mjs                             # → corpus.db (pe
 node harvester/onboard.mjs                                    # harvest only NEW whitelisted artists (diff vs corpus)
 node harvester/refresh.mjs                                    # re-harvest existing artists; DEFAULT deep (full); SHALLOW=1 = fast landing-only
 node harvester/prune.mjs                                      # drop de-whitelisted artists (survivor-guard) + apply data/blocklist.json
+DRY=1 node harvester/reconcile.mjs                           # report tracks whose row-artist is a non-whitelisted uploader (shelf pollution); drop DRY=1 to purge (offline, cache-only)
 node harvester/playlists.mjs                                  # discover COMMUNITY playlists (SEEDS=both FIRSTNAMES=1 N=4000 = full sweep; REVALIDATE=1 prunes stale)
 node harvester/releases.mjs                                   # date releases via /player → album.uploadDate (MIN_YEAR=2025 = recent only); makes New Releases real-date-accurate
 scripts/maintain.sh shallow|deep                             # orchestrate whitelist→onboard→prune→refresh (flock; cron/systemd; shallow daily / deep weekly)
@@ -137,6 +138,17 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
     `harvester/releases.mjs`) drives `recentAlbums`/`recentTracks`; `/new` shows only items with a real date
     **inside a window** (default 10 days). Undated items (no `/player` date yet — incl. standalone videos)
     are excluded from the window, NOT shown as "new". `harvestedAt` is only a last-resort fallback ordering.
+17. **Harvest only the artist's OWN content — YT Music's artist Songs/Videos shelves are POLLUTED.** The
+    "Videos" feed (and its "more" pagination) for an artist mixes in rows uploaded by **other** channels —
+    foreign garbage (Tamil/Lil Wayne/gospel), third-party Jewish covers, and re-uploads (e.g. YBC videos
+    posted by "EG Productions"). The harvest used to stamp the page artist on every shelf row, so that junk
+    got stored under a whitelisted artist. **Fix:** `core.mjs` `add()` keeps a row only if its OWN artist
+    channel (`rowArtistId`, captured by `songFromMRLIR` **and now `fromTwoRow`**) is whitelisted —
+    `ownsRow(rowArtistId, owned, whitelist)`: the artist's own music/regular channel, or any whitelisted
+    artist (so feat. collabs survive). A row with **no** captured artist is trusted to the page. Callers pass
+    the whitelist channel set. **`harvester/reconcile.mjs`** is the one-time cleanup: it re-parses every
+    artist from cache (offline) and purges already-stored tracks whose row artist is a non-whitelisted
+    uploader (`DRY=1` to report first). This is the **same whitelist-purity rule** community playlists use.
 
 ## Editing the matcher safely
 

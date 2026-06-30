@@ -54,6 +54,20 @@ entities**:
 
 `browse` is injected so callers control cache policy and so a block throws `BlockError` (clean abort).
 
+**Whitelist-purity guard (`ownsRow`).** YouTube Music's artist **Songs/Videos shelves are polluted** — the
+"Videos" feed (and its `more` pagination) mixes in rows uploaded by *other* channels: foreign garbage
+(Tamil/Lil Wayne/gospel), third-party Jewish covers, and re-uploads (e.g. YBC videos posted by "EG
+Productions"). Stamping the page artist on every shelf row stored that junk under a whitelisted artist. So
+`add()` now keeps a row only if its **own** artist channel (`rowArtistId` — captured per row by
+`songFromMRLIR` and `fromTwoRow`) is whitelisted: `ownsRow(rowArtistId, owned, whitelist)` where `owned` =
+the artist's own music + regular channel and `whitelist` = the full whitelisted-channel set (so feat.
+collabs by other whitelisted artists survive). A row with **no** captured artist is trusted to the page.
+Callers (`harvest`/`onboard`/`refresh`) pass the whitelist set. **`harvester/reconcile.mjs`** is the
+one-time cleanup for already-stored junk: it re-parses every artist from the **cache** (offline, zero
+YouTube calls) and purges tracks whose row artist is a non-whitelisted uploader — purging **only** rows it
+positively finds as foreign (a cache miss never deletes). `DRY=1` reports first. Same whitelist-purity rule
+the community playlists use (gotcha #17).
+
 ## Initial harvest, onboarding, refresh, prune
 
 The four entry points (all upsert **one artist's whole catalog per `db.transaction`** → durable per-artist

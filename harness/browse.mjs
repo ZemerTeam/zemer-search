@@ -63,8 +63,16 @@ function fromTwoRow(r) {
   const title = r.title?.runs?.[0]?.text;
   if (!title) return null;
   if (we) {
+    // Per-row artist (channel id) from the subtitle — so the harvest can drop carousel songs whose
+    // uploader isn't whitelisted (YT Music's artist "Videos" carousel mixes in foreign-channel uploads).
+    let rowArtistId = null, rowArtistName = null;
+    for (const run of r.subtitle?.runs || []) {
+      const bid = run?.navigationEndpoint?.browseEndpoint?.browseId;
+      if (bid && bid.startsWith("UC")) { rowArtistId = bid; rowArtistName = run.text; break; }
+    }
     return { kind: "song", videoId: we, title, thumbnail: thumbnailUrl(r.thumbnailRenderer),
-      explicit: (r.subtitleBadges || []).some((b) => b.musicInlineBadgeRenderer?.icon?.iconType === "MUSIC_EXPLICIT_BADGE"), isVideo: false };
+      explicit: (r.subtitleBadges || []).some((b) => b.musicInlineBadgeRenderer?.icon?.iconType === "MUSIC_EXPLICIT_BADGE"),
+      isVideo: false, rowArtistId, rowArtistName };
   }
   const browseId = r.navigationEndpoint?.browseEndpoint?.browseId;
   const playlistId = r.thumbnailOverlay?.musicItemThumbnailOverlayRenderer?.content

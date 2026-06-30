@@ -21,12 +21,13 @@ const whitelist = JSON.parse(fs.readFileSync(path.join(DATA, "whitelist.json"), 
 const browse = makeBrowse(postBrowse);
 const db = openCorpus();
 const artists = whitelist.filter((a) => /^UC/.test(a.id || "")).slice(0, N);
+const wlChannels = new Set(whitelist.map((a) => a.id).filter(Boolean)); // whitelist-purity guard: drop foreign-channel shelf rows
 let aborted = false;
 
 for (const a of artists) {
   if (aborted) break;
   try {
-    const got = await harvestArtist(a, browse); // forever-cache (no TTL)
+    const got = await harvestArtist(a, browse, { whitelist: wlChannels }); // forever-cache (no TTL)
     upsertArtistCatalog(db, a, got);            // durable per-artist checkpoint
     console.log(`${a.name.padEnd(32).slice(0, 32)}  +${got.tracks.length}t ${got.albums.length}al ${got.playlists.length}pl`);
   } catch (e) {

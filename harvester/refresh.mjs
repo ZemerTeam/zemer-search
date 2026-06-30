@@ -19,7 +19,7 @@ import { postBrowse } from "../harness/browse.mjs";
 import { netStats } from "../harness/net.mjs";
 import { harvestArtist, makeBrowse, BlockError } from "./core.mjs";
 import { setStatus } from "./status.mjs";
-import { openCorpus, upsertArtistCatalog, existingArtistIds, stats } from "../corpus/store.mjs";
+import { openCorpus, upsertArtistCatalog, existingArtistIds, whitelistedChannelIds, stats } from "../corpus/store.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DATA = path.resolve(HERE, "../data");
@@ -32,6 +32,7 @@ const landingMaxAgeMs = Number(process.env.MAX_AGE_H || 20) * 3600 * 1000;
 const shallow = process.env.SHALLOW === "1"; // default = DEEP (full pagination); SHALLOW=1 = landing-only fast pass
 const deep = !shallow;
 const artistIds = existingArtistIds(db); // ALL artist rows (incl. 0-track) so transiently-failed harvests recover
+const wlChannels = new Set([...whitelistedChannelIds(db), ...whitelist.map((a) => a.id).filter(Boolean)]); // whitelist-purity guard
 const before = stats(db).tracks;
 let aborted = false;
 let done = 0;
@@ -41,7 +42,7 @@ for (const aid of artistIds) {
   if (aborted) break;
   const artist = byId.get(aid) || { id: aid, name: db.prepare("SELECT name FROM artist WHERE id=?").get(aid)?.name || aid };
   try {
-    const got = await harvestArtist(artist, browse, { landingMaxAgeMs, shallow });
+    const got = await harvestArtist(artist, browse, { landingMaxAgeMs, shallow, whitelist: wlChannels });
     upsertArtistCatalog(db, artist, got); // existing rows update in place; new "+N" is the stats delta below
   } catch (e) {
     if (e instanceof BlockError) { console.warn("⚠ anti-bot block — stopping refresh to protect the IP"); aborted = true; setStatus({ blocks: 1 }); }

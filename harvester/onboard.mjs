@@ -11,7 +11,7 @@ import { postBrowse } from "../harness/browse.mjs";
 import { netStats } from "../harness/net.mjs";
 import { harvestArtist, makeBrowse, BlockError } from "./core.mjs";
 import { setStatus } from "./status.mjs";
-import { openCorpus, upsertArtistCatalog, existingArtistIds, stats } from "../corpus/store.mjs";
+import { openCorpus, upsertArtistCatalog, existingArtistIds, whitelistedChannelIds, stats } from "../corpus/store.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DATA = path.resolve(HERE, "../data");
@@ -20,6 +20,7 @@ const whitelist = JSON.parse(fs.readFileSync(path.join(DATA, "whitelist.json"), 
 const browse = makeBrowse(postBrowse);
 const db = openCorpus();
 const have = new Set(existingArtistIds(db));
+const wlChannels = new Set([...whitelistedChannelIds(db), ...whitelist.map((a) => a.id).filter(Boolean)]); // whitelist-purity guard
 const todo = whitelist.filter((a) => /^UC/.test(a.id || "") && !have.has(a.id));
 console.log(`onboard: ${todo.length} new whitelisted artists (whitelist ${whitelist.length}, ${have.size} already in corpus)`);
 
@@ -28,7 +29,7 @@ if (todo.length) setStatus({ phase: "onboard", done: 0, total: todo.length, newT
 for (const a of todo) {
   if (aborted) break;
   try {
-    const got = await harvestArtist(a, browse); // full catalog, forever-cache
+    const got = await harvestArtist(a, browse, { whitelist: wlChannels }); // full catalog, forever-cache
     // Only persist a real catalog. A transient fetch error yields {} → 0 tracks; writing that row would
     // strand the artist (onboard then skips it as "existing" forever). Leave it un-onboarded → retried.
     if (got.tracks.length) {

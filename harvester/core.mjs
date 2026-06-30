@@ -11,6 +11,13 @@ import {
 
 export class BlockError extends Error {}
 
+// A harvested shelf/album row "belongs" to the artist iff its OWN artist channel is the artist's own
+// (music or regular) channel, or any whitelisted artist's channel. Rows uploaded by non-whitelisted
+// channels (YT Music mixes foreign uploads into the artist's Videos/Songs feed) are dropped — same
+// whitelist-purity rule community playlists use. A row with no captured artist is trusted to the page.
+export const ownsRow = (rowArtistId, owned, whitelist) =>
+  owned.has(rowArtistId) || (!!whitelist && whitelist.has(rowArtistId));
+
 export function makeBrowse(postBrowse) {
   return async (args) => {
     const r = await postBrowse(args);
@@ -48,13 +55,17 @@ async function pageChain(browse, first, isVideo, add, onItems) {
 //     pagination. New releases surface at the top of the landing carousels, so a shallow pass catches
 //     them with ~1 request/artist instead of many. Used by the daily maintenance refresh; the weekly
 //     deep refresh and the initial harvest/onboard stay full.
-export async function harvestArtist(artist, browse, { landingMaxAgeMs, shallow = false } = {}) {
+export async function harvestArtist(artist, browse, { landingMaxAgeMs, shallow = false, whitelist = null } = {}) {
   const seen = new Set();
   const tracks = [];
   const albums = new Map();    // browseId -> album/single/ep entity
   const playlists = new Map(); // playlistId -> playlist entity
+  const owned = new Set([artist.id]); // channels whose rows legitimately belong here (music + regular, added below)
   const add = (s) => {
     if (!s?.videoId || s.videoId.length !== 11 || seen.has(s.videoId)) return;
+    // Whitelist-purity guard: drop a shelf/album row uploaded by a non-whitelisted channel (YT Music
+    // mixes foreign uploads into the artist's Videos/Songs feed). A row with no captured artist is trusted.
+    if (s.rowArtistId && !ownsRow(s.rowArtistId, owned, whitelist)) return;
     seen.add(s.videoId);
     tracks.push({
       videoId: s.videoId, title: s.title, artistId: artist.id, artistName: artist.name,
@@ -76,6 +87,7 @@ export async function harvestArtist(artist, browse, { landingMaxAgeMs, shallow =
   };
 
   const page = parseArtistPage(await browse({ browseId: artist.id, maxAgeMs: landingMaxAgeMs }));
+  if (page.regularChannelId) owned.add(page.regularChannelId); // the artist's own upload channel is always theirs
   const sections = page.sections;
 
   for (const s of sections) {
