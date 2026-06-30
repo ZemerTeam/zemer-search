@@ -53,5 +53,15 @@ do {
 
 const outDir = path.join(WORKSPACE, "data");
 fs.mkdirSync(outDir, { recursive: true });
-fs.writeFileSync(path.join(outDir, "blocked-ids.json"), JSON.stringify({ global, female }));
-console.log(`wrote ${global.length} global + ${female.length} female id-overrides -> data/blocked-ids.json`);
+const out = path.join(outDir, "blocked-ids.json");
+const next = JSON.stringify({ global, female });
+// Write ONLY when the list actually changed, so a frequent fetch of an unchanged list is a true no-op:
+// the file's mtime doesn't move, so the API's reload change-gate doesn't fire a (costly) index rebuild.
+// A real edit rewrites it → the API re-applies within one reload tick (~RELOAD_MS).
+let prev = null; try { prev = fs.readFileSync(out, "utf8"); } catch { /* none yet */ }
+if (prev === next) {
+  console.log(`blocked-ids unchanged (${global.length} global, ${female.length} female) — not rewritten (no needless reload)`);
+} else {
+  fs.writeFileSync(out, next);
+  console.log(`wrote ${global.length} global + ${female.length} female id-overrides -> data/blocked-ids.json`);
+}

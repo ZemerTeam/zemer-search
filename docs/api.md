@@ -54,7 +54,8 @@ drill-in (`contentFlags()` in `api.mjs`):
   matched against a result's `videoId`/`playlistId`/`channelId`/`browseId`. Applied serve-time on **every**
   endpoint: `/search` (every category), `/community`, `/playlist`, `/artist`, `/album`, `/new`. The curated
   patch for what auto-detection can't catch (a women's playlist surviving on one token male track → add its
-  **playlistId** as `female`). Refreshed several times a day (the `zemer-overrides` timer); the API re-applies
+  **playlistId** as `female`). Refreshed ~every 10 min (the `zemer-overrides` timer; writes only on a real
+  change, so unchanged fetches don't reload); the API re-applies
   it on its next reload tick (no restart). **No backfill** — pure filter; empty list is a no-op.
 - **Defense-in-depth:** the app should also drop any `isVideo`/female item it receives. One edge: a
   playlist track on a whitelisted channel but **not yet in the corpus** has an unknown `isVideo`, so

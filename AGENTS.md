@@ -130,7 +130,9 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
    `/playlist` `/artist` `/album` `/new` (`idDropped`, incl. their sub-lists); `female` videoIds also join the
    `_female` set so community counts treat them as female. **No backfill — pure serve-time filter**; empty list
    = no-op. To hide a women's playlist, add its **playlistId** as `female` in Firestore. The list is fetched
-   **several times a day** by `deploy/zemer-overrides.timer` (lightweight, no harvest) AND on every
+   **~every 10 min** by `deploy/zemer-overrides.timer` (lightweight Firestore read, no harvest; **writes
+   `blocked-ids.json` only when the list actually changed**, so an unchanged fetch is a no-op and triggers no
+   index reload) AND on every
    `maintain.sh` run, and the API re-applies it on its next reload tick (`blocked-ids.json` is in the reload
    change-gate — **no restart**).
    **Community covers are filter-aware** (`communityKeptCounts` returns `{kept, cover}`; `/playlist` uses the
