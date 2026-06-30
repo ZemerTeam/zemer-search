@@ -35,6 +35,24 @@ test("cross-script query reaches every category", () => {
   assert.ok(r.songs.some((s) => s.videoId === "aaaaaaaaaaa"));
 });
 
+test("artists/albums/singles/playlists honor k (no longer hard-capped at 6)", () => {
+  const f = { isFemale: false, isChasid: false, isKidZone: false };
+  const mk = (n, g) => Array.from({ length: n }, (_, i) => g(i));
+  const artists = mk(8, (i) => ({ id: `UCart${i}`, name: `Simcha Singer ${i}`, thumbnail: null, ...f }));
+  const albums = [
+    ...mk(8, (i) => ({ id: `MPRalb${i}`, playlistId: `PLa${i}`, title: `Simcha Album ${i}`, artistName: "X", type: "album", year: 2020, thumbnail: null, ...f })),
+    ...mk(8, (i) => ({ id: `MPRsin${i}`, playlistId: `PLs${i}`, title: `Simcha Single ${i}`, artistName: "X", type: "single", year: 2021, thumbnail: null, ...f })),
+  ];
+  const playlists = mk(8, (i) => ({ id: `PLpl${i}`, title: `Simcha Playlist ${i}`, artistName: "X", thumbnail: null, ...f }));
+  const r = searchCategories(buildCategories({ tracks: [], artists, albums, playlists }), "simcha", { k: 8 });
+  assert.ok(r.artists.length >= 7, `artists=${r.artists.length} (was capped at 6)`);
+  assert.ok(r.albums.length >= 7, `albums=${r.albums.length}`);
+  assert.ok(r.singles.length >= 7, `singles=${r.singles.length}`);
+  assert.ok(r.playlists.length >= 7, `playlists=${r.playlists.length}`);
+  // summary (k=8) still bounds each category to ≤ k
+  assert.ok(r.artists.length <= 8 && r.albums.length <= 8, "still bounded by k");
+});
+
 test("videos category respects k (not capped at 6) so the Videos pill isn't truncated", () => {
   const vids = Array.from({ length: 8 }, (_, i) => ({ videoId: `vvvvvvvvv0${i}`, title: `Simcha Clip ${i}`, artistName: "דודי פולק", isVideo: true, explicit: false, ...flags(artist) }));
   const cats = buildCategories({ ...corpus, tracks: [...corpus.tracks, ...vids] });

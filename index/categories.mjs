@@ -49,12 +49,14 @@ export function searchCategories(cats, q, o = {}) {
     search(idx, q, n * 4).map((r) => r.track).filter((t) => allowed(t, o)).slice(0, n).map(map);
   const albumRow = (a) => ({ id: a.id, playlistId: a.playlistId, title: a.title, artist: a.artistName, year: a.year, thumbnail: a.thumbnail });
   return {
-    artists: pick(cats.artists, (a) => ({ id: a.id, name: a.name, thumbnail: a.thumbnail }), 6),
+    // every category honors the requested k (filter-then-slice in pick); the app sends k=8 for the "All"
+    // summary and k=100 per filter chip, so each chip isn't pinned at a tiny cap.
+    artists: pick(cats.artists, (a) => ({ id: a.id, name: a.name, thumbnail: a.thumbnail })),
     songs: pick(cats.songs, (t) => ({ videoId: t.videoId, title: t.title, artist: t.artistName, explicit: t.explicit })),
-    albums: pick(cats.albums, albumRow, 6),
-    singles: pick(cats.singles, albumRow, 6),
-    videos: pick(cats.videos, (t) => ({ videoId: t.videoId, title: t.title, artist: t.artistName, explicit: t.explicit })), // respect k (like songs/community) so the Videos pill isn't capped at 6
-    playlists: pick(cats.playlists, (p) => ({ id: p.id, title: p.title, artist: p.artistName, thumbnail: p.thumbnail, source: p.source || "artist", whitelisted: p.whitelisted }), 6),
+    albums: pick(cats.albums, albumRow),
+    singles: pick(cats.singles, albumRow),
+    videos: pick(cats.videos, (t) => ({ videoId: t.videoId, title: t.title, artist: t.artistName, explicit: t.explicit })),
+    playlists: pick(cats.playlists, (p) => ({ id: p.id, title: p.title, artist: p.artistName, thumbnail: p.thumbnail, source: p.source || "artist", whitelisted: p.whitelisted })),
     // title-only ranking; curator kept for display; respects k (not capped at 6). Hides community playlists
     // with no track surviving the content filter (all-female list when female is blocked, etc.).
     community: search(cats.community, q, k * 4).map((r) => r.track).filter((p) => communitySurvives(p, o)).slice(0, k)

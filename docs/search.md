@@ -113,7 +113,9 @@ Deterministic: stable sort by `score → shorter title → id`.
 `buildCategories(corpus)` builds **seven** independent in-memory indexes — `artists`, `songs`, `videos`,
 `albums`, `singles`, `playlists` (artist-owned), and `community` (community-curated) — each a `buildIndex`
 over that entity type shaped as `{title, artistName, …payload}`. `searchCategories(cats, q, opts)` runs
-`search()` on each and returns the top-k per category, applying the content filter.
+`search()` on each and returns the top-k per category, applying the content filter. **Every category honors
+the request's `k`** (filter-then-slice, so the cap never leaks a filtered item) — the app sends `k=8` for
+the "All" summary and `k=100`/`k=500` per filter chip; no category is pinned to a small fixed cap.
 
 **`allowed(t, o)` — content filters apply ONLY when explicitly requested** (Gotcha #7):
 `o.allowFemale === false` filters female; `o.kidZoneOnly` keeps only KidZone; `o.blockVideos` removes
