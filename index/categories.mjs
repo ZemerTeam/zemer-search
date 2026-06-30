@@ -4,6 +4,7 @@
 // top-k per category with content-filter scoping.
 import { buildIndex, search } from "./search.mjs";
 import { buildFemaleMatcher, isFemaleInvolved } from "./credits.mjs";
+import { plainTokens } from "./normalize.mjs";
 
 // Each entity doc carries `femaleInvolved` — true when its PRIMARY artist is female OR any credited
 // (featured) artist matches a known female (see credits.mjs). The content filter uses this instead of the
@@ -24,6 +25,13 @@ export function buildCategories({ tracks = [], artists = [], albums = [], playli
   const albumDocs = albums.map((a) => ({ ...a, femaleInvolved: a.isFemale || isFemaleInvolved(a.title, a.artistName, a.isFemale, m) }));
   const artistDocs = artists.map((a) => ({ ...a, title: a.name, artistName: "", femaleInvolved: a.isFemale }));
   const playlistDocs = playlists.map((p) => ({ ...p, femaleInvolved: p.isFemale })); // artist-owned: the owner's gender
+  // A community playlist that IS a female artist's own playlist (same id as a female-owned artist playlist,
+  // or curated under a female artist's name) is female-owned — member-survival alone would keep it alive on a
+  // few male collab tracks, so flag it to hide when female is blocked. (Caught a real leak: "DJ Kraz - Complete
+  // Collection" surviving on 4 non-female members.)
+  const femaleOwnedPl = new Set(playlists.filter((p) => p.isFemale).map((p) => p.id));
+  const femaleNames = new Set(artists.filter((a) => a.isFemale && a.name).map((a) => plainTokens(a.name).join(" ")));
+  const communityDocs = community.map((c) => ({ ...c, femaleOwned: femaleOwnedPl.has(c.id) || (!!c.author && femaleNames.has(plainTokens(c.author).join(" "))) }));
   const cats = {
     artists: buildIndex(artistDocs, synonyms),
     songs: buildIndex(songs, synonyms),
@@ -31,7 +39,7 @@ export function buildCategories({ tracks = [], artists = [], albums = [], playli
     singles: buildIndex(albumDocs.filter((a) => a.type === "single"), synonyms),
     videos: buildIndex(videos, synonyms),
     playlists: buildIndex(playlistDocs, synonyms),    // artist-owned playlists
-    community: buildIndex(community, synonyms),        // community-curated playlists (own chip)
+    community: buildIndex(communityDocs, synonyms),    // community-curated playlists (own chip)
   };
   cats.femaleVideoIds = femaleVideoIds; // for the server's SQL paths (temp _female); harmless elsewhere
   return cats;
@@ -62,6 +70,7 @@ const blockedDoc = (d, o, b) => {
 // Fail-open when there's no class data (a real playlist always has ≥1 member).
 function communitySurvives(p, o) {
   if (o.allowFemale !== false && !o.kidZoneOnly && !o.blockVideos) return true; // no filter active
+  if (p.femaleOwned && o.allowFemale === false) return false; // a female artist's OWN playlist → hide (don't survive on male collabs)
   if (p.fb) return true;
   const mask = p.clsMask | 0;
   if (!mask) return true; // no data → don't hide

@@ -1,0 +1,17 @@
+[Unit]
+Description=zemer-search id-override refresh (Firestore blockedContentIds -> data/blocked-ids.json; fetch only, no harvest)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# --- EDIT these for your deployment (match the API's WorkingDirectory + the app creds path) ---
+WorkingDirectory=/opt/zemer-search
+Environment=ZEMER_APP=/opt/zemer-app
+# Lightweight (one Firestore read); stay out of the API's way.
+Nice=10
+IOSchedulingClass=idle
+ExecStart=/usr/bin/env node harness/blocked-ids.mjs
+# The API picks up the refreshed list on its next reload tick (RELOAD_MS, default 30s) — blocked-ids.json is
+# in the reload change-gate, so NO restart is needed.
+TimeoutStartSec=5m

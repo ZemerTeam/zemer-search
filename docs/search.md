@@ -149,6 +149,11 @@ reads a compact per-playlist class bitmask (`clsMask`) + a fallback flag (`fb` =
 → always kept) carried in the index doc, so there's **no per-query DB hit**. The `/search` endpoint then
 reduces each surviving community playlist's displayed `whitelisted` to its post-filter count
 (`communityKeptCounts`), so the number matches `/community` and what actually plays.
+Additionally, a community playlist that is itself **a female artist's own playlist** (`femaleOwned`: its id
+matches a female-owned artist playlist, or its curator name is a known female artist) is hidden when female
+is blocked **regardless of member survival** — otherwise a female artist's collection would stay visible on a
+few male collab tracks (a real leak found by the full female-block audit: every female artist queried by
+first + last name with female blocked must return zero female items).
 
 ## 6. Synonyms (`synonyms.mjs`)
 

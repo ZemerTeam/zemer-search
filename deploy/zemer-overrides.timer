@@ -1,0 +1,16 @@
+[Unit]
+Description=Refresh zemer-search id-overrides several times a day (lightweight Firestore fetch, applied without restart)
+
+[Timer]
+Unit=zemer-overrides.service
+# Several times a day so a curated blockedContentIds change (e.g. hiding a women's playlist) takes effect within
+# hours, not a day. Shabbat-aware like the refresh timers: every 3h Sun–Thu, Fri only through the morning (before
+# Shabbat), and Saturday ONLY after Shabbat (22:00). Multiple OnCalendar= lines OR together.
+OnCalendar=Sun..Thu *-*-* 00/3:00:00
+OnCalendar=Fri *-*-* 00,03,06,09,12:00:00
+OnCalendar=Sat *-*-* 22:00:00
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

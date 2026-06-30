@@ -14,7 +14,7 @@ import path from "node:path";
 import cluster from "node:cluster";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds } from "../corpus/store.mjs";
+import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, BLOCKED_IDS_PATH } from "../corpus/store.mjs";
 import { buildCategories, searchCategories } from "../index/categories.mjs";
 import { buildFemaleMatcher, collectFemaleVideoIds } from "../index/credits.mjs";
 import { loadDefaultSynonyms } from "../index/synonyms.mjs";
@@ -94,7 +94,8 @@ async function startServer() {
     try {
       const a = fs.statSync(DB_PATH);
       let w = 0; try { w = fs.statSync(DB_PATH + "-wal").mtimeMs; } catch { /* no -wal */ }
-      sig = `${a.mtimeMs}:${a.size}:${w}`;
+      let bi = 0; try { bi = fs.statSync(BLOCKED_IDS_PATH).mtimeMs; } catch { /* no blocked-ids.json */ }
+      sig = `${a.mtimeMs}:${a.size}:${w}:${bi}`; // a fresh override fetch (its own timer) re-applies on the next tick
     } catch { /* stat failed → fall through and rebuild */ }
     if (!force && sig && sig === lastSig) return indexedCount; // unchanged → keep the current index
     const tracks = allTracks(liveDb);
@@ -206,6 +207,7 @@ async function startServer() {
             albums: rel.filter((r) => (r.trackCount || 1) > 1).slice(0, k).map(row),
             singles: rel.filter((r) => (r.trackCount || 1) === 1).slice(0, k).map(row),
           };
+          for (const key of Object.keys(categories)) categories[key] = categories[key].filter((it) => !idDropped(it.videoId || it.id, cats.blocked, allowFemale));
           const count = categories.albums.length + categories.singles.length;
           return send(res, 200, { count, categories, source: "feed", feedGeneratedAt: feed.generatedAt || null, windowDays: days });
         }
@@ -223,6 +225,7 @@ async function startServer() {
           albums: albums.filter((a) => a.type !== "single").slice(0, k).map(al),
           singles: albums.filter((a) => a.type === "single").slice(0, k).map(al),
         };
+        for (const key of Object.keys(categories)) categories[key] = categories[key].filter((it) => !idDropped(it.videoId || it.id, cats.blocked, allowFemale));
         const count = Object.values(categories).reduce((n, a) => n + a.length, 0);
         return send(res, 200, { count, categories, source: "corpus" });
       }
@@ -237,11 +240,13 @@ async function startServer() {
       if (u.pathname === "/artist") {
         const id = u.searchParams.get("id"), cf = contentFlags(u.searchParams);
         const d = id && !idDropped(id, cats.blocked, cf.allowFemale) && artistDetail(liveDb, id, cf);
+        if (d) for (const key of ["songs", "videos", "albums", "singles", "playlists"]) d[key] = d[key].filter((it) => !idDropped(it.videoId || it.id, cats.blocked, cf.allowFemale));
         return d ? cacheSet(req.url, send(res, 200, d)) : send(res, 404, { error: "artist not found" });
       }
       if (u.pathname === "/album") {
         const id = u.searchParams.get("id"), cf = contentFlags(u.searchParams);
         const d = id && !idDropped(id, cats.blocked, cf.allowFemale) && albumDetail(liveDb, id, cf);
+        if (d) d.tracks = d.tracks.filter((t) => !idDropped(t.videoId, cats.blocked, cf.allowFemale));
         return d ? cacheSet(req.url, send(res, 200, d)) : send(res, 404, { error: "album not found" });
       }
       if (u.pathname === "/playlist") {

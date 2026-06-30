@@ -33,7 +33,7 @@ whitelist (Firestore)  →  harvester (InnerTube, IP-safe)  →  corpus.db (SQLi
 |-----|------|
 | `harness/` | Ported InnerTube layer: `clients.mjs`, `lib.mjs`, `parsers.mjs`; **`net.mjs`** (gzip disk cache + bounded-concurrency rate-paced limiter + anti-bot circuit breaker; `cacheOnly` option for offline report passes); `browse.mjs` (artist/album/playlist parsers); **`search.mjs`** (IP-safe search via `net.mjs` — community-playlist discovery); **`player.mjs`** (IP-safe `/player` — the real release date, ISO `uploadDate`); `whitelist.mjs` (fetch Firestore whitelist, read-only); **`blocked-ids.mjs`** (fetch Firestore `blockedContentIds` → `data/blocked-ids.json`: per-id `female`/`global` overrides, read-only); `status.mjs` (maintenance progress channel). Browse + search + player are **unauthenticated** — no cookie, no `visitorData`. |
 | `harvester/` | `core.mjs` (shared per-artist harvest; shallow/deep), `harvest.mjs` (initial bulk), `onboard.mjs` (new artists), `refresh.mjs` (incremental; shallow daily / deep weekly), `prune.mjs` (drop de-whitelisted), **`reconcile.mjs`** (purge tracks whose row-artist is a non-whitelisted uploader — cleans YT Music's polluted artist shelves; offline/cache-only), **`playlists.mjs`** (community-playlist discovery — seed-search → whitelist-filter → quality-gate → store; revalidate prunes stale), **`releases.mjs`** (date releases precisely — one `/player` per album → `album.uploadDate`; makes New Releases accurate). |
-| `scripts/`, `deploy/` | `maintain.sh` (refresh orchestrator: whitelist→onboard→prune→refresh under flock) + systemd timer/service units. |
+| `scripts/`, `deploy/` | `maintain.sh` (refresh orchestrator: whitelist+blocked-ids→onboard→prune→refresh under flock) + systemd timer/service units (`zemer-refresh@`, `zemer-playlists`, and **`zemer-overrides`** — the several-times-a-day id-override fetch). |
 | `corpus/store.mjs` | **SQLite** schema + store API (artist/track/album/playlist/album_track **+ community_playlist/community_playlist_track**). |
 | `index/` | `normalize.mjs` (skeleton + Damerau + `skeletonKey`), **`search.mjs`** (the matcher), `synonyms.mjs`, `categories.mjs` (grouped/by-category search), **`credits.mjs`** (featuring female detection — `buildFemaleMatcher`/`isFemaleInvolved`; whole-token + cross-script-only skeleton, whitelist-validated), `build-subset.mjs`, `*.test.mjs`. |
 | `server/` | `api.mjs` (HTTP API + cluster + LRU cache; `/search` `/artist` `/album` `/playlist` `/new` `/community` `/health`+`maintenance`), `ui.html` (web UI: search chips + **Community** chip (browse-all, no search) + **New Releases** chip + live refresh-progress bar). |
@@ -125,12 +125,21 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
    read-only Firestore `blockedContentIds` collection (fetched to `data/blocked-ids.json` by
    `harness/blocked-ids.mjs`, `{global:[…], female:[…]}`) is the curated patch, mirroring the app: an id
    (matched against a result's `videoId`/`playlistId`/`channelId`/`browseId`) listed `global` is dropped for
-   everyone, `female` only when female is blocked. Applied serve-time by `searchCategories` (`blockedDoc`, via
-   `cats.blocked`) + `/community` `/playlist` `/artist` `/album` (`idDropped`); `female` videoIds also join the
+   everyone, `female` only when female is blocked. Applied serve-time on **EVERY** result endpoint:
+   `searchCategories` (`blockedDoc`, via `cats.blocked`, on every category incl. community) + `/community`
+   `/playlist` `/artist` `/album` `/new` (`idDropped`, incl. their sub-lists); `female` videoIds also join the
    `_female` set so community counts treat them as female. **No backfill — pure serve-time filter**; empty list
-   = no-op. To hide a women's playlist, add its **playlistId** as `female` in Firestore + re-fetch.
+   = no-op. To hide a women's playlist, add its **playlistId** as `female` in Firestore. The list is fetched
+   **several times a day** by `deploy/zemer-overrides.timer` (lightweight, no harvest) AND on every
+   `maintain.sh` run, and the API re-applies it on its next reload tick (`blocked-ids.json` is in the reload
+   change-gate — **no restart**).
    **Community covers are filter-aware** (`communityKeptCounts` returns `{kept, cover}`; `/playlist` uses the
    first surviving track): a filtered card shows the first SURVIVING member's art, never a dropped/female one.
+   **A female artist's OWN playlist discovered as community is hidden** when female is blocked even if it has a
+   male collab track (`femaleOwned`: the community id matches a female-owned artist playlist, or its curator is
+   a known female artist) — member-survival alone would otherwise keep it alive. Verified by a full audit
+   (every female-whitelisted artist, queried by first + last name with female blocked, returns **0** female
+   items across all categories).
 8. **Videos are their own category, not songs.** A live-recording track is in `videos`, not `songs` —
    benchmarks must check the right category or you'll see phantom "recall misses".
 9. **Same-title collisions are not bugs.** Many tracks share a title; returning *a* same-title track is

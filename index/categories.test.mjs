@@ -88,6 +88,13 @@ test("blockedContentIds override: global ids drop always; female ids drop only w
   cats.blocked = { global: new Set(), female: new Set(["aaaaaaaaaaa"]) };
   assert.ok(searchCategories(cats, "kevakarat", {}).songs.some((s) => s.videoId === "aaaaaaaaaaa"), "female id shown by default");
   assert.ok(!searchCategories(cats, "kevakarat", { allowFemale: false }).songs.some((s) => s.videoId === "aaaaaaaaaaa"), "female id dropped when female blocked");
+  // EVERY category is override-filtered: artist (channelId), album (id), single (id) — all via blockedDoc in pick
+  const catsA = buildCategories(corpus);
+  catsA.blocked = { global: new Set(["UC1", "MPRE1", "MPRE2"]), female: new Set() }; // artist + album + single ids
+  const r = searchCategories(catsA, "dudi polak", { k: 20 });
+  assert.ok(!r.artists.some((a) => a.id === "UC1"), "artist override dropped");
+  assert.ok(!r.albums.some((a) => a.id === "MPRE1"), "album override dropped");
+  assert.ok(!r.singles.some((a) => a.id === "MPRE2"), "single override dropped");
   // playlistId override hides a community playlist (the curated patch for women's playlists surviving on a token male track)
   const cats2 = buildCategories({ ...corpus, community: [CP("PLblk", "Shabbos Block", 1 << 0)] });
   cats2.blocked = { global: new Set(["PLblk"]), female: new Set() };
@@ -105,6 +112,15 @@ test("community search: an ALL-female playlist is hidden when female is blocked;
   const filtered = searchCategories(cats, "shabbos", { k: 20, allowFemale: false }).community.map((p) => p.id);
   assert.ok(!filtered.includes("PLallfem"), "all-female community playlist hidden in search when female blocked");
   assert.ok(filtered.includes("PLmixed"), "mixed community playlist still shown");
+});
+
+test("community: a female artist's OWN playlist is hidden when female blocked, even with a male collab member", () => {
+  // mixed clsMask (female + male audio) → member-survival alone would keep it; but it's curated by a female artist
+  const c = CP("PLfemown", "Her Collection", (1 << 4) | (1 << 0)); c.author = "Some Female"; // a female artist in corpus
+  const cats = buildCategories({ ...corpus, community: [c] });
+  assert.ok(searchCategories(cats, "her collection", { k: 20 }).community.some((p) => p.id === "PLfemown"), "shown by default");
+  assert.ok(!searchCategories(cats, "her collection", { k: 20, allowFemale: false }).community.some((p) => p.id === "PLfemown"),
+    "female-owned community playlist hidden when female blocked (doesn't survive on a male collab)");
 });
 
 test("community search: an all-video playlist is hidden when videos are blocked", () => {

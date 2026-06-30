@@ -34,7 +34,7 @@ export function blocklist() {
 // collection by harness/blocked-ids.mjs — the same list the app honors). One flat table of ids matched
 // against a result's videoId / playlistId / channelId / browseId: `global` ids are dropped for everyone,
 // `female` ids only when female is blocked. Read fresh (no cache) so an index reload picks up a new fetch.
-const BLOCKED_IDS_PATH = process.env.BLOCKED_IDS || path.resolve(HERE, "../data/blocked-ids.json");
+export const BLOCKED_IDS_PATH = process.env.BLOCKED_IDS || path.resolve(HERE, "../data/blocked-ids.json");
 export function loadBlockedIds() {
   let global = [], female = [];
   try { const j = JSON.parse(fs.readFileSync(BLOCKED_IDS_PATH, "utf8")); global = j.global || []; female = j.female || []; } catch { /* none → empty (no-op) */ }
