@@ -45,6 +45,14 @@ P@1/recall, **begins>contains for every category**, synonyms (`mbd → Mordechai
 determinism. Note: a few residual begins>contains "violations" are **cross-script skeleton collisions**
 (e.g. "אקסן" shares the skeleton "ksn" with "chasunah") — confirmed test artifacts, not matcher bugs.
 
+Unit tests also pin the female-filter completeness: featuring detection (`credits.test.mjs` — title
+`feat.`/cross-script/whole-token, no over-filter), the `_female` SQL path + community member-gender
+resolution + filter-aware covers (`store.test.mjs`), and `blockedDoc`/`femaleOwned`/honor-`k`
+(`categories.test.mjs`). The end-to-end check is a **female-block audit** (one-off): every female-whitelisted
+artist queried by first + last name with `allowFemale=0` must return **0** female items across all categories
+(songs/videos/albums/singles/playlists/artists/community) — run it against a live API after corpus or
+filter changes.
+
 ## `loadtest` — throughput (needs a running API)
 
 `node bench/loadtest.mjs [total] [concurrency]` against `API` (default `http://localhost:7700`). Simulates

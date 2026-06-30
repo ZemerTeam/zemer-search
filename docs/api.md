@@ -46,13 +46,16 @@ drill-in (`contentFlags()` in `api.mjs`):
   filtered card never shows a dropped/female member's art — `communityKeptCounts` returns `{kept, cover}`).
   Survival is computed from a compact per-playlist class bitmask carried in the in-memory index for `/search`
   (no per-query DB hit) and a direct query for `/community`; the reduced `/search` count comes from
-  `communityKeptCounts`.
+  `communityKeptCounts`. A community playlist that is itself **a female artist's own playlist** (`femaleOwned`:
+  its id matches a female-owned artist playlist, or its curator is a known female artist) is hidden under
+  `allowFemale=0` **regardless of member survival** — so it can't stay visible on a male collab track.
 - **Curated id overrides** (`blockedContentIds` → `data/blocked-ids.json`, fetched by `harness/blocked-ids.mjs`):
   a flat id list mirroring the app — `global` ids dropped for everyone, `female` ids when female is blocked,
-  matched against a result's `videoId`/`playlistId`/`channelId`/`browseId`. Applied serve-time on `/search`
-  (every category), `/community`, `/playlist`, `/artist`, `/album`. The curated patch for what auto-detection
-  can't catch (a women's playlist surviving on one token male track → add its **playlistId** as `female`).
-  **No backfill** — pure filter; empty list is a no-op.
+  matched against a result's `videoId`/`playlistId`/`channelId`/`browseId`. Applied serve-time on **every**
+  endpoint: `/search` (every category), `/community`, `/playlist`, `/artist`, `/album`, `/new`. The curated
+  patch for what auto-detection can't catch (a women's playlist surviving on one token male track → add its
+  **playlistId** as `female`). Refreshed several times a day (the `zemer-overrides` timer); the API re-applies
+  it on its next reload tick (no restart). **No backfill** — pure filter; empty list is a no-op.
 - **Defense-in-depth:** the app should also drop any `isVideo`/female item it receives. One edge: a
   playlist track on a whitelisted channel but **not yet in the corpus** has an unknown `isVideo`, so
   `blockVideos` can't catch it server-side (female/KidZone still filter via the artist) — the client

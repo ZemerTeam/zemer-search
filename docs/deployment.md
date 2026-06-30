@@ -101,6 +101,18 @@ sudo cp deploy/zemer-playlists.service deploy/zemer-playlists-weekly.timer /etc/
 sudo systemctl daemon-reload && sudo systemctl enable --now zemer-playlists-weekly.timer         # Sun 05:00, Shabbat-aware
 ```
 
+**Conditional id-overrides** (the Firestore `blockedContentIds` list — per-id `female`/`global` blocks the app
+honors; see [search.md](search.md) + gotcha #7) are fetched to `data/blocked-ids.json` by
+`harness/blocked-ids.mjs`. `maintain.sh` refreshes it alongside the whitelist (step 1b), **and** a dedicated
+`zemer-overrides` timer re-fetches it **several times a day** (Shabbat-aware) so a curated change (e.g. hiding
+a women's playlist) takes effect within hours — the API picks up the new file on its next reload tick
+(`blocked-ids.json` is in the reload change-gate, so **no restart**). It's a lightweight Firestore read (no
+harvest), so it's fine on any IP:
+```bash
+sudo cp deploy/zemer-overrides.service deploy/zemer-overrides.timer /etc/systemd/system/  # edit WorkingDirectory + ZEMER_APP
+sudo systemctl daemon-reload && sudo systemctl enable --now zemer-overrides.timer          # every ~3h Sun–Thu, Fri AM, Sat 22:00
+```
+
 Cron alternative (Shabbat-aware — Mon–Fri AM + Sat after Shabbat shallow, Sunday deep):
 ```cron
 0 3  * * 1-5  cd /path/to/zemer-search && ZEMER_APP=/path/to/zemer-app scripts/maintain.sh shallow >> /var/log/zemer-refresh.log 2>&1

@@ -21,6 +21,15 @@ A `SearchProvider` interface producing today's `SearchSummaryPage` / `SearchResu
     (summary / each category / suggestions / pagination), explicitly, **fail-closed**. The server then does
     the rest: hides all-female community playlists, reduces mixed counts, 404s filtered detail. See the
     full APK guide (`../../ZEMER_SEARCH_CONTENT_FILTER_APK_GUIDE.md`).
+  - **Curated id-overrides** (`blockedContentIds`): the server already drops `global`/`female`-tagged ids on
+    every endpoint, so raw rendering stays safe; the app *also* drops them client-side (`ZemerResultMapper`'s
+    `dropBlocked` over `BlockedIdsCache`) — belt-and-suspenders, fine to keep.
+  - **Covers come from the server** — render a result's `thumbnail` field (it's whitelist-pure and
+    **filter-aware**: a community card's cover is the first *surviving* member, never a dropped/female one).
+    Do **not** substitute YouTube's native playlist cover. ⚠️ When a community playlist is **opened**, the app
+    fetches it from InnerTube and the detail header must likewise use the **first filtered track's** thumbnail
+    (as `CachePlaylistScreen`/`AutoPlaylistScreen` do), not the raw YouTube playlist image — else a female
+    cover reappears on drill-in even though the tracks are filtered.
 - **`LocalIndexSearchProvider`** (offline fallback) — the **same matcher as `index/search.mjs`, ported to
   pure Kotlin**, over a bundled gzipped subset (`index/build-subset.mjs` output). Must be pure Kotlin/JVM:
   **no SQLite-FTS, no platform ICU** → identical on Android 8 → 15 (see [architecture.md](architecture.md)).
