@@ -30,6 +30,17 @@ export function blocklist() {
   return _blocklist;
 }
 
+// Conditional id-override list (data/blocked-ids.json, fetched from the Firestore `blockedContentIds`
+// collection by harness/blocked-ids.mjs — the same list the app honors). One flat table of ids matched
+// against a result's videoId / playlistId / channelId / browseId: `global` ids are dropped for everyone,
+// `female` ids only when female is blocked. Read fresh (no cache) so an index reload picks up a new fetch.
+const BLOCKED_IDS_PATH = process.env.BLOCKED_IDS || path.resolve(HERE, "../data/blocked-ids.json");
+export function loadBlockedIds() {
+  let global = [], female = [];
+  try { const j = JSON.parse(fs.readFileSync(BLOCKED_IDS_PATH, "utf8")); global = j.global || []; female = j.female || []; } catch { /* none → empty (no-op) */ }
+  return { global: new Set(global), female: new Set(female) };
+}
+
 export function openCorpus(file = DB_PATH) {
   const db = new Database(file);
   db.pragma("journal_mode = WAL");
@@ -311,17 +322,23 @@ export const communityPlaylistList = (db, limit = 500, { allowFemale = true, kid
 // Post-filter whitelisted-track count for specific community playlists, so the COUNT shown next to a
 // community playlist matches what actually plays under the filter (e.g. a mixed list's count excludes its
 // female songs) — the same `keep` rule communityPlaylistList uses, so /search and /community agree. Returns
-// Map(id -> keptCount); null when no filter is active (caller keeps the stored full count).
+// Map(id -> {kept, cover}) where `cover` is the thumbnail of the first SURVIVING member (so a filtered card
+// never shows a dropped/female member's art); null when no filter is active (caller keeps the stored count+cover).
 export function communityKeptCounts(db, ids, { allowFemale = true, kidZoneOnly = false, blockVideos = false } = {}) {
   if (!ids || !ids.length || (allowFemale && !kidZoneOnly && !blockVideos)) return null;
   const keep = "((t.videoId IS NULL AND cpt.artistId IS NULL) OR ((@allowFemale=1 OR (COALESCE(a.isFemale,am.isFemale,0)=0 AND cpt.videoId NOT IN (SELECT videoId FROM _female))) AND (@kidZoneOnly=0 OR COALESCE(a.isKidZone,am.isKidZone,0)=1) AND (@blockVideos=0 OR COALESCE(t.isVideo,0)=0)))";
-  const stmt = db.prepare(`SELECT SUM(CASE WHEN ${keep} THEN 1 ELSE 0 END) AS kept
+  const stmt = db.prepare(`SELECT SUM(CASE WHEN ${keep} THEN 1 ELSE 0 END) AS kept, MIN(CASE WHEN ${keep} THEN cpt.pos END) AS coverPos
     FROM community_playlist_track cpt LEFT JOIN track t ON t.videoId=cpt.videoId LEFT JOIN artist a ON a.id=t.artistId
     LEFT JOIN artist am ON am.id=cpt.artistId
     WHERE cpt.playlistId=@pid`);
+  const coverStmt = db.prepare("SELECT videoId FROM community_playlist_track WHERE playlistId=? AND pos=?");
   const flags = { allowFemale: allowFemale ? 1 : 0, kidZoneOnly: kidZoneOnly ? 1 : 0, blockVideos: blockVideos ? 1 : 0 };
   const out = new Map();
-  for (const id of ids) out.set(id, stmt.get({ ...flags, pid: id })?.kept || 0);
+  for (const id of ids) {
+    const r = stmt.get({ ...flags, pid: id });
+    const coverVid = r?.coverPos != null ? coverStmt.get(id, r.coverPos)?.videoId : null;
+    out.set(id, { kept: r?.kept || 0, cover: coverVid ? ytThumb(coverVid) : null });
+  }
   return out;
 }
 

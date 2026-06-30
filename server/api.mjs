@@ -14,7 +14,7 @@ import path from "node:path";
 import cluster from "node:cluster";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet } from "../corpus/store.mjs";
+import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds } from "../corpus/store.mjs";
 import { buildCategories, searchCategories } from "../index/categories.mjs";
 import { buildFemaleMatcher, collectFemaleVideoIds } from "../index/credits.mjs";
 import { loadDefaultSynonyms } from "../index/synonyms.mjs";
@@ -43,6 +43,9 @@ const contentFlags = (sp) => ({
   kidZoneOnly: sp.get("kidZone") === "1",     // kidZone=1   → only KidZone artists
   blockVideos: sp.get("blockVideos") === "1", // blockVideos=1 → drop video tracks/category
 });
+// Server-curated id override (Firestore blockedContentIds → cats.blocked): `global` ids dropped always,
+// `female` ids when female is blocked. Matches a result's videoId / playlistId / channelId / browseId.
+const idDropped = (id, blocked, allowFemale) => !!id && (blocked.global.has(id) || (allowFemale === false && blocked.female.has(id)));
 
 if (cluster.isPrimary && WORKERS > 1) {
   console.log(`zsearch primary (pid ${process.pid}) → forking ${WORKERS} workers on :${PORT}`);
@@ -100,9 +103,14 @@ async function startServer() {
     // and publish it to the connection's `_female` set BEFORE community is loaded — so the community
     // clsMask + every SQL female filter agree exactly with the in-memory category filter. (No-op if empty.)
     const matcher = buildFemaleMatcher(artists);
-    setFemaleSet(liveDb, collectFemaleVideoIds(tracks, matcher));
+    // Server-curated id overrides (Firestore blockedContentIds → data/blocked-ids.json). `female`-tagged
+    // videoIds also join the _female set so community member counts treat them as female; the full list
+    // (incl. playlist/channel ids) is applied per-result by searchCategories + the endpoints below.
+    const blocked = loadBlockedIds();
+    setFemaleSet(liveDb, [...collectFemaleVideoIds(tracks, matcher), ...blocked.female]);
     // Artist-owned playlists and community-discovered playlists are indexed separately → separate chips.
     cats = buildCategories({ tracks, artists, albums: allAlbums(liveDb), playlists: allPlaylists(liveDb), community: allCommunityPlaylists(liveDb) }, loadDefaultSynonyms(), matcher);
+    cats.blocked = blocked; // consumed by searchCategories; also reused by the detail endpoints (dropId)
     indexedCount = tracks.length; indexedAt = Date.now();
     whitelistTotal = countWhitelist();
     cache.clear();
@@ -163,11 +171,12 @@ async function startServer() {
         if (!q.trim()) return send(res, 400, { error: "missing q" });
         const o = { ...contentFlags(u.searchParams), k: Math.min(200, Math.max(1, Number(u.searchParams.get("k") || 8))) };
         const categories = searchCategories(cats, q, o);
-        // Reduce each community playlist's count to its post-filter total (so a mixed list's count excludes
-        // its female songs, matching /community + what actually plays). No-op when no filter is active.
+        // Reduce each community playlist's count to its post-filter total AND swap its cover to the first
+        // SURVIVING member's art (so a filtered card never shows a dropped/female member's count or cover,
+        // matching /community + what actually plays). No-op when no filter is active.
         if (categories.community?.length) {
           const counts = communityKeptCounts(liveDb, categories.community.map((p) => p.id), o);
-          if (counts) for (const p of categories.community) { const c = counts.get(p.id); if (c != null) p.whitelisted = c; }
+          if (counts) for (const p of categories.community) { const c = counts.get(p.id); if (c) { p.whitelisted = c.kept; if (c.cover) p.thumbnail = c.cover; } }
         }
         return cacheSet(req.url, send(res, 200, { q, count: Object.values(categories).reduce((n, a) => n + a.length, 0), categories }));
       }
@@ -221,32 +230,38 @@ async function startServer() {
         // Browse ALL community playlists (no query) — powers the Community chip's "show all" view.
         // Defaults to every playlist (cap is just a sanity bound), so the UI isn't silently truncated.
         const k = Math.min(100000, Math.max(1, Number(u.searchParams.get("k") || 100000)));
-        const playlists = communityPlaylistList(liveDb, k, contentFlags(u.searchParams));
+        const cf = contentFlags(u.searchParams);
+        const playlists = communityPlaylistList(liveDb, k, cf).filter((p) => !idDropped(p.id, cats.blocked, cf.allowFemale));
         return cacheSet(req.url, send(res, 200, { count: playlists.length, playlists }));
       }
       if (u.pathname === "/artist") {
-        const d = u.searchParams.get("id") && artistDetail(liveDb, u.searchParams.get("id"), contentFlags(u.searchParams));
+        const id = u.searchParams.get("id"), cf = contentFlags(u.searchParams);
+        const d = id && !idDropped(id, cats.blocked, cf.allowFemale) && artistDetail(liveDb, id, cf);
         return d ? cacheSet(req.url, send(res, 200, d)) : send(res, 404, { error: "artist not found" });
       }
       if (u.pathname === "/album") {
-        const d = u.searchParams.get("id") && albumDetail(liveDb, u.searchParams.get("id"), contentFlags(u.searchParams));
+        const id = u.searchParams.get("id"), cf = contentFlags(u.searchParams);
+        const d = id && !idDropped(id, cats.blocked, cf.allowFemale) && albumDetail(liveDb, id, cf);
         return d ? cacheSet(req.url, send(res, 200, d)) : send(res, 404, { error: "album not found" });
       }
       if (u.pathname === "/playlist") {
         const id = u.searchParams.get("id");
         if (!id) return send(res, 400, { error: "missing id" });
+        const cf = contentFlags(u.searchParams);
+        if (idDropped(id, cats.blocked, cf.allowFemale)) return send(res, 200, { playlist: { id, title: "Playlist", artist: "", thumbnail: null }, tracks: [], total: 0, whitelisted: 0 });
         let meta = liveDb.prepare("SELECT pl.title,pl.thumbnail,a.name artistName FROM playlist pl JOIN artist a ON a.id=pl.artistId WHERE pl.id=?").get(id);
+        const isCommunity = !meta; // community playlist covers are derived from a member, so make them filter-aware below
         if (!meta) { const c = communityPlaylistMeta(liveDb, id); if (c) meta = { title: c.title, thumbnail: c.thumbnail, artistName: c.author || "Community playlist" }; }
         const playlist = { id, title: meta?.title || "Playlist", artist: meta?.artistName || "", thumbnail: meta?.thumbnail || null };
         const songs = await fetchPlaylistTracks(id);
         if (songs === null) return send(res, 200, { playlist, tracks: [], note: "playlist contents unavailable" });
-        const cf = contentFlags(u.searchParams);
         const corpus = tracksByIds(liveDb, songs.map((s) => s.videoId));
         const wl = whitelistedChannelIds(liveDb);
         const aflags = new Map(allArtists(liveDb).map((a) => [a.id, a])); // content flags for fallback (non-corpus) tracks
         const pass = (isFemale, isKidZone, isVideo) => (cf.allowFemale || !isFemale) && (!cf.kidZoneOnly || isKidZone) && (!cf.blockVideos || !isVideo);
         const tracks = [];
         for (const s of songs) {
+          if (idDropped(s.videoId, cats.blocked, cf.allowFemale)) continue; // server-curated id override
           const c = corpus.get(s.videoId);
           if (c) { // in corpus → real per-track flags
             if (pass(c.isFemale, c.isKidZone, c.isVideo)) tracks.push({ videoId: c.videoId, title: c.title, artist: c.artist, explicit: c.explicit });
@@ -255,6 +270,9 @@ async function startServer() {
             if (pass(!!f.isFemale, !!f.isKidZone, false)) tracks.push({ videoId: s.videoId, title: s.title, artist: s.rowArtistName, explicit: !!s.explicit });
           }
         }
+        // Community covers are derived from a member track — use the first SURVIVING track so the header
+        // never shows a filtered-out (e.g. female) member's art. Artist-owned playlists keep their own cover.
+        if (isCommunity && tracks.length) playlist.thumbnail = `https://i.ytimg.com/vi/${tracks[0].videoId}/mqdefault.jpg`;
         return cacheSet(req.url, send(res, 200, { playlist, tracks, total: songs.length, whitelisted: tracks.length }));
       }
       send(res, 404, { error: "not found" });

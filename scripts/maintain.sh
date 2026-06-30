@@ -47,6 +47,9 @@ rc=0
 status '{"phase":"whitelist","done":0,"total":0}'
 wl_ok=1
 if node harness/whitelist.mjs; then log "whitelist: refreshed"; else wl_ok=0; rc=1; log "WARN whitelist refetch FAILED — skipping onboard + prune (refresh still runs)"; fi
+# 1b) Conditional id-overrides (Firestore blockedContentIds → data/blocked-ids.json). Serve-time only, so a
+#     failure is non-fatal — the API keeps the last fetched list (never silently un-blocks).
+if node harness/blocked-ids.mjs; then log "blocked-ids: refreshed"; else log "WARN blocked-ids refetch FAILED — keeping the existing list"; fi
 
 # 2) Onboard newly-whitelisted artists (only with a fresh whitelist).
 blocked=0

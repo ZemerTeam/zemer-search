@@ -230,17 +230,17 @@ test("featuring filter (_female set): a male-primary feat-female track is droppe
   ] });
   upsertCommunityPlaylist(db, { id: "PLfeat", title: "Mix", total: 2 }, [{ videoId: "maleaudio01", pos: 0 }, { videoId: "featfem0001", pos: 1 }]);
   // _female empty → primary-only: both male-primary tracks survive allowFemale=0
-  assert.equal(communityKeptCounts(db, ["PLfeat"], { allowFemale: false }).get("PLfeat"), 2);
+  assert.equal(communityKeptCounts(db, ["PLfeat"], { allowFemale: false }).get("PLfeat").kept, 2);
   assert.equal(artistDetail(db, "UCm", { allowFemale: false }).songs.length, 2);
   // publish the feat track as female-involved → it drops from the count AND the artist's songs
   setFemaleSet(db, ["featfem0001"]);
-  assert.equal(communityKeptCounts(db, ["PLfeat"], { allowFemale: false }).get("PLfeat"), 1, "feat-female member excluded from kept count");
+  assert.equal(communityKeptCounts(db, ["PLfeat"], { allowFemale: false }).get("PLfeat").kept, 1, "feat-female member excluded from kept count");
   const d = artistDetail(db, "UCm", { allowFemale: false });
   assert.ok(d.songs.some((s) => s.videoId === "maleaudio01") && !d.songs.some((s) => s.videoId === "featfem0001"), "feat-female dropped, male solo kept");
   // tracksByIds reports the feat track as female (so /playlist drops it); empty filter is unaffected
   assert.equal(tracksByIds(db, ["featfem0001"]).get("featfem0001").isFemale, true);
   setFemaleSet(db, []); // revert → primary-only again
-  assert.equal(communityKeptCounts(db, ["PLfeat"], { allowFemale: false }).get("PLfeat"), 2, "empty _female reverts to primary-only");
+  assert.equal(communityKeptCounts(db, ["PLfeat"], { allowFemale: false }).get("PLfeat").kept, 2, "empty _female reverts to primary-only");
 });
 
 test("community: an un-harvested member with a resolved female artistId is treated as female (no fail-open)", () => {
@@ -252,7 +252,7 @@ test("community: an un-harvested member with a resolved female artistId is treat
     { videoId: "femunharv01", pos: 1, artistId: "UCfem" },    // NOT in corpus; resolved to the female artist
   ]);
   // female-blocked: only the male survives → kept count 1 (NOT 2 via the old fail-open)
-  assert.equal(communityKeptCounts(db, ["PLmix"], { allowFemale: false }).get("PLmix"), 1, "resolved female fallback member excluded");
+  assert.equal(communityKeptCounts(db, ["PLmix"], { allowFemale: false }).get("PLmix").kept, 1, "resolved female fallback member excluded");
   // an all-female playlist whose only member is an un-harvested female: fb=0 (resolved), clsMask = female-audio only
   upsertCommunityPlaylist(db, { id: "PLfem", title: "All Fem", total: 1 }, [{ videoId: "femunharv02", pos: 0, artistId: "UCfem" }]);
   const row = allCommunityPlaylists(db).find((p) => p.id === "PLfem");
@@ -261,6 +261,19 @@ test("community: an un-harvested member with a resolved female artistId is treat
   // a member with NO corpus track AND NO resolved artist is still a true fallback (fail-open kept)
   upsertCommunityPlaylist(db, { id: "PLunk", title: "Unknown", total: 1 }, [{ videoId: "trulyunknwn", pos: 0 }]);
   assert.equal(allCommunityPlaylists(db).find((p) => p.id === "PLunk").fb, 1, "truly-unknown member still fails open");
+});
+
+test("community cover is filter-aware: a filtered card shows the first SURVIVING member's art, not a dropped one", () => {
+  const db = openCorpus(":memory:");
+  upsertArtistCatalog(db, { id: "UCf", name: "Fem", isFemale: true }, { tracks: [{ videoId: "femfirst001", title: "F" }] });
+  upsertArtistCatalog(db, { id: "UCm2", name: "Male" }, { tracks: [{ videoId: "malesecnd01", title: "M" }] });
+  upsertCommunityPlaylist(db, { id: "PLcov", title: "Mixed", total: 2 }, [
+    { videoId: "femfirst001", pos: 0 },   // female FIRST → would be the static cover
+    { videoId: "malesecnd01", pos: 1 },
+  ]);
+  const info = communityKeptCounts(db, ["PLcov"], { allowFemale: false }).get("PLcov");
+  assert.equal(info.kept, 1);
+  assert.ok(info.cover.includes("malesecnd01") && !info.cover.includes("femfirst001"), "cover skips the female member to the surviving male");
 });
 
 test("upsertArtistCatalog prefers video: a cross-listed videoId becomes/stays isVideo=1 (never downgraded)", () => {
@@ -387,7 +400,7 @@ test("communityKeptCounts: a mixed playlist's count is reduced to the post-filte
     { videoId: "fem00song01", pos: 0 }, { videoId: "male0song01", pos: 1 }, { videoId: "male0vid001", pos: 2 },
   ]);
   assert.equal(communityKeptCounts(db, ["PLmix"], {}), null, "no filter active → null (caller keeps stored count)");
-  assert.equal(communityKeptCounts(db, ["PLmix"], { allowFemale: false }).get("PLmix"), 2, "female blocked → counts only the 2 non-female tracks");
-  assert.equal(communityKeptCounts(db, ["PLmix"], { blockVideos: true }).get("PLmix"), 2, "videos blocked → counts only the 2 non-video tracks");
-  assert.equal(communityKeptCounts(db, ["PLmix"], { allowFemale: false, blockVideos: true }).get("PLmix"), 1, "both blocked → only the male audio track");
+  assert.equal(communityKeptCounts(db, ["PLmix"], { allowFemale: false }).get("PLmix").kept,2, "female blocked → counts only the 2 non-female tracks");
+  assert.equal(communityKeptCounts(db, ["PLmix"], { blockVideos: true }).get("PLmix").kept,2, "videos blocked → counts only the 2 non-video tracks");
+  assert.equal(communityKeptCounts(db, ["PLmix"], { allowFemale: false, blockVideos: true }).get("PLmix").kept,1, "both blocked → only the male audio track");
 });

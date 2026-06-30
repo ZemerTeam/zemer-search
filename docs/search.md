@@ -131,6 +131,16 @@ vice-versa) because same-script skeletons collide. Unknown candidate names never
 mirrors this into SQL via a per-connection `_female` set (see `setFemaleSet` in store.md) so `/artist`
 `/album` `/playlist` `/new` + community counts agree exactly with `/search`.
 
+**Curated id overrides** (`blockedDoc`, via `cats.blocked` = `loadBlockedIds()`). Auto-detection can't catch
+everything (a women's playlist that survives on one token male track; a female collaborator not named in a
+track's text), so a flat Firestore-fetched id list patches the rest, mirroring the app's `blockedContentIds`:
+an id (matched against a result's `videoId`/`id`/`playlistId`) listed `global` is dropped for everyone,
+`female` only when female is blocked. `searchCategories` applies it to every category incl. community; the API
+applies the same `idDropped` to `/community` `/playlist` `/artist` `/album`. Pure serve-time filter (empty =
+no-op). **Community covers are filter-aware**: a filtered card's thumbnail is the first SURVIVING member's
+art, never a dropped/female member's (`communityKeptCounts` returns `{kept, cover}`; `/playlist` uses the
+first surviving track).
+
 **Community playlists filter by SURVIVAL, not `allowed()`** (a community playlist has no single artist).
 `communitySurvives(p, o)` keeps one only if ≥1 of its whitelisted members would survive the filter — so an
 all-female list is hidden when female is blocked, an all-video list when videos are blocked; **exact,

@@ -42,6 +42,19 @@ export function buildCategories({ tracks = [], artists = [], albums = [], playli
 // allowFemale=false / kidZone=true gate every entity via its artist's flags.
 const allowed = (t, o) => (o.allowFemale === false ? !(t.femaleInvolved ?? t.isFemale) : true) && (o.kidZoneOnly ? t.isKidZone : true) && (o.blockVideos ? !t.isVideo : true);
 
+// Server-curated id overrides (mirrors the app's `blockedContentIds`): an id listed `global` is dropped for
+// everyone; `female` only when female is blocked. Matched against a result's videoId / id (channelId or
+// browseId) / playlistId — one flat list covers every entity type. `b` = cats.blocked = {global, female} Sets
+// (undefined → no-op). This is the curated patch for what auto-detection can't catch (e.g. a women's playlist
+// that survives on one token male track, or a female collaborator not named in a track's text).
+const blockedDoc = (d, o, b) => {
+  if (!b) return false;
+  for (const id of [d.videoId, d.id, d.playlistId]) {
+    if (id && (b.global.has(id) || (o.allowFemale === false && b.female.has(id)))) return true;
+  }
+  return false;
+};
+
 // A community playlist survives the content filter iff ≥1 of its whitelisted members would survive (same
 // rule the /community list + /playlist serve-time filter use), so an ALL-female list is hidden when female
 // is blocked, an all-video list when videos are blocked, etc. `clsMask` packs which (isFemale,isVideo,
@@ -63,8 +76,9 @@ function communitySurvives(p, o) {
 
 export function searchCategories(cats, q, o = {}) {
   const k = o.k || 8;
+  const b = cats.blocked; // server-curated id overrides (global/female); undefined → no-op
   const pick = (idx, map, n = k) =>
-    search(idx, q, n * 4).map((r) => r.track).filter((t) => allowed(t, o)).slice(0, n).map(map);
+    search(idx, q, n * 4).map((r) => r.track).filter((t) => allowed(t, o) && !blockedDoc(t, o, b)).slice(0, n).map(map);
   const albumRow = (a) => ({ id: a.id, playlistId: a.playlistId, title: a.title, artist: a.artistName, year: a.year, thumbnail: a.thumbnail });
   return {
     // every category honors the requested k (filter-then-slice in pick); the app sends k=8 for the "All"
@@ -77,7 +91,7 @@ export function searchCategories(cats, q, o = {}) {
     playlists: pick(cats.playlists, (p) => ({ id: p.id, title: p.title, artist: p.artistName, thumbnail: p.thumbnail, source: p.source || "artist", whitelisted: p.whitelisted })),
     // title-only ranking; curator kept for display; respects k (not capped at 6). Hides community playlists
     // with no track surviving the content filter (all-female list when female is blocked, etc.).
-    community: search(cats.community, q, k * 4).map((r) => r.track).filter((p) => communitySurvives(p, o)).slice(0, k)
+    community: search(cats.community, q, k * 4).map((r) => r.track).filter((p) => communitySurvives(p, o) && !blockedDoc(p, o, b)).slice(0, k)
       .map((p) => ({ id: p.id, title: p.title, artist: p.author || "", thumbnail: p.thumbnail, source: "community", whitelisted: p.whitelisted })),
   };
 }

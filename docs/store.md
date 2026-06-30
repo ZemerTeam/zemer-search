@@ -73,7 +73,8 @@ writer. Indexes on every `artistId` and `album_track.albumId`.
 | `upsertCommunityPlaylist(db, pl, whitelistedTracks)` | **One transaction**: upsert a community playlist + re-snapshot its whitelisted membership (drops blocklisted ids; re-check shrinks the set cleanly). |
 | `allCommunityPlaylists(db)` | Community playlists shaped like the artist-playlist docs (`{id, title, artistName:"", author, thumbnail, source:"community", whitelisted, total}`) for the search index. Also carries `fb` (has a not-yet-in-corpus member → unknown flags) + `clsMask` (one bit per present `isFemale·isVideo·isKidZone` member class) so `searchCategories` can hide a playlist with no member surviving the filter. |
 | `communityPlaylistList(db, limit, opts?)` | Browse-all list for `/community`. With a filter active (`opts`), hides playlists with **zero** surviving members (all-female list when female blocked, etc.), reduces `whitelisted` to the kept count, and takes the cover from a kept track. |
-| `communityKeptCounts(db, ids, opts?)` | `Map(id → post-filter track count)` for the given community playlists, so `/search` shows the **same reduced count** as `/community`. Returns `null` when no filter is active (caller keeps the stored full count). |
+| `communityKeptCounts(db, ids, opts?)` | `Map(id → {kept, cover})` for the given community playlists — `kept` = post-filter track count (so `/search` shows the **same reduced count** as `/community`), `cover` = thumbnail of the first **surviving** member (so a filtered card never shows a dropped/female member's art). Returns `null` when no filter is active (caller keeps the stored full count + cover). |
+| `loadBlockedIds()` | Reads `data/blocked-ids.json` → `{global:Set, female:Set}` (the fetched `blockedContentIds` id-overrides; see Gotcha #7). Read fresh each call (an index reload picks up a new fetch). Empty when the file is absent. |
 | `communityPlaylistMeta(db, id)` / `communityPlaylistIds(db)` | Detail-header lookup for `/playlist`; the set of already-discovered ids (so a re-run skips them unless `RECHECK=1`). |
 | `stats(db)` | `{tracks, artists, videos, albums, singles, playlists, communityPlaylists}` — the live `/health` numbers. |
 
@@ -111,6 +112,13 @@ writer. Indexes on every `artistId` and `album_track.albumId`.
   longer "fails open" (an all-female list with one such member used to show then open empty). `fb` (true
   unknown → fail-open) is now only a member with neither a corpus track nor a resolved artist. NULL
   `artistId` = the old behavior, so it's a no-op until `harvester/backfill-community-artists.mjs` runs.
+- **Curated id overrides** (`loadBlockedIds` → `data/blocked-ids.json`, fetched from Firestore
+  `blockedContentIds` by `harness/blocked-ids.mjs`): a flat id list (matched against a result's
+  videoId/playlistId/channelId/browseId) — `global` ids dropped for everyone, `female` only when female is
+  blocked. Applied **serve-time** by `searchCategories` (`cats.blocked`) + the API's `idDropped` on
+  `/community` `/playlist` `/artist` `/album`; `female` videoIds also merge into the `_female` set. Pure
+  filter — **no backfill, no corpus change**; empty list is a no-op. The curated patch for what auto-detection
+  misses (Gotcha #7), e.g. a women's playlist surviving on one token male track (add its playlistId as `female`).
 - **`tracksByIds` chunks** the `IN (…)` to ≤ 500 ids per statement (SQLite's bound-variable limit).
 - The DB is read **concurrently** by the API (a persistent WAL reader) while the harvester writes —
   that's exactly what WAL is for. The API sees the harvester's latest committed per-artist upserts.

@@ -42,9 +42,17 @@ drill-in (`contentFlags()` in `api.mjs`):
   list whose only non-female tracks are videos). A **mixed** list still shows, and its `whitelisted` count
   is **reduced to the post-filter total in BOTH `/community` and `/search`** (so the number matches what
   actually plays — e.g. a mixed list shows `67` unfiltered, `62` with `allowFemale=0`, identical on both
-  endpoints). `/community` also takes the cover from a kept track. Survival is computed from a compact
-  per-playlist class bitmask carried in the in-memory index for `/search` (no per-query DB hit) and a direct
-  query for `/community`; the reduced `/search` count comes from `communityKeptCounts`.
+  endpoints). **Both** `/community` and `/search` take the cover from the first **surviving** member (so a
+  filtered card never shows a dropped/female member's art — `communityKeptCounts` returns `{kept, cover}`).
+  Survival is computed from a compact per-playlist class bitmask carried in the in-memory index for `/search`
+  (no per-query DB hit) and a direct query for `/community`; the reduced `/search` count comes from
+  `communityKeptCounts`.
+- **Curated id overrides** (`blockedContentIds` → `data/blocked-ids.json`, fetched by `harness/blocked-ids.mjs`):
+  a flat id list mirroring the app — `global` ids dropped for everyone, `female` ids when female is blocked,
+  matched against a result's `videoId`/`playlistId`/`channelId`/`browseId`. Applied serve-time on `/search`
+  (every category), `/community`, `/playlist`, `/artist`, `/album`. The curated patch for what auto-detection
+  can't catch (a women's playlist surviving on one token male track → add its **playlistId** as `female`).
+  **No backfill** — pure filter; empty list is a no-op.
 - **Defense-in-depth:** the app should also drop any `isVideo`/female item it receives. One edge: a
   playlist track on a whitelisted channel but **not yet in the corpus** has an unknown `isVideo`, so
   `blockVideos` can't catch it server-side (female/KidZone still filter via the artist) — the client

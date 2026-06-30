@@ -31,14 +31,14 @@ whitelist (Firestore)  →  harvester (InnerTube, IP-safe)  →  corpus.db (SQLi
 
 | Dir | What |
 |-----|------|
-| `harness/` | Ported InnerTube layer: `clients.mjs`, `lib.mjs`, `parsers.mjs`; **`net.mjs`** (gzip disk cache + bounded-concurrency rate-paced limiter + anti-bot circuit breaker; `cacheOnly` option for offline report passes); `browse.mjs` (artist/album/playlist parsers); **`search.mjs`** (IP-safe search via `net.mjs` — community-playlist discovery); **`player.mjs`** (IP-safe `/player` — the real release date, ISO `uploadDate`); `whitelist.mjs` (fetch Firestore whitelist, read-only); `status.mjs` (maintenance progress channel). Browse + search + player are **unauthenticated** — no cookie, no `visitorData`. |
+| `harness/` | Ported InnerTube layer: `clients.mjs`, `lib.mjs`, `parsers.mjs`; **`net.mjs`** (gzip disk cache + bounded-concurrency rate-paced limiter + anti-bot circuit breaker; `cacheOnly` option for offline report passes); `browse.mjs` (artist/album/playlist parsers); **`search.mjs`** (IP-safe search via `net.mjs` — community-playlist discovery); **`player.mjs`** (IP-safe `/player` — the real release date, ISO `uploadDate`); `whitelist.mjs` (fetch Firestore whitelist, read-only); **`blocked-ids.mjs`** (fetch Firestore `blockedContentIds` → `data/blocked-ids.json`: per-id `female`/`global` overrides, read-only); `status.mjs` (maintenance progress channel). Browse + search + player are **unauthenticated** — no cookie, no `visitorData`. |
 | `harvester/` | `core.mjs` (shared per-artist harvest; shallow/deep), `harvest.mjs` (initial bulk), `onboard.mjs` (new artists), `refresh.mjs` (incremental; shallow daily / deep weekly), `prune.mjs` (drop de-whitelisted), **`reconcile.mjs`** (purge tracks whose row-artist is a non-whitelisted uploader — cleans YT Music's polluted artist shelves; offline/cache-only), **`playlists.mjs`** (community-playlist discovery — seed-search → whitelist-filter → quality-gate → store; revalidate prunes stale), **`releases.mjs`** (date releases precisely — one `/player` per album → `album.uploadDate`; makes New Releases accurate). |
 | `scripts/`, `deploy/` | `maintain.sh` (refresh orchestrator: whitelist→onboard→prune→refresh under flock) + systemd timer/service units. |
 | `corpus/store.mjs` | **SQLite** schema + store API (artist/track/album/playlist/album_track **+ community_playlist/community_playlist_track**). |
 | `index/` | `normalize.mjs` (skeleton + Damerau + `skeletonKey`), **`search.mjs`** (the matcher), `synonyms.mjs`, `categories.mjs` (grouped/by-category search), **`credits.mjs`** (featuring female detection — `buildFemaleMatcher`/`isFemaleInvolved`; whole-token + cross-script-only skeleton, whitelist-validated), `build-subset.mjs`, `*.test.mjs`. |
 | `server/` | `api.mjs` (HTTP API + cluster + LRU cache; `/search` `/artist` `/album` `/playlist` `/new` `/community` `/health`+`maintenance`), `ui.html` (web UI: search chips + **Community** chip (browse-all, no search) + **New Releases** chip + live refresh-progress bar). |
 | `bench/` | `relevance` `category-relevance` `audit` `fuzz` `deep-test` `loadtest` `bench` `diag-typos`. |
-| `data/` | `corpus.db`, `whitelist.json`, `synonyms.json`, `blocklist.json` (curated exclusions: `videoIds`/`artistIds` + community `playlistIds` + `playlistTerms` title/curator screen), `playlist-seeds.json` (community-playlist discovery seed terms), `rejected-artists.json` (generated: non-whitelisted artists seen in community playlists, for whitelist review), `.httpcache/` (gzipped, prunable). |
+| `data/` | `corpus.db`, `whitelist.json`, `blocked-ids.json` (fetched id-overrides: `{global:[…], female:[…]}` — global ids hidden always, female ids when female blocked; mirrors the app's `blockedContentIds`), `synonyms.json`, `blocklist.json` (curated exclusions: `videoIds`/`artistIds` + community `playlistIds` + `playlistTerms` title/curator screen), `playlist-seeds.json` (community-playlist discovery seed terms), `rejected-artists.json` (generated: non-whitelisted artists seen in community playlists, for whitelist review), `.httpcache/` (gzipped, prunable). |
 | `docs/` | Comprehensive deep-dive docs — read `docs/README.md`. |
 
 ## Commands
@@ -46,6 +46,7 @@ whitelist (Firestore)  →  harvester (InnerTube, IP-safe)  →  corpus.db (SQLi
 ```bash
 npm install                                                   # better-sqlite3
 node harness/whitelist.mjs                                    # → data/whitelist.json (reads app google-services.json read-only)
+node harness/blocked-ids.mjs                                  # → data/blocked-ids.json (Firestore blockedContentIds: per-id female/global overrides, read-only)
 N=100 node harvester/harvest.mjs                             # → corpus.db (per-artist durable upserts; no cookie — browse is unauthenticated)
 node harvester/onboard.mjs                                    # harvest only NEW whitelisted artists (diff vs corpus)
 node harvester/refresh.mjs                                    # re-harvest existing artists; DEFAULT deep (full); SHALLOW=1 = fast landing-only
@@ -55,7 +56,7 @@ DRY=1 node harvester/backfill-video-flags.mjs               # report cross-liste
 DRY=1 node harvester/backfill-community-artists.mjs         # resolve each community-playlist member's artist (so un-harvested members' gender is known); drop DRY=1 to write (offline, cache-only)
 node harvester/playlists.mjs                                  # discover COMMUNITY playlists (SEEDS=both FIRSTNAMES=1 N=4000 = full sweep; REVALIDATE=1 prunes stale)
 node harvester/releases.mjs                                   # date releases via /player → album.uploadDate (MIN_YEAR=2025 = recent only); makes New Releases real-date-accurate
-scripts/maintain.sh shallow|deep                             # orchestrate whitelist→onboard→prune→refresh (flock; cron/systemd; shallow daily / deep weekly)
+scripts/maintain.sh shallow|deep                             # orchestrate whitelist+blocked-ids→onboard→prune→refresh (flock; cron/systemd; shallow daily / deep weekly)
 npm test                                                      # unit tests (index/ + corpus/ + harvester/)
 npm run verify                                                # FULL accuracy gate: test + audit + fuzz + deep-test (must stay green)
 npm run relevance | category-relevance | audit | fuzz | deep-test   # individual measurement harnesses (offline)
@@ -119,6 +120,17 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
    `/album` `/playlist` `/new`) filter identically; empty `_female` = primary-only (so tests/bench are
    unchanged). NOTE: a male mis-flagged `isFemale=1` in the whitelist (a Firestore data error, e.g. seen for
    `Ari Lesser`) over-filters his own AND feat. tracks — fix the whitelist, not the matcher.
+   **Curated id overrides (`blockedContentIds`).** Auto-detection can't catch everything — a women's community
+   playlist that survives on one token male track, or a female collaborator not named in a track's text. The
+   read-only Firestore `blockedContentIds` collection (fetched to `data/blocked-ids.json` by
+   `harness/blocked-ids.mjs`, `{global:[…], female:[…]}`) is the curated patch, mirroring the app: an id
+   (matched against a result's `videoId`/`playlistId`/`channelId`/`browseId`) listed `global` is dropped for
+   everyone, `female` only when female is blocked. Applied serve-time by `searchCategories` (`blockedDoc`, via
+   `cats.blocked`) + `/community` `/playlist` `/artist` `/album` (`idDropped`); `female` videoIds also join the
+   `_female` set so community counts treat them as female. **No backfill — pure serve-time filter**; empty list
+   = no-op. To hide a women's playlist, add its **playlistId** as `female` in Firestore + re-fetch.
+   **Community covers are filter-aware** (`communityKeptCounts` returns `{kept, cover}`; `/playlist` uses the
+   first surviving track): a filtered card shows the first SURVIVING member's art, never a dropped/female one.
 8. **Videos are their own category, not songs.** A live-recording track is in `videos`, not `songs` —
    benchmarks must check the right category or you'll see phantom "recall misses".
 9. **Same-title collisions are not bugs.** Many tracks share a title; returning *a* same-title track is

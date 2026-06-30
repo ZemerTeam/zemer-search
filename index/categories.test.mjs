@@ -81,6 +81,22 @@ test("blockVideos empties the Videos category; allowFemale=false hides the femal
 // clsMask bit = (isFemale*4 + isVideo*2 + isKidZone): female-audio=1<<4, male-audio=1<<0, male-video=1<<2.
 const CP = (id, title, clsMask, fb = 0) => ({ id, title, artistName: "", author: "DJ", thumbnail: null, source: "community", whitelisted: 5, total: 5, fb, clsMask });
 
+test("blockedContentIds override: global ids drop always; female ids drop only when female is blocked; covers playlists", () => {
+  const cats = buildCategories(corpus);
+  cats.blocked = { global: new Set(["aaaaaaaaaaa"]), female: new Set() }; // block the (male) kbkrt song globally
+  assert.ok(!searchCategories(cats, "kevakarat", {}).songs.some((s) => s.videoId === "aaaaaaaaaaa"), "global id dropped with NO filter active");
+  cats.blocked = { global: new Set(), female: new Set(["aaaaaaaaaaa"]) };
+  assert.ok(searchCategories(cats, "kevakarat", {}).songs.some((s) => s.videoId === "aaaaaaaaaaa"), "female id shown by default");
+  assert.ok(!searchCategories(cats, "kevakarat", { allowFemale: false }).songs.some((s) => s.videoId === "aaaaaaaaaaa"), "female id dropped when female blocked");
+  // playlistId override hides a community playlist (the curated patch for women's playlists surviving on a token male track)
+  const cats2 = buildCategories({ ...corpus, community: [CP("PLblk", "Shabbos Block", 1 << 0)] });
+  cats2.blocked = { global: new Set(["PLblk"]), female: new Set() };
+  assert.ok(!searchCategories(cats2, "shabbos", { k: 20 }).community.some((p) => p.id === "PLblk"), "global playlistId override hides the community playlist");
+  cats2.blocked = { global: new Set(), female: new Set(["PLblk"]) };
+  assert.ok(searchCategories(cats2, "shabbos", { k: 20 }).community.some((p) => p.id === "PLblk"), "female playlistId shown by default");
+  assert.ok(!searchCategories(cats2, "shabbos", { k: 20, allowFemale: false }).community.some((p) => p.id === "PLblk"), "female playlistId hidden when female blocked");
+});
+
 test("community search: an ALL-female playlist is hidden when female is blocked; a mixed one survives", () => {
   const community = [CP("PLallfem", "Shabbos Female", 1 << 4), CP("PLmixed", "Shabbos Mixed", (1 << 4) | (1 << 0))];
   const cats = buildCategories({ ...corpus, community });
