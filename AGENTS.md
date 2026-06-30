@@ -35,7 +35,7 @@ whitelist (Firestore)  →  harvester (InnerTube, IP-safe)  →  corpus.db (SQLi
 | `harvester/` | `core.mjs` (shared per-artist harvest; shallow/deep), `harvest.mjs` (initial bulk), `onboard.mjs` (new artists), `refresh.mjs` (incremental; shallow daily / deep weekly), `prune.mjs` (drop de-whitelisted), **`reconcile.mjs`** (purge tracks whose row-artist is a non-whitelisted uploader — cleans YT Music's polluted artist shelves; offline/cache-only), **`playlists.mjs`** (community-playlist discovery — seed-search → whitelist-filter → quality-gate → store; revalidate prunes stale), **`releases.mjs`** (date releases precisely — one `/player` per album → `album.uploadDate`; makes New Releases accurate). |
 | `scripts/`, `deploy/` | `maintain.sh` (refresh orchestrator: whitelist→onboard→prune→refresh under flock) + systemd timer/service units. |
 | `corpus/store.mjs` | **SQLite** schema + store API (artist/track/album/playlist/album_track **+ community_playlist/community_playlist_track**). |
-| `index/` | `normalize.mjs` (skeleton + Damerau + `skeletonKey`), **`search.mjs`** (the matcher), `synonyms.mjs`, `categories.mjs` (grouped/by-category search), `build-subset.mjs`, `*.test.mjs`. |
+| `index/` | `normalize.mjs` (skeleton + Damerau + `skeletonKey`), **`search.mjs`** (the matcher), `synonyms.mjs`, `categories.mjs` (grouped/by-category search), **`credits.mjs`** (featuring female detection — `buildFemaleMatcher`/`isFemaleInvolved`; whole-token + cross-script-only skeleton, whitelist-validated), `build-subset.mjs`, `*.test.mjs`. |
 | `server/` | `api.mjs` (HTTP API + cluster + LRU cache; `/search` `/artist` `/album` `/playlist` `/new` `/community` `/health`+`maintenance`), `ui.html` (web UI: search chips + **Community** chip (browse-all, no search) + **New Releases** chip + live refresh-progress bar). |
 | `bench/` | `relevance` `category-relevance` `audit` `fuzz` `deep-test` `loadtest` `bench` `diag-typos`. |
 | `data/` | `corpus.db`, `whitelist.json`, `synonyms.json`, `blocklist.json` (curated exclusions: `videoIds`/`artistIds` + community `playlistIds` + `playlistTerms` title/curator screen), `playlist-seeds.json` (community-playlist discovery seed terms), `rejected-artists.json` (generated: non-whitelisted artists seen in community playlists, for whitelist review), `.httpcache/` (gzipped, prunable). |
@@ -100,6 +100,17 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
    when the whole artist is filtered; album/playlist filter per-track; **community playlists are hidden when
    no member survives the filter** (all-female list hidden when female blocked — exact incl. conjunctions, via
    `communitySurvives`/`clsMask`), with their displayed count reduced to the post-filter total.
+   **Female filtering is "any credited artist", not just the primary** (`index/credits.mjs`): a male-primary
+   track that FEATURES a female (the credit is usually in the TITLE, e.g. `(feat. Franciska)`) is dropped
+   under `allowFemale=0`. Each entity doc carries `femaleInvolved` (primary `isFemale` **OR** a credited name
+   matching a known-female whitelist entry); `allowed()` uses it. The candidate name is validated against the
+   female whitelist (whole-token normalized equality; **skeleton matching is CROSS-SCRIPT only** — same-script
+   skeleton collides, e.g. "Asher Weiss"→"srss"="Sarah Shasho", so it's gated to Hebrew↔romanized). Unknown
+   names never drop a track. The server publishes the female-involved videoIds to a per-connection temp table
+   `_female` (`setFemaleSet`, populated at reload) so the SQL paths (community `clsMask`/counts, `/artist`
+   `/album` `/playlist` `/new`) filter identically; empty `_female` = primary-only (so tests/bench are
+   unchanged). NOTE: a male mis-flagged `isFemale=1` in the whitelist (a Firestore data error, e.g. seen for
+   `Ari Lesser`) over-filters his own AND feat. tracks — fix the whitelist, not the matcher.
 8. **Videos are their own category, not songs.** A live-recording track is in `videos`, not `songs` —
    benchmarks must check the right category or you'll see phantom "recall misses".
 9. **Same-title collisions are not bugs.** Many tracks share a title; returning *a* same-title track is

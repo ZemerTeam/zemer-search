@@ -122,6 +122,15 @@ the "All" summary and `k=100`/`k=500` per filter chip; no category is pinned to 
 videos. An *unset* flag means no filtering. (The API maps the user's settings to explicit booleans; a
 caller that omits one must get everyone, not silently zero female artists.)
 
+**Female = ANY credited artist, not just the primary** (`index/credits.mjs`). `buildCategories` stamps each
+doc with `femaleInvolved` — primary `isFemale` **OR** a featured artist (parsed from the title's
+`feat.`/`ft.`/`(with …)` credit, or the artist string) that matches a **known-female** whitelist entry — and
+`allowed()` filters on that. Candidate validation reuses `normalize.mjs`: whole-token normalized equality,
+with skeleton matching restricted to **cross-script** (a Hebrew whitelist name vs a romanized credit, or
+vice-versa) because same-script skeletons collide. Unknown candidate names never drop a track. The server
+mirrors this into SQL via a per-connection `_female` set (see `setFemaleSet` in store.md) so `/artist`
+`/album` `/playlist` `/new` + community counts agree exactly with `/search`.
+
 **Community playlists filter by SURVIVAL, not `allowed()`** (a community playlist has no single artist).
 `communitySurvives(p, o)` keeps one only if ≥1 of its whitelisted members would survive the filter — so an
 all-female list is hidden when female is blocked, an all-video list when videos are blocked; **exact,

@@ -112,7 +112,19 @@ export function openCorpus(file = DB_PATH) {
   // harvester/releases.mjs). Browse pages only carry a year; this is what makes New Releases accurate.
   if (!db.prepare("PRAGMA table_info(album)").all().some((c) => c.name === "uploadDate"))
     db.exec("ALTER TABLE album ADD COLUMN uploadDate TEXT");
+  // Per-connection scratch set of "female-involved" videoIds (primary OR a featured female — see
+  // index/credits.mjs), populated by setFemaleSet() at index reload. The female content-filter SQL ORs
+  // membership here onto the primary `isFemale`. Empty by default → identical to primary-only filtering.
+  db.exec("CREATE TEMP TABLE IF NOT EXISTS _female(videoId TEXT PRIMARY KEY)");
   return db;
+}
+
+// Replace this connection's female-involved videoId set (see openCorpus `_female`). Called at index reload
+// with the set computed by index/credits.mjs over the whole corpus, so the SQL female filters agree exactly
+// with the in-memory ones. An empty set reverts to primary-`isFemale`-only filtering.
+export function setFemaleSet(db, videoIds = []) {
+  const ins = db.prepare("INSERT OR IGNORE INTO _female(videoId) VALUES(?)");
+  db.transaction((ids) => { db.prepare("DELETE FROM _female").run(); for (const v of ids) ins.run(v); })([...videoIds]);
 }
 
 // Upsert one artist's whole catalog (tracks + albums + playlists) in a single transaction — the durable
@@ -225,7 +237,7 @@ const COVER_SQL = "(SELECT videoId FROM community_playlist_track WHERE playlistI
 const COMMUNITY_CONTENT_SQL = `SELECT cpt.playlistId AS pid,
     MAX(t.videoId IS NULL) AS fb,
     COALESCE(SUM(DISTINCT CASE WHEN t.videoId IS NOT NULL
-      THEN (1 << (a.isFemale*4 + t.isVideo*2 + a.isKidZone)) END), 0) AS clsMask
+      THEN (1 << ((CASE WHEN a.isFemale=1 OR t.videoId IN (SELECT videoId FROM _female) THEN 1 ELSE 0 END)*4 + t.isVideo*2 + a.isKidZone)) END), 0) AS clsMask
   FROM community_playlist_track cpt
   LEFT JOIN track t ON t.videoId=cpt.videoId
   LEFT JOIN artist a ON a.id=t.artistId
@@ -258,7 +270,7 @@ export const communityPlaylistList = (db, limit = 500, { allowFemale = true, kid
     return db.prepare(`SELECT id,title,author,whitelisted,total, ${COVER_SQL} AS cover FROM community_playlist ORDER BY whitelisted DESC, total DESC, id LIMIT ?`)
       .all(lim)
       .map((r) => ({ id: r.id, title: r.title, artist: r.author || "Community playlist", thumbnail: ytThumb(r.cover), source: "community", whitelisted: r.whitelisted, total: r.total }));
-  const keep = "(t.videoId IS NULL OR ((@allowFemale=1 OR a.isFemale=0) AND (@kidZoneOnly=0 OR a.isKidZone=1) AND (@blockVideos=0 OR t.isVideo=0)))";
+  const keep = "(t.videoId IS NULL OR ((@allowFemale=1 OR (a.isFemale=0 AND t.videoId NOT IN (SELECT videoId FROM _female))) AND (@kidZoneOnly=0 OR a.isKidZone=1) AND (@blockVideos=0 OR t.isVideo=0)))";
   return db.prepare(`
     SELECT cp.id, cp.title, cp.author, cp.total, k.kept AS kept,
       (SELECT videoId FROM community_playlist_track WHERE playlistId=cp.id AND pos=k.coverPos) AS cover
@@ -285,7 +297,7 @@ export const communityPlaylistList = (db, limit = 500, { allowFemale = true, kid
 // Map(id -> keptCount); null when no filter is active (caller keeps the stored full count).
 export function communityKeptCounts(db, ids, { allowFemale = true, kidZoneOnly = false, blockVideos = false } = {}) {
   if (!ids || !ids.length || (allowFemale && !kidZoneOnly && !blockVideos)) return null;
-  const keep = "(t.videoId IS NULL OR ((@allowFemale=1 OR a.isFemale=0) AND (@kidZoneOnly=0 OR a.isKidZone=1) AND (@blockVideos=0 OR t.isVideo=0)))";
+  const keep = "(t.videoId IS NULL OR ((@allowFemale=1 OR (a.isFemale=0 AND t.videoId NOT IN (SELECT videoId FROM _female))) AND (@kidZoneOnly=0 OR a.isKidZone=1) AND (@blockVideos=0 OR t.isVideo=0)))";
   const stmt = db.prepare(`SELECT SUM(CASE WHEN ${keep} THEN 1 ELSE 0 END) AS kept
     FROM community_playlist_track cpt LEFT JOIN track t ON t.videoId=cpt.videoId LEFT JOIN artist a ON a.id=t.artistId
     WHERE cpt.playlistId=@pid`);
@@ -316,7 +328,11 @@ export function artistDetail(db, artistId, { allowFemale = true, kidZoneOnly = f
   // Content gate (defense-in-depth, same predicate `/search` uses): a blocked-female user must never get a
   // female artist's page, and a KidZone-only user must never get a non-KidZone artist. Treat as not-found.
   if ((!allowFemale && a.isFemale) || (kidZoneOnly && !a.isKidZone)) return null;
-  const trk = db.prepare("SELECT videoId,title,isVideo,explicit FROM track WHERE artistId=? ORDER BY harvestedAt").all(artistId);
+  // The artist is gated above by its own gender; this additionally drops the artist's tracks that FEATURE
+  // a female (in _female) when female is blocked — same featuring rule as /search.
+  const trk = db.prepare(`SELECT videoId,title,isVideo,explicit FROM track WHERE artistId=@artistId
+    AND (@allowFemale=1 OR videoId NOT IN (SELECT videoId FROM _female)) ORDER BY harvestedAt`)
+    .all({ artistId, allowFemale: allowFemale ? 1 : 0 });
   const alb = db.prepare("SELECT id,playlistId,title,type,year,thumbnail FROM album WHERE artistId=? ORDER BY (year IS NULL), year DESC").all(artistId);
   const pl = db.prepare("SELECT id,title,thumbnail FROM playlist WHERE artistId=?").all(artistId);
   const song = (t) => ({ videoId: t.videoId, title: t.title, explicit: !!t.explicit });
@@ -337,10 +353,11 @@ export function albumDetail(db, albumId, { allowFemale = true, kidZoneOnly = fal
   // Gate the whole album by its artist (same as artistDetail); then filter the track list per-track (a
   // compilation can mix artists / include video tracks).
   if ((!allowFemale && al.isFemale) || (kidZoneOnly && !al.isKidZone)) return null;
-  const tracks = db.prepare(`SELECT t.videoId,t.title,t.explicit,t.isVideo,a.name artistName,a.isFemale,a.isKidZone
+  const tracks = db.prepare(`SELECT t.videoId,t.title,t.explicit,t.isVideo,a.name artistName,a.isKidZone,
+      (a.isFemale=1 OR t.videoId IN (SELECT videoId FROM _female)) AS femInv
     FROM album_track at JOIN track t ON t.videoId=at.videoId JOIN artist a ON a.id=t.artistId
     WHERE at.albumId=? ORDER BY at.pos`).all(albumId)
-    .filter((t) => (allowFemale || !t.isFemale) && (!kidZoneOnly || t.isKidZone) && (!blockVideos || !t.isVideo))
+    .filter((t) => (allowFemale || !t.femInv) && (!kidZoneOnly || t.isKidZone) && (!blockVideos || !t.isVideo))
     .map((t) => ({ videoId: t.videoId, title: t.title, artist: t.artistName, explicit: !!t.explicit }));
   return { album: { id: al.id, title: al.title, year: al.year, thumbnail: al.thumbnail, artist: al.artistName }, tracks };
 }
@@ -351,7 +368,8 @@ export function tracksByIds(db, ids) {
   const found = new Map();
   for (let i = 0; i < ids.length; i += 500) {
     const chunk = ids.slice(i, i + 500);
-    const rows = db.prepare(`SELECT t.videoId,t.title,t.explicit,t.isVideo,a.name artistName,a.isFemale,a.isKidZone
+    const rows = db.prepare(`SELECT t.videoId,t.title,t.explicit,t.isVideo,a.name artistName,a.isKidZone,
+        (a.isFemale=1 OR t.videoId IN (SELECT videoId FROM _female)) AS isFemale
       FROM track t JOIN artist a ON a.id=t.artistId WHERE t.videoId IN (${chunk.map(() => "?").join(",")})`).all(...chunk);
     // Carries the content flags so callers (the /playlist endpoint) can filter; membership users (.has) ignore them.
     for (const r of rows) found.set(r.videoId, { videoId: r.videoId, title: r.title, artist: r.artistName, explicit: !!r.explicit, isVideo: !!r.isVideo, isFemale: !!r.isFemale, isKidZone: !!r.isKidZone });
@@ -374,7 +392,7 @@ export const whitelistedChannelIds = (db) => new Set([
 export function recentTracks(db, limit = 100) {
   return db.prepare(`
     SELECT t.videoId, t.title, a.name AS artistName, t.isVideo, t.explicit, t.harvestedAt,
-           a.isFemale, a.isChasid, a.isKidZone, MAX(al.uploadDate) AS uploadDate
+           (a.isFemale=1 OR t.videoId IN (SELECT videoId FROM _female)) AS isFemale, a.isChasid, a.isKidZone, MAX(al.uploadDate) AS uploadDate
     FROM track t
     JOIN artist a ON a.id = t.artistId
     LEFT JOIN album_track at ON at.videoId = t.videoId

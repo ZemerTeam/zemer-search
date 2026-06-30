@@ -3,26 +3,44 @@
 // (each "doc" shaped {title, artistName, ...payload} so buildIndex/search work unchanged) and returns
 // top-k per category with content-filter scoping.
 import { buildIndex, search } from "./search.mjs";
+import { buildFemaleMatcher, isFemaleInvolved } from "./credits.mjs";
 
-export function buildCategories({ tracks = [], artists = [], albums = [], playlists = [], community = [] }, synonyms = []) {
-  const songs = tracks.filter((t) => !t.isVideo);
-  const videos = tracks.filter((t) => t.isVideo);
-  const artistDocs = artists.map((a) => ({ ...a, title: a.name, artistName: "" }));
-  return {
+// Each entity doc carries `femaleInvolved` — true when its PRIMARY artist is female OR any credited
+// (featured) artist matches a known female (see credits.mjs). The content filter uses this instead of the
+// primary-only `isFemale` so a male-primary track that features a female is dropped under allowFemale=0.
+// `matcher` may be passed (the server builds it once for its SQL paths too); else it's built here. Tracks
+// may arrive with `femaleInvolved` precomputed (server path) — reused as-is.
+export function buildCategories({ tracks = [], artists = [], albums = [], playlists = [], community = [] }, synonyms = [], matcher = null) {
+  const m = matcher || buildFemaleMatcher(artists);
+  const femaleVideoIds = new Set();
+  const tdoc = (t) => {
+    const fi = t.femaleInvolved !== undefined ? t.femaleInvolved : isFemaleInvolved(t.title, t.artistName, t.isFemale, m);
+    if (fi) femaleVideoIds.add(t.videoId);
+    return t.femaleInvolved !== undefined ? t : { ...t, femaleInvolved: fi };
+  };
+  const enriched = tracks.map(tdoc);
+  const songs = enriched.filter((t) => !t.isVideo);
+  const videos = enriched.filter((t) => t.isVideo);
+  const albumDocs = albums.map((a) => ({ ...a, femaleInvolved: a.isFemale || isFemaleInvolved(a.title, a.artistName, a.isFemale, m) }));
+  const artistDocs = artists.map((a) => ({ ...a, title: a.name, artistName: "", femaleInvolved: a.isFemale }));
+  const playlistDocs = playlists.map((p) => ({ ...p, femaleInvolved: p.isFemale })); // artist-owned: the owner's gender
+  const cats = {
     artists: buildIndex(artistDocs, synonyms),
     songs: buildIndex(songs, synonyms),
-    albums: buildIndex(albums.filter((a) => a.type !== "single"), synonyms),
-    singles: buildIndex(albums.filter((a) => a.type === "single"), synonyms),
+    albums: buildIndex(albumDocs.filter((a) => a.type !== "single"), synonyms),
+    singles: buildIndex(albumDocs.filter((a) => a.type === "single"), synonyms),
     videos: buildIndex(videos, synonyms),
-    playlists: buildIndex(playlists, synonyms),       // artist-owned playlists
+    playlists: buildIndex(playlistDocs, synonyms),    // artist-owned playlists
     community: buildIndex(community, synonyms),        // community-curated playlists (own chip)
   };
+  cats.femaleVideoIds = femaleVideoIds; // for the server's SQL paths (temp _female); harmless elsewhere
+  return cats;
 }
 
 // Content filters apply ONLY when explicitly requested; an unset flag means no filtering (so a caller
 // that omits allowFemale gets everyone, not silently zero female artists). blockVideos removes videos;
 // allowFemale=false / kidZone=true gate every entity via its artist's flags.
-const allowed = (t, o) => (o.allowFemale === false ? !t.isFemale : true) && (o.kidZoneOnly ? t.isKidZone : true) && (o.blockVideos ? !t.isVideo : true);
+const allowed = (t, o) => (o.allowFemale === false ? !(t.femaleInvolved ?? t.isFemale) : true) && (o.kidZoneOnly ? t.isKidZone : true) && (o.blockVideos ? !t.isVideo : true);
 
 // A community playlist survives the content filter iff ≥1 of its whitelisted members would survive (same
 // rule the /community list + /playlist serve-time filter use), so an ALL-female list is hidden when female

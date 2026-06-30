@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistList, communityKeptCounts, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, recentAlbums, recentTracks } from "./store.mjs";
+import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistList, communityKeptCounts, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, recentAlbums, recentTracks, setFemaleSet } from "./store.mjs";
 
 const seed = (db) => upsertArtistCatalog(db, { id: "UCmusic", name: "Test Artist" }, {
   regularChannelId: "UCregular",
@@ -220,6 +220,27 @@ test("pruneBlocklisted removes blocklisted videoIds from community membership an
   pruneBlocklisted(db, { videoIds: new Set(["drop0000002"]), artistIds: new Set() });
   assert.equal(db.prepare("SELECT COUNT(*) c FROM community_playlist_track WHERE playlistId='PLp'").get().c, 2, "blocklisted membership row gone");
   assert.equal(communityPlaylistMeta(db, "PLp").whitelisted, 2, "stored count re-synced to membership");
+});
+
+test("featuring filter (_female set): a male-primary feat-female track is dropped from SQL female filters", () => {
+  const db = openCorpus(":memory:");
+  upsertArtistCatalog(db, { id: "UCm", name: "Male Artist" }, { tracks: [ // male primary (isFemale defaults 0)
+    { videoId: "maleaudio01", title: "Solo" },
+    { videoId: "featfem0001", title: "Duet (feat. Some Female)" },
+  ] });
+  upsertCommunityPlaylist(db, { id: "PLfeat", title: "Mix", total: 2 }, [{ videoId: "maleaudio01", pos: 0 }, { videoId: "featfem0001", pos: 1 }]);
+  // _female empty → primary-only: both male-primary tracks survive allowFemale=0
+  assert.equal(communityKeptCounts(db, ["PLfeat"], { allowFemale: false }).get("PLfeat"), 2);
+  assert.equal(artistDetail(db, "UCm", { allowFemale: false }).songs.length, 2);
+  // publish the feat track as female-involved → it drops from the count AND the artist's songs
+  setFemaleSet(db, ["featfem0001"]);
+  assert.equal(communityKeptCounts(db, ["PLfeat"], { allowFemale: false }).get("PLfeat"), 1, "feat-female member excluded from kept count");
+  const d = artistDetail(db, "UCm", { allowFemale: false });
+  assert.ok(d.songs.some((s) => s.videoId === "maleaudio01") && !d.songs.some((s) => s.videoId === "featfem0001"), "feat-female dropped, male solo kept");
+  // tracksByIds reports the feat track as female (so /playlist drops it); empty filter is unaffected
+  assert.equal(tracksByIds(db, ["featfem0001"]).get("featfem0001").isFemale, true);
+  setFemaleSet(db, []); // revert → primary-only again
+  assert.equal(communityKeptCounts(db, ["PLfeat"], { allowFemale: false }).get("PLfeat"), 2, "empty _female reverts to primary-only");
 });
 
 test("upsertArtistCatalog prefers video: a cross-listed videoId becomes/stays isVideo=1 (never downgraded)", () => {

@@ -60,6 +60,15 @@ test("videos category respects k (not capped at 6) so the Videos pill isn't trun
   assert.equal(searchCategories(cats, "simcha clip", { k: 8, blockVideos: true }).videos.length, 0, "blockVideos still empties the category");
 });
 
+test("featuring filter: a male-primary song that feat.s a female is dropped when female is blocked", () => {
+  const withFeat = { ...corpus, tracks: [...corpus.tracks,
+    { videoId: "featfemale1", title: "Duet (feat. Some Female)", artistName: "דודי פולק", isVideo: false, explicit: false, isFemale: false, isChasid: false, isKidZone: false }] };
+  const cats = buildCategories(withFeat);
+  assert.ok(searchCategories(cats, "duet", {}).songs.some((s) => s.videoId === "featfemale1"), "shown without filter");
+  assert.ok(!searchCategories(cats, "duet", { allowFemale: false }).songs.some((s) => s.videoId === "featfemale1"),
+    "feat-female song hidden when female blocked (primary is male, female is credited in the title)");
+});
+
 test("blockVideos empties the Videos category; allowFemale=false hides the female artist", () => {
   const cats = buildCategories(corpus);
   assert.equal(searchCategories(cats, "dudi polak", { blockVideos: true }).videos.length, 0);

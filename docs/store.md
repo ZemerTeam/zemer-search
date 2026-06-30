@@ -96,6 +96,14 @@ writer. Indexes on every `artistId` and `album_track.albumId`.
   `allCommunityPlaylists.clsMask/fb`) hide community playlists with **no** member surviving the filter (e.g.
   an all-female list when female is blocked) and report the **post-filter** count. **Default-OPEN**: an
   absent flag = no filtering (so callers that omit it get everyone — gotcha #7).
+- **Female filtering includes FEATURED females, via a per-connection `_female` set.** `openCorpus` creates an
+  empty temp table `_female(videoId)`; `setFemaleSet(db, videoIds)` repopulates it (the server calls this at
+  index reload with the female-involved videoIds computed by `index/credits.mjs` — primary OR a credited
+  female). Every female SQL predicate ORs membership in `_female` onto the primary `isFemale`
+  (`allCommunityPlaylists.clsMask`, the `communityPlaylistList`/`communityKeptCounts` keep clause,
+  `artistDetail`/`albumDetail`/`tracksByIds`/`recentTracks`). An **empty `_female` = primary-only filtering**,
+  so tests/benches (which don't call `setFemaleSet`) behave exactly as before — and the server's SQL paths
+  then match `/search`'s in-memory `femaleInvolved` filter exactly.
 - **`tracksByIds` chunks** the `IN (…)` to ≤ 500 ids per statement (SQLite's bound-variable limit).
 - The DB is read **concurrently** by the API (a persistent WAL reader) while the harvester writes —
   that's exactly what WAL is for. The API sees the harvester's latest committed per-artist upserts.

@@ -14,8 +14,9 @@ import path from "node:path";
 import cluster from "node:cluster";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, recentTracks, recentAlbums, stats } from "../corpus/store.mjs";
+import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet } from "../corpus/store.mjs";
 import { buildCategories, searchCategories } from "../index/categories.mjs";
+import { buildFemaleMatcher, collectFemaleVideoIds } from "../index/credits.mjs";
 import { loadDefaultSynonyms } from "../index/synonyms.mjs";
 import { postBrowse, parsePlaylistPage, parseArtistItemsContinuation } from "../harness/browse.mjs";
 
@@ -94,8 +95,14 @@ async function startServer() {
     } catch { /* stat failed → fall through and rebuild */ }
     if (!force && sig && sig === lastSig) return indexedCount; // unchanged → keep the current index
     const tracks = allTracks(liveDb);
+    const artists = allArtists(liveDb);
+    // Compute "female-involved" (primary OR featured female; see index/credits.mjs) once over the corpus,
+    // and publish it to the connection's `_female` set BEFORE community is loaded — so the community
+    // clsMask + every SQL female filter agree exactly with the in-memory category filter. (No-op if empty.)
+    const matcher = buildFemaleMatcher(artists);
+    setFemaleSet(liveDb, collectFemaleVideoIds(tracks, matcher));
     // Artist-owned playlists and community-discovered playlists are indexed separately → separate chips.
-    cats = buildCategories({ tracks, artists: allArtists(liveDb), albums: allAlbums(liveDb), playlists: allPlaylists(liveDb), community: allCommunityPlaylists(liveDb) }, loadDefaultSynonyms());
+    cats = buildCategories({ tracks, artists, albums: allAlbums(liveDb), playlists: allPlaylists(liveDb), community: allCommunityPlaylists(liveDb) }, loadDefaultSynonyms(), matcher);
     indexedCount = tracks.length; indexedAt = Date.now();
     whitelistTotal = countWhitelist();
     cache.clear();
