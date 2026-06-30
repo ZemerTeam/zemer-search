@@ -51,6 +51,7 @@ node harvester/onboard.mjs                                    # harvest only NEW
 node harvester/refresh.mjs                                    # re-harvest existing artists; DEFAULT deep (full); SHALLOW=1 = fast landing-only
 node harvester/prune.mjs                                      # drop de-whitelisted artists (survivor-guard) + apply data/blocklist.json
 DRY=1 node harvester/reconcile.mjs                           # report tracks whose row-artist is a non-whitelisted uploader (shelf pollution); drop DRY=1 to purge (offline, cache-only)
+DRY=1 node harvester/backfill-video-flags.mjs               # report cross-listed songs that are really videos; drop DRY=1 to flip isVideo=1 (offline, cache-only)
 node harvester/playlists.mjs                                  # discover COMMUNITY playlists (SEEDS=both FIRSTNAMES=1 N=4000 = full sweep; REVALIDATE=1 prunes stale)
 node harvester/releases.mjs                                   # date releases via /player → album.uploadDate (MIN_YEAR=2025 = recent only); makes New Releases real-date-accurate
 scripts/maintain.sh shallow|deep                             # orchestrate whitelist→onboard→prune→refresh (flock; cron/systemd; shallow daily / deep weekly)
@@ -149,6 +150,15 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
     the whitelist channel set. **`harvester/reconcile.mjs`** is the one-time cleanup: it re-parses every
     artist from cache (offline) and purges already-stored tracks whose row artist is a non-whitelisted
     uploader (`DRY=1` to report first). This is the **same whitelist-purity rule** community playlists use.
+18. **A video is a video — prefer `isVideo=1` for cross-listed ids.** The same `videoId` can be a music
+    VIDEO on one artist's page and an audio SONG on another's (e.g. a Lev Tahor music video that's also an
+    Eli Schwebel single). Since a `videoId` is stored ONCE (PK, first-harvest wins), it could land as a
+    song and then never surface in the Videos category. **Fix:** harvest now prefers video — `core.mjs`
+    `add()` upgrades `isVideo` when the same id is re-seen on the Videos shelf, and the upsert does
+    `ON CONFLICT … isVideo=MAX(track.isVideo, excluded.isVideo)` (never downgrades). **`harvester/backfill-video-flags.mjs`**
+    (cache-only, `DRY=1` to report) flips already-stored songs to video for ids listed as a video anywhere.
+    Attribution stays single (the PK owner) — that's intentional; full multi-artist attribution would mean
+    duplicate same-id results.
 
 ## Editing the matcher safely
 

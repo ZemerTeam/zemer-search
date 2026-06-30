@@ -222,6 +222,20 @@ test("pruneBlocklisted removes blocklisted videoIds from community membership an
   assert.equal(communityPlaylistMeta(db, "PLp").whitelisted, 2, "stored count re-synced to membership");
 });
 
+test("upsertArtistCatalog prefers video: a cross-listed videoId becomes/stays isVideo=1 (never downgraded)", () => {
+  const db = openCorpus(":memory:");
+  const iv = (v) => db.prepare("SELECT isVideo FROM track WHERE videoId=?").get(v).isVideo;
+  // stored first as a SONG (artist A's page lists it as audio)
+  upsertArtistCatalog(db, { id: "UCa", name: "A" }, { tracks: [{ videoId: "xvid0000001", title: "Journey", isVideo: false }] });
+  assert.equal(iv("xvid0000001"), 0);
+  // the SAME id is a VIDEO on artist B's page → ON CONFLICT MAX flips it to video (stays under A, the PK owner)
+  upsertArtistCatalog(db, { id: "UCb", name: "B" }, { tracks: [{ videoId: "xvid0000001", title: "Journey", isVideo: true }] });
+  assert.equal(iv("xvid0000001"), 1, "song → video when cross-listed as a video");
+  // a later song re-list must NOT downgrade it back
+  upsertArtistCatalog(db, { id: "UCc", name: "C" }, { tracks: [{ videoId: "xvid0000001", title: "Journey", isVideo: false }] });
+  assert.equal(iv("xvid0000001"), 1, "a video is never downgraded to a song");
+});
+
 // ---- per-user content filters (female / videos / KidZone), applied server-side on drill-in --------
 
 const seedFlags = (db) => {

@@ -68,6 +68,13 @@ YouTube calls) and purges tracks whose row artist is a non-whitelisted uploader 
 positively finds as foreign (a cache miss never deletes). `DRY=1` reports first. Same whitelist-purity rule
 the community playlists use (gotcha #17).
 
+**Prefer-video for cross-listed ids (gotcha #18).** A `videoId` can be a music VIDEO on one artist's page
+and an audio SONG on another's; since it's stored once (PK), it could land as a song and never appear in the
+Videos category. `add()` upgrades `isVideo` when the same id reappears on the Videos shelf, and
+`upsertArtistCatalog` does `ON CONFLICT … isVideo=MAX(track.isVideo, excluded.isVideo)` (never downgrades).
+**`harvester/backfill-video-flags.mjs`** (cache-only, `DRY=1`) flips already-stored songs to video for ids
+listed as a video anywhere. Attribution stays the PK owner (no duplicate same-id results).
+
 ## Initial harvest, onboarding, refresh, prune
 
 The four entry points (all upsert **one artist's whole catalog per `db.transaction`** → durable per-artist

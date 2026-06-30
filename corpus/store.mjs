@@ -132,7 +132,7 @@ export function upsertArtistCatalog(db, artist, catalog, ts = Date.now()) {
        isFemale=excluded.isFemale, isChasid=excluded.isChasid, isKidZone=excluded.isKidZone`);
   const insTrack = db.prepare(
     `INSERT INTO track(videoId,title,artistId,isVideo,explicit,harvestedAt) VALUES(@videoId,@title,@artistId,@isVideo,@explicit,@harvestedAt)
-     ON CONFLICT(videoId) DO UPDATE SET title=excluded.title`);
+     ON CONFLICT(videoId) DO UPDATE SET title=excluded.title, isVideo=MAX(track.isVideo, excluded.isVideo)`);
   const insAlbum = db.prepare(
     `INSERT INTO album(id,playlistId,title,artistId,type,year,thumbnail) VALUES(@id,@playlistId,@title,@artistId,@type,@year,@thumbnail)
      ON CONFLICT(id) DO UPDATE SET playlistId=excluded.playlistId, title=excluded.title, type=excluded.type, year=excluded.year, thumbnail=excluded.thumbnail`);

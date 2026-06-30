@@ -56,22 +56,26 @@ async function pageChain(browse, first, isVideo, add, onItems) {
 //     them with ~1 request/artist instead of many. Used by the daily maintenance refresh; the weekly
 //     deep refresh and the initial harvest/onboard stay full.
 export async function harvestArtist(artist, browse, { landingMaxAgeMs, shallow = false, whitelist = null } = {}) {
-  const seen = new Set();
+  const byId = new Map(); // videoId -> track (dedup; also lets us PREFER VIDEO when a videoId is cross-listed)
   const tracks = [];
   const albums = new Map();    // browseId -> album/single/ep entity
   const playlists = new Map(); // playlistId -> playlist entity
   const owned = new Set([artist.id]); // channels whose rows legitimately belong here (music + regular, added below)
   const add = (s) => {
-    if (!s?.videoId || s.videoId.length !== 11 || seen.has(s.videoId)) return;
+    if (!s?.videoId || s.videoId.length !== 11) return;
     // Whitelist-purity guard: drop a shelf/album row uploaded by a non-whitelisted channel (YT Music
     // mixes foreign uploads into the artist's Videos/Songs feed). A row with no captured artist is trusted.
     if (s.rowArtistId && !ownsRow(s.rowArtistId, owned, whitelist)) return;
-    seen.add(s.videoId);
-    tracks.push({
+    const ex = byId.get(s.videoId);
+    // Same videoId can appear on BOTH the Songs and Videos shelves of one artist — a video is a video, so
+    // prefer isVideo=true on re-encounter (cross-artist preference is handled by the upsert's MAX).
+    if (ex) { if (s.isVideo) ex.isVideo = true; return; }
+    const t = {
       videoId: s.videoId, title: s.title, artistId: artist.id, artistName: artist.name,
       isVideo: !!s.isVideo, explicit: !!s.explicit,
       isFemale: !!artist.isFemale, isChasid: !!artist.isChasid, isKidZone: !!artist.isKidZone,
-    });
+    };
+    byId.set(s.videoId, t); tracks.push(t);
   };
   const collectEntities = (items, sourceTitle) => {
     for (const it of items) {
