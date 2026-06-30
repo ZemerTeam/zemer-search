@@ -75,6 +75,13 @@ Videos category. `add()` upgrades `isVideo` when the same id reappears on the Vi
 **`harvester/backfill-video-flags.mjs`** (cache-only, `DRY=1`) flips already-stored songs to video for ids
 listed as a video anywhere. Attribution stays the PK owner (no duplicate same-id results).
 
+**Community member artist resolution.** A community-playlist member whose track isn't harvested (e.g. on the
+artist's regular channel) has no corpus row, so the content filter couldn't tell its gender and an all-female
+list with one such member wrongly failed open (showed, then opened empty). Discovery now records each
+member's resolved whitelisted artist in `community_playlist_track.artistId`, so the filter (`clsMask` +
+counts) reads its gender even un-harvested. **`harvester/backfill-community-artists.mjs`** (cache-only,
+`DRY=1`) fills it in for already-stored playlists by re-parsing their cached pages — offline, no fetch.
+
 ## Initial harvest, onboarding, refresh, prune
 
 The four entry points (all upsert **one artist's whole catalog per `db.transaction`** → durable per-artist

@@ -243,6 +243,26 @@ test("featuring filter (_female set): a male-primary feat-female track is droppe
   assert.equal(communityKeptCounts(db, ["PLfeat"], { allowFemale: false }).get("PLfeat"), 2, "empty _female reverts to primary-only");
 });
 
+test("community: an un-harvested member with a resolved female artistId is treated as female (no fail-open)", () => {
+  const db = openCorpus(":memory:");
+  upsertArtistCatalog(db, { id: "UCfem", name: "She Sings", isFemale: true }, { tracks: [] });        // female, no harvested tracks
+  upsertArtistCatalog(db, { id: "UCmale", name: "He Sings" }, { tracks: [{ videoId: "malesong001", title: "Male Song" }] });
+  upsertCommunityPlaylist(db, { id: "PLmix", title: "Mixed", total: 2 }, [
+    { videoId: "malesong001", pos: 0 },                       // harvested male (artistId null → track join)
+    { videoId: "femunharv01", pos: 1, artistId: "UCfem" },    // NOT in corpus; resolved to the female artist
+  ]);
+  // female-blocked: only the male survives → kept count 1 (NOT 2 via the old fail-open)
+  assert.equal(communityKeptCounts(db, ["PLmix"], { allowFemale: false }).get("PLmix"), 1, "resolved female fallback member excluded");
+  // an all-female playlist whose only member is an un-harvested female: fb=0 (resolved), clsMask = female-audio only
+  upsertCommunityPlaylist(db, { id: "PLfem", title: "All Fem", total: 1 }, [{ videoId: "femunharv02", pos: 0, artistId: "UCfem" }]);
+  const row = allCommunityPlaylists(db).find((p) => p.id === "PLfem");
+  assert.equal(row.fb, 0, "a resolved member is no longer a fail-open fallback");
+  assert.equal(row.clsMask, 1 << 4, "female-audio class only → searchCategories will hide it when female blocked");
+  // a member with NO corpus track AND NO resolved artist is still a true fallback (fail-open kept)
+  upsertCommunityPlaylist(db, { id: "PLunk", title: "Unknown", total: 1 }, [{ videoId: "trulyunknwn", pos: 0 }]);
+  assert.equal(allCommunityPlaylists(db).find((p) => p.id === "PLunk").fb, 1, "truly-unknown member still fails open");
+});
+
 test("upsertArtistCatalog prefers video: a cross-listed videoId becomes/stays isVideo=1 (never downgraded)", () => {
   const db = openCorpus(":memory:");
   const iv = (v) => db.prepare("SELECT isVideo FROM track WHERE videoId=?").get(v).isVideo;

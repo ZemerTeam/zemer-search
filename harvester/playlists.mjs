@@ -143,6 +143,10 @@ async function main() {
   const artistNames = allArtists(db).map((a) => a.name).filter(Boolean);
   const seeds = buildSeeds({ topics, artistNames }, { mode: MODE, n: N, firstNames: FIRSTNAMES });
   const wlChannels = whitelistedChannelIds(db);
+  // channel (music OR regular) → whitelisted artist id, to record each member's artist so the content filter
+  // knows its gender even when the member's track isn't harvested (see store.mjs community_playlist_track.artistId).
+  const channelToArtist = new Map();
+  for (const r of db.prepare("SELECT id, regularChannelId FROM artist").all()) { channelToArtist.set(r.id, r.id); if (r.regularChannelId) channelToArtist.set(r.regularChannelId, r.id); }
   const bl = blocklist();                                          // playlistIds + title/curator term screen
   const existing = communityPlaylistIds(db);                       // what we already hold (for remove-on-fail)
   const already = (RECHECK || REVALIDATE) ? new Set() : existing;  // re-check modes don't skip known ids
@@ -208,7 +212,9 @@ async function main() {
         const verdict = admitPlaylist({ total: songs.length, whitelisted: wl.length }, { minTracks: MIN_WL_TRACKS, minRatio: MIN_WL_RATIO });
         if (verdict.ok) {
           upsertCommunityPlaylist(db, { id: pl.id, title: pl.title, author: pl.author, thumbnail: pl.thumbnail, total: songs.length },
-            wl.map((x, pos) => ({ videoId: x.videoId, pos })));
+            // record each member's resolved artist (for un-harvested members the track join can't supply gender);
+            // corpus members keep null — their corpus track's artist is authoritative.
+            wl.map((x, pos) => ({ videoId: x.videoId, pos, artistId: corpus.has(x.videoId) ? null : (channelToArtist.get(x.rowArtistId) || null) })));
           admitted++; wlTotal += wl.length;
           console.log(`+ ${(pl.title || pl.id).slice(0, 40).padEnd(40)} ${wl.length}/${songs.length} wl  ${pl.author || ""}`);
         } else {

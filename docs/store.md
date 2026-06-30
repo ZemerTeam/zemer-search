@@ -104,6 +104,13 @@ writer. Indexes on every `artistId` and `album_track.albumId`.
   `artistDetail`/`albumDetail`/`tracksByIds`/`recentTracks`). An **empty `_female` = primary-only filtering**,
   so tests/benches (which don't call `setFemaleSet`) behave exactly as before — and the server's SQL paths
   then match `/search`'s in-memory `femaleInvolved` filter exactly.
+- **Community member gender is known even for un-harvested members** via `community_playlist_track.artistId`
+  (the member's resolved whitelisted artist, recorded at discovery). `clsMask`/`fb` and the keep clause read
+  the member's gender from its corpus track's artist (`a`) when harvested, else from the resolved artist
+  (`am`, by `artistId`) — so a member whose track isn't harvested (e.g. on the artist's regular channel) no
+  longer "fails open" (an all-female list with one such member used to show then open empty). `fb` (true
+  unknown → fail-open) is now only a member with neither a corpus track nor a resolved artist. NULL
+  `artistId` = the old behavior, so it's a no-op until `harvester/backfill-community-artists.mjs` runs.
 - **`tracksByIds` chunks** the `IN (…)` to ≤ 500 ids per statement (SQLite's bound-variable limit).
 - The DB is read **concurrently** by the API (a persistent WAL reader) while the harvester writes —
   that's exactly what WAL is for. The API sees the harvester's latest committed per-artist upserts.

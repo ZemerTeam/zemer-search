@@ -52,6 +52,7 @@ node harvester/refresh.mjs                                    # re-harvest exist
 node harvester/prune.mjs                                      # drop de-whitelisted artists (survivor-guard) + apply data/blocklist.json
 DRY=1 node harvester/reconcile.mjs                           # report tracks whose row-artist is a non-whitelisted uploader (shelf pollution); drop DRY=1 to purge (offline, cache-only)
 DRY=1 node harvester/backfill-video-flags.mjs               # report cross-listed songs that are really videos; drop DRY=1 to flip isVideo=1 (offline, cache-only)
+DRY=1 node harvester/backfill-community-artists.mjs         # resolve each community-playlist member's artist (so un-harvested members' gender is known); drop DRY=1 to write (offline, cache-only)
 node harvester/playlists.mjs                                  # discover COMMUNITY playlists (SEEDS=both FIRSTNAMES=1 N=4000 = full sweep; REVALIDATE=1 prunes stale)
 node harvester/releases.mjs                                   # date releases via /player → album.uploadDate (MIN_YEAR=2025 = recent only); makes New Releases real-date-accurate
 scripts/maintain.sh shallow|deep                             # orchestrate whitelist→onboard→prune→refresh (flock; cron/systemd; shallow daily / deep weekly)
@@ -100,6 +101,13 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
    when the whole artist is filtered; album/playlist filter per-track; **community playlists are hidden when
    no member survives the filter** (all-female list hidden when female blocked — exact incl. conjunctions, via
    `communitySurvives`/`clsMask`), with their displayed count reduced to the post-filter total.
+   A community member whose TRACK isn't harvested (e.g. on the artist's regular channel, issue #108) used to
+   be an unknown that **failed open** (an all-female playlist with one such member showed, then opened empty).
+   Now discovery records each member's resolved artist in `community_playlist_track.artistId`, so `clsMask`
+   reads its gender even un-harvested (`fb` = truly-unknown only: no corpus track AND no resolved artist).
+   **`harvester/backfill-community-artists.mjs`** (cache-only, `DRY=1`) backfills it for existing rows; it's
+   a no-op until then (NULL artistId = the old behavior). NOTE: this resolves via `artist.isFemale`, so a
+   whitelist mis-flag (a male marked female) still mis-filters — fix the whitelist (Firestore), not the code.
    **Female filtering is "any credited artist", not just the primary** (`index/credits.mjs`): a male-primary
    track that FEATURES a female (the credit is usually in the TITLE, e.g. `(feat. Franciska)`) is dropped
    under `allowFemale=0`. Each entity doc carries `femaleInvolved` (primary `isFemale` **OR** a credited name

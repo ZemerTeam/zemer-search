@@ -112,6 +112,13 @@ export function openCorpus(file = DB_PATH) {
   // harvester/releases.mjs). Browse pages only carry a year; this is what makes New Releases accurate.
   if (!db.prepare("PRAGMA table_info(album)").all().some((c) => c.name === "uploadDate"))
     db.exec("ALTER TABLE album ADD COLUMN uploadDate TEXT");
+  // community_playlist_track.artistId: the member's resolved whitelisted artist (its uploader channel →
+  // artist id), captured at discovery. Lets the content filter know a member's gender even when its TRACK
+  // isn't harvested (e.g. a track on the artist's regular channel, issue #108) — without it those members
+  // are "unknown" and an all-female playlist with one such member would wrongly fail open. NULL until
+  // backfilled (harvester/backfill-community-artists.mjs), and NULL behaves exactly like the old behavior.
+  if (!db.prepare("PRAGMA table_info(community_playlist_track)").all().some((c) => c.name === "artistId"))
+    db.exec("ALTER TABLE community_playlist_track ADD COLUMN artistId TEXT");
   // Per-connection scratch set of "female-involved" videoIds (primary OR a featured female — see
   // index/credits.mjs), populated by setFemaleSet() at index reload. The female content-filter SQL ORs
   // membership here onto the primary `isFemale`. Empty by default → identical to primary-only filtering.
@@ -208,12 +215,12 @@ export function upsertCommunityPlaylist(db, { id, title, author = null, thumbnai
        total=excluded.total, whitelisted=excluded.whitelisted, discoveredAt=excluded.discoveredAt`);
   const delMem = db.prepare("DELETE FROM community_playlist_track WHERE playlistId=?");
   const insMem = db.prepare(
-    `INSERT INTO community_playlist_track(playlistId,videoId,pos) VALUES(@playlistId,@videoId,@pos)
-     ON CONFLICT(playlistId,videoId) DO UPDATE SET pos=excluded.pos`);
+    `INSERT INTO community_playlist_track(playlistId,videoId,pos,artistId) VALUES(@playlistId,@videoId,@pos,@artistId)
+     ON CONFLICT(playlistId,videoId) DO UPDATE SET pos=excluded.pos, artistId=excluded.artistId`);
   const tx = db.transaction(() => { // whole playlist in one transaction (gotcha #10)
     insPl.run({ id, title, author, thumbnail, total, whitelisted: mem.length, discoveredAt: ts });
     delMem.run(id); // re-snapshot membership (a re-check may change which tracks are whitelisted)
-    mem.forEach((t, i) => insMem.run({ playlistId: id, videoId: t.videoId, pos: t.pos ?? i }));
+    mem.forEach((t, i) => insMem.run({ playlistId: id, videoId: t.videoId, pos: t.pos ?? i, artistId: t.artistId ?? null }));
   });
   tx();
   return { whitelisted: mem.length, total };
@@ -234,13 +241,22 @@ const COVER_SQL = "(SELECT videoId FROM community_playlist_track WHERE playlistI
 // corpus yet (unknown flags → always kept); `clsMask` ORs one bit per present member class, indexed
 // (isFemale*4 + isVideo*2 + isKidZone). Lets searchCategories hide a playlist with no member surviving
 // the active filter (e.g. an all-female list when female is blocked) without a per-query DB hit.
+// A member's gender/KidZone come from its corpus track's artist (`a`) when harvested, else from its
+// discovery-resolved artist (`am`, via community_playlist_track.artistId) — so an un-harvested member
+// (e.g. a track on the artist's regular channel) still contributes its real class instead of being an
+// "unknown" that fails open. `fb` (true unknown) is now ONLY a member with neither a corpus track NOR a
+// resolved artist. isVideo is track-level (unknown → audio) for resolved-but-unharvested members.
 const COMMUNITY_CONTENT_SQL = `SELECT cpt.playlistId AS pid,
-    MAX(t.videoId IS NULL) AS fb,
-    COALESCE(SUM(DISTINCT CASE WHEN t.videoId IS NOT NULL
-      THEN (1 << ((CASE WHEN a.isFemale=1 OR t.videoId IN (SELECT videoId FROM _female) THEN 1 ELSE 0 END)*4 + t.isVideo*2 + a.isKidZone)) END), 0) AS clsMask
+    MAX(t.videoId IS NULL AND cpt.artistId IS NULL) AS fb,
+    COALESCE(SUM(DISTINCT CASE WHEN (t.videoId IS NOT NULL OR cpt.artistId IS NOT NULL)
+      THEN (1 << (
+        (CASE WHEN COALESCE(a.isFemale,0)=1 OR COALESCE(am.isFemale,0)=1 OR cpt.videoId IN (SELECT videoId FROM _female) THEN 1 ELSE 0 END)*4
+        + COALESCE(t.isVideo,0)*2
+        + (CASE WHEN COALESCE(a.isKidZone,0)=1 OR COALESCE(am.isKidZone,0)=1 THEN 1 ELSE 0 END))) END), 0) AS clsMask
   FROM community_playlist_track cpt
   LEFT JOIN track t ON t.videoId=cpt.videoId
   LEFT JOIN artist a ON a.id=t.artistId
+  LEFT JOIN artist am ON am.id=cpt.artistId
   GROUP BY cpt.playlistId`;
 
 export const allCommunityPlaylists = (db) => db.prepare(
@@ -270,7 +286,7 @@ export const communityPlaylistList = (db, limit = 500, { allowFemale = true, kid
     return db.prepare(`SELECT id,title,author,whitelisted,total, ${COVER_SQL} AS cover FROM community_playlist ORDER BY whitelisted DESC, total DESC, id LIMIT ?`)
       .all(lim)
       .map((r) => ({ id: r.id, title: r.title, artist: r.author || "Community playlist", thumbnail: ytThumb(r.cover), source: "community", whitelisted: r.whitelisted, total: r.total }));
-  const keep = "(t.videoId IS NULL OR ((@allowFemale=1 OR (a.isFemale=0 AND t.videoId NOT IN (SELECT videoId FROM _female))) AND (@kidZoneOnly=0 OR a.isKidZone=1) AND (@blockVideos=0 OR t.isVideo=0)))";
+  const keep = "((t.videoId IS NULL AND cpt.artistId IS NULL) OR ((@allowFemale=1 OR (COALESCE(a.isFemale,am.isFemale,0)=0 AND cpt.videoId NOT IN (SELECT videoId FROM _female))) AND (@kidZoneOnly=0 OR COALESCE(a.isKidZone,am.isKidZone,0)=1) AND (@blockVideos=0 OR COALESCE(t.isVideo,0)=0)))";
   return db.prepare(`
     SELECT cp.id, cp.title, cp.author, cp.total, k.kept AS kept,
       (SELECT videoId FROM community_playlist_track WHERE playlistId=cp.id AND pos=k.coverPos) AS cover
@@ -282,6 +298,7 @@ export const communityPlaylistList = (db, limit = 500, { allowFemale = true, kid
       FROM community_playlist_track cpt
       LEFT JOIN track t ON t.videoId=cpt.videoId
       LEFT JOIN artist a ON a.id=t.artistId
+      LEFT JOIN artist am ON am.id=cpt.artistId
       GROUP BY cpt.playlistId
     ) k ON k.pid=cp.id
     WHERE k.kept > 0
@@ -297,9 +314,10 @@ export const communityPlaylistList = (db, limit = 500, { allowFemale = true, kid
 // Map(id -> keptCount); null when no filter is active (caller keeps the stored full count).
 export function communityKeptCounts(db, ids, { allowFemale = true, kidZoneOnly = false, blockVideos = false } = {}) {
   if (!ids || !ids.length || (allowFemale && !kidZoneOnly && !blockVideos)) return null;
-  const keep = "(t.videoId IS NULL OR ((@allowFemale=1 OR (a.isFemale=0 AND t.videoId NOT IN (SELECT videoId FROM _female))) AND (@kidZoneOnly=0 OR a.isKidZone=1) AND (@blockVideos=0 OR t.isVideo=0)))";
+  const keep = "((t.videoId IS NULL AND cpt.artistId IS NULL) OR ((@allowFemale=1 OR (COALESCE(a.isFemale,am.isFemale,0)=0 AND cpt.videoId NOT IN (SELECT videoId FROM _female))) AND (@kidZoneOnly=0 OR COALESCE(a.isKidZone,am.isKidZone,0)=1) AND (@blockVideos=0 OR COALESCE(t.isVideo,0)=0)))";
   const stmt = db.prepare(`SELECT SUM(CASE WHEN ${keep} THEN 1 ELSE 0 END) AS kept
     FROM community_playlist_track cpt LEFT JOIN track t ON t.videoId=cpt.videoId LEFT JOIN artist a ON a.id=t.artistId
+    LEFT JOIN artist am ON am.id=cpt.artistId
     WHERE cpt.playlistId=@pid`);
   const flags = { allowFemale: allowFemale ? 1 : 0, kidZoneOnly: kidZoneOnly ? 1 : 0, blockVideos: blockVideos ? 1 : 0 };
   const out = new Map();
