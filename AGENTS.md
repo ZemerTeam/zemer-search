@@ -32,7 +32,7 @@ whitelist (Firestore)  →  harvester (InnerTube, IP-safe)  →  corpus.db (SQLi
 | Dir | What |
 |-----|------|
 | `harness/` | Ported InnerTube layer: `clients.mjs`, `lib.mjs`, `parsers.mjs`; **`net.mjs`** (gzip disk cache + bounded-concurrency rate-paced limiter + anti-bot circuit breaker; `cacheOnly` option for offline report passes); `browse.mjs` (artist/album/playlist parsers); **`search.mjs`** (IP-safe search via `net.mjs` — community-playlist discovery); **`player.mjs`** (IP-safe `/player` — the real release date, ISO `uploadDate`); `whitelist.mjs` (fetch Firestore whitelist, read-only); **`blocked-ids.mjs`** (fetch Firestore `blockedContentIds` → `data/blocked-ids.json`: per-id `female`/`global` overrides, read-only); `status.mjs` (maintenance progress channel). Browse + search + player are **unauthenticated** — no cookie, no `visitorData`. |
-| `harvester/` | `core.mjs` (shared per-artist harvest; shallow/deep), `harvest.mjs` (initial bulk), `onboard.mjs` (new artists), `refresh.mjs` (incremental; shallow daily / deep weekly), `prune.mjs` (drop de-whitelisted), **`reconcile.mjs`** (purge tracks whose row-artist is a non-whitelisted uploader — cleans YT Music's polluted artist shelves; offline/cache-only), **`playlists.mjs`** (community-playlist discovery — seed-search → whitelist-filter → quality-gate → store; revalidate prunes stale), **`releases.mjs`** (date releases precisely — one `/player` per album → `album.uploadDate`, then one per STANDALONE track → `track.uploadDate`; makes New Releases accurate. `/player` is blocked from datacenters → run off-datacenter, ship dates in). |
+| `harvester/` | `core.mjs` (shared per-artist harvest; shallow/deep), `harvest.mjs` (initial bulk), `onboard.mjs` (new artists), `refresh.mjs` (incremental; shallow daily / deep weekly), `prune.mjs` (drop de-whitelisted), **`reconcile.mjs`** (purge tracks whose row-artist is a non-whitelisted uploader — cleans YT Music's polluted artist shelves; offline/cache-only), **`playlists.mjs`** (community-playlist discovery — seed-search → whitelist-filter → quality-gate → store; revalidate prunes stale), **`releases.mjs`** (date releases precisely — one `/player` per album → `album.uploadDate`, then one per **EVERY** track → `track.uploadDate` (100% accurate per song, never inherited); a song's date = `COALESCE(track.uploadDate, album.uploadDate)`. `/player` is blocked from datacenters → run off-datacenter, ship dates in). |
 | `scripts/`, `deploy/` | `maintain.sh` (refresh orchestrator: whitelist+blocked-ids→onboard→prune→refresh under flock) + systemd timer/service units (`zemer-refresh@`, `zemer-playlists`, and **`zemer-overrides`** — the several-times-a-day id-override fetch). |
 | `corpus/store.mjs` | **SQLite** schema + store API (artist/track/album/playlist/album_track **+ community_playlist/community_playlist_track**; `track` carries **`durationSec`/`playCount`**; album `type`/`trackCount`/`totalDurationSec` are read-time aggregates). |
 | `index/` | `normalize.mjs` (skeleton + Damerau + `skeletonKey`), **`search.mjs`** (the matcher), `synonyms.mjs`, `categories.mjs` (grouped/by-category search), **`credits.mjs`** (featuring female detection — `buildFemaleMatcher`/`isFemaleInvolved`; whole-token + cross-script-only skeleton, whitelist-validated), `build-subset.mjs`, `*.test.mjs`. |
@@ -56,7 +56,7 @@ DRY=1 node harvester/backfill-video-flags.mjs               # report cross-liste
 DRY=1 node harvester/backfill-community-artists.mjs         # resolve each community-playlist member's artist (so un-harvested members' gender is known); drop DRY=1 to write (offline, cache-only)
 DRY=1 node harvester/backfill-track-meta.mjs               # extract track durationSec + playCount from the cached pages (album durations + landing "Songs"-shelf plays); drop DRY=1 to write (offline, cache-only)
 node harvester/playlists.mjs                                  # discover COMMUNITY playlists (SEEDS=both FIRSTNAMES=1 N=4000 = full sweep; REVALIDATE=1 prunes stale)
-node harvester/releases.mjs                                   # date releases via /player → album.uploadDate + standalone track.uploadDate (MIN_YEAR=2025 = recent albums only; TRACKS=0 = albums only; ALBUMS=0 = tracks only); makes New Releases real-date-accurate. /player is datacenter-blocked → run off-datacenter
+node harvester/releases.mjs                                   # date releases via /player → album.uploadDate + EVERY track.uploadDate (100% accurate per song; MIN_YEAR=2025 = recent albums only; TRACKS=0 = albums only; ALBUMS=0 = tracks only); makes New Releases real-date-accurate. /player is datacenter-blocked → run off-datacenter
 scripts/maintain.sh shallow|deep                             # orchestrate whitelist+blocked-ids→onboard→prune→refresh (flock; cron/systemd; shallow daily / deep weekly)
 npm test                                                      # unit tests (index/ + corpus/ + harvester/)
 npm run verify                                                # FULL accuracy gate: test + audit + fuzz + deep-test (must stay green)
@@ -217,6 +217,16 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
     (full-album total, so it matches the list row even when filters shorten the returned tracks). The **web UI**
     (`ui.html`) renders all of it: song duration + plays, album `Album · N songs · MM min`, numbered
     album-detail tracklists, New Releases durations (`fmtDur`/`fmtRuntime`/`fmtPlays`).
+20. **Release dates must be per-track accurate — NEVER inherit.** A song's date is its OWN `/player`
+    `uploadDate` (`track.uploadDate`), not its album's sample-track date (which can differ — a single released
+    before its album would show the wrong date). `harvester/releases.mjs` dates **every** track (not just
+    standalone), and every date-emitting read uses `COALESCE(track.uploadDate, album.uploadDate)` — the track's
+    OWN date preferred, the album's only as a fallback for a not-yet-dated track (`recentTracks`,
+    `artistDetail`, `allTracks`, `albumDetail`). `album.uploadDate` stays the album-level date (its sample
+    track). Endpoints emit `releaseDate` (ISO) on song rows (`/search` `/artist` `/album` `/new`) and album
+    rows. **`/player` is blocked from datacenter IPs**, so dating runs off-datacenter (residential) and dates
+    are shipped into the server `corpus.db` by `UPDATE`; the album/track upserts leave `uploadDate` untouched,
+    so shipped dates survive re-harvest. Dating is IP-safe (net.mjs: paced, cached, aborts on block → resume).
 
 ## Editing the matcher safely
 
