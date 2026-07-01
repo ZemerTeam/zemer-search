@@ -240,8 +240,9 @@ async function loadCommunity() {
 function rowSong(t) {
   const num = t.trackNumber ? `<span class="tno">${t.trackNumber}</span>` : '';
   const plays = t.playCount!=null ? ' · ' + fmtPlays(t.playCount) : '';
+  const rel = t.releaseDate ? ' · ' + fmtDate(t.releaseDate) : '';
   return row(`https://music.youtube.com/watch?v=${t.videoId}`, yt(t.videoId), false,
-    num + esc(t.title) + (t.explicit?'<span class="e">E</span>':''), esc(t.artist||'') + plays, 'song',
+    num + esc(t.title) + (t.explicit?'<span class="e">E</span>':''), esc(t.artist||'') + plays + rel, 'song',
     fmtDur(t.durationSec));
 }
 const ALBUMTYPE = { single:'Single', ep:'EP', album:'Album' };

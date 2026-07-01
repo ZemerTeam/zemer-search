@@ -99,11 +99,11 @@ exact dark surfaces/typography from `zemer-app`'s `Theme.kt`/`Dimensions.kt`):
   with **its own category sub-chips** (Songs · Videos · Albums · Singles & EPs; empty ones hidden) and an
   "added Xd ago" date per row; typing a query leaves it back into search. (True upload dates would need a per-track
   `/player` fetch — a planned follow-up; today it shows when the track was indexed.)
-- **Detail metadata is rendered inline** — song rows show a right-aligned **duration** (`4:45`) and a
-  **play count** in the subtitle (`21M plays`); album/single rows show `Album · 15 songs · 26 min`
-  (type · count · runtime); the **album detail** view shows a numbered tracklist with per-track durations
-  and a header runtime; New Releases rows show durations too. All null-tolerant (a missing value renders
-  nothing), via the `fmtDur`/`fmtRuntime`/`fmtPlays` helpers.
+- **Detail metadata is rendered inline** — song rows show a right-aligned **duration** (`4:45`), a
+  **play count**, and the **release date** in the subtitle (`21M plays · Mar 8, 2026`); album/single rows
+  show `Album · 15 songs · 26 min` (type · count · runtime); the **album detail** view shows a numbered
+  tracklist with per-track durations and a header runtime; New Releases rows show durations too. All
+  null-tolerant (a missing value renders nothing), via the `fmtDur`/`fmtRuntime`/`fmtPlays`/`fmtDate` helpers.
 - **No on-screen content filters** — the web UI always shows everything (never sends `allowFemale`/
   `kidZone`/`blockVideos`). The API still honors those query params for other callers (gotcha #7).
 - **Minimum 3 characters** before any results appear — 1–2 char queries are too broad to rank accurately.

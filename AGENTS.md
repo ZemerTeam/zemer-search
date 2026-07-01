@@ -55,6 +55,7 @@ DRY=1 node harvester/reconcile.mjs                           # report tracks who
 DRY=1 node harvester/backfill-video-flags.mjs               # report cross-listed songs that are really videos; drop DRY=1 to flip isVideo=1 (offline, cache-only)
 DRY=1 node harvester/backfill-community-artists.mjs         # resolve each community-playlist member's artist (so un-harvested members' gender is known); drop DRY=1 to write (offline, cache-only)
 DRY=1 node harvester/backfill-track-meta.mjs               # extract track durationSec + playCount from the cached pages (album durations + landing "Songs"-shelf plays); drop DRY=1 to write (offline, cache-only)
+DRY=1 node harvester/backfill-durations-player.mjs         # fill remaining durations from cached /player videoDetails.lengthSeconds (the dating pass caches /player for videos+standalone); LIVE=1 fetches the few uncached (IP-safe)
 node harvester/playlists.mjs                                  # discover COMMUNITY playlists (SEEDS=both FIRSTNAMES=1 N=4000 = full sweep; REVALIDATE=1 prunes stale)
 node harvester/releases.mjs                                   # date releases via /player → album.uploadDate + video/standalone track.uploadDate (album audio inherits album date; MIN_YEAR=2025 = recent albums only; TRACKS=0 = albums only; ALBUMS=0 = tracks only); makes New Releases real-date-accurate. /player is datacenter-blocked → run off-datacenter
 scripts/maintain.sh shallow|deep                             # orchestrate whitelist+blocked-ids→onboard→prune→refresh (flock; cron/systemd; shallow daily / deep weekly)
