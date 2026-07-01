@@ -26,7 +26,7 @@ const db = openCorpus();
 const albums = DO_ALBUMS ? albumsNeedingDate(db, { minYear: MIN_YEAR, limit: LIMIT }) : [];
 const tracks = DO_TRACKS ? tracksNeedingDate(db, { limit: LIMIT }) : [];
 const total = albums.length + tracks.length;
-console.log(`releases: dating ${albums.length} undated albums${MIN_YEAR ? ` (year >= ${MIN_YEAR})` : ""} + ${tracks.length} standalone tracks; already dated ${datedAlbumCount(db)}/${stats(db).albums + stats(db).singles} albums, ${datedTrackCount(db)} tracks`);
+console.log(`releases: dating ${albums.length} undated albums${MIN_YEAR ? ` (year >= ${MIN_YEAR})` : ""} + ${tracks.length} tracks (per-track own date); already dated ${datedAlbumCount(db)}/${stats(db).albums + stats(db).singles} albums, ${datedTrackCount(db)} tracks`);
 
 let aborted = false, done = 0, dated = 0, nodate = 0;
 if (total) setStatus({ phase: "releases", mode: "date", done: 0, total, newTracks: 0, blocks: 0, startedAt: Date.now() });
@@ -36,9 +36,16 @@ if (total) setStatus({ phase: "releases", mode: "date", done: 0, total, newTrack
 const dateOne = async (videoId, apply) => {
   if (aborted) return;
   try {
-    const r = await postPlayer({ videoId });
-    if (r.blocked) { console.warn("⚠ anti-bot block — stopping to protect the IP (resume from cache next run)"); aborted = true; setStatus({ blocks: 1 }); return; }
-    const date = r.json ? playerUploadDate(r.json) : null;
+    // WEB_REMIX first (the bulk of ids are already in its cache), then fall back to the plain WEB client —
+    // it dates the uploads WEB_REMIX can't see (LOGIN_REQUIRED music videos, art tracks with no
+    // WEB_REMIX microformat). Verified equally exact; only the fallback costs a live request.
+    let date = null;
+    for (const client of ["WEB_REMIX", "WEB"]) {
+      const r = await postPlayer({ videoId, client });
+      if (r.blocked) { console.warn("⚠ anti-bot block — stopping to protect the IP (resume from cache next run)"); aborted = true; setStatus({ blocks: 1 }); return; }
+      date = r.json ? playerUploadDate(r.json) : null;
+      if (date) break;
+    }
     if (date) { apply(date); dated++; } else nodate++;
   } catch (e) { console.warn(`  error dating ${videoId}: ${e.message}`); nodate++; }
   if (total) setStatus({ done: ++done, newTracks: dated });

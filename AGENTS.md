@@ -223,7 +223,9 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
     **videos + standalone tracks** by their own `/player` (their date matters and differs from the album), and
     **skips album AUDIO tracks** — those are overwhelmingly YouTube Music "art tracks" with **no `/player` date
     at all** (~85%), so they correctly inherit their album's real date via the COALESCE fallback (dating them
-    would be a mostly-wasted no-date sweep). `album.uploadDate` stays the album-level date (its sample track). Endpoints emit `releaseDate` (ISO) on song rows (`/search` `/artist` `/album` `/new`) and album
+    would be a mostly-wasted no-date sweep). `album.uploadDate` stays the album-level date (its sample track).
+    `/player` is tried WEB_REMIX-first then falls back to the plain **WEB client** (`postPlayer({client})`),
+    which dates the uploads WEB_REMIX can't see (LOGIN_REQUIRED videos, art tracks) — near-total coverage. Endpoints emit `releaseDate` (ISO) on song rows (`/search` `/artist` `/album` `/new`) and album
     rows. **`/player` is blocked from datacenter IPs**, so dating runs off-datacenter (residential) and dates
     are shipped into the server `corpus.db` by `UPDATE`; the album/track upserts leave `uploadDate` untouched,
     so shipped dates survive re-harvest. Dating is IP-safe (net.mjs: paced, cached, aborts on block → resume).

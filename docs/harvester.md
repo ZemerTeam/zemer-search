@@ -191,7 +191,10 @@ on the track ITSELF → `track.uploadDate`, because their own date matters (a mu
 release isn't the album's). **Album AUDIO tracks are skipped**: they're overwhelmingly YouTube Music "art
 tracks" with **no `/player` date at all** (~85%), and they correctly inherit their album's real date via
 `COALESCE(track.uploadDate, album.uploadDate)`. Net: **precise own-date where it exists and matters, accurate
-album date otherwise** — no ~85%-wasted no-date `/player` sweep. Knobs: `TRACKS=0` = albums only, `ALBUMS=0` =
+album date otherwise** — no ~85%-wasted no-date `/player` sweep. **Client fallback:** `/player` is tried as
+WEB_REMIX first (YouTube Music — the bulk of ids are already in its cache) and falls back to the plain **WEB**
+client, which returns the exact date for uploads WEB_REMIX can't see (LOGIN_REQUIRED music videos, art tracks
+with no WEB_REMIX microformat) — this is what lifts album/track date coverage to near-total. Knobs: `TRACKS=0` = albums only, `ALBUMS=0` =
 tracks only, `MIN_YEAR` gates albums (tracks run only at `MIN_YEAR=0`). **`/player` is blocked from datacenter
 IPs**, so this runs off-datacenter (a residential host) and the dates are shipped into the server `corpus.db`
 (the album/track upserts leave `uploadDate` untouched, so shipped dates survive re-harvest).
