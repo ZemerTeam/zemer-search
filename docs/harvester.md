@@ -192,10 +192,10 @@ on that sample and stores the date on the album — **one request per release, n
 first, IP-safe (paced, aborts on a block → exit 75). A song inherits its album's date, so dating albums also
 orders the New Releases Songs list. A **second phase** dates **videos + standalone tracks** with one `/player`
 on the track ITSELF → `track.uploadDate`, because their own date matters (a music video or a real single's
-release isn't the album's). **Album AUDIO tracks are skipped**: they're overwhelmingly YouTube Music "art
-tracks" with **no `/player` date at all** (~85%), and they correctly inherit their album's real date via
-`COALESCE(track.uploadDate, album.uploadDate)`. Net: **precise own-date where it exists and matters, accurate
-album date otherwise** — no ~85%-wasted no-date `/player` sweep. **Client fallback:** `/player` is tried as
+release isn't the album's). **Album AUDIO tracks are skipped**: they were released *with*
+their album, so inheriting its real date via `COALESCE(track.uploadDate, album.uploadDate)` is equally
+accurate at **~1 `/player` per album instead of per track**. Net: **precise own-date where it matters,
+accurate album date otherwise** — no wasted per-art-track sweep. **Client fallback:** `/player` is tried as
 WEB_REMIX first (YouTube Music — the bulk of ids are already in its cache) and falls back to the plain **WEB**
 client, which returns the exact date for uploads WEB_REMIX can't see (LOGIN_REQUIRED music videos, art tracks
 with no WEB_REMIX microformat) — this is what lifts album/track date coverage to near-total. Knobs: `TRACKS=0` = albums only, `ALBUMS=0` =

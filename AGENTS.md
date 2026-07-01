@@ -211,8 +211,9 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
     upserts `durationSec=COALESCE(…)` and `playCount=NULLIF(MAX(…),0)` (never downgrade; unknown stays NULL).
     **`harvester/backfill-track-meta.mjs`** (cache-only, `DRY=1`) populates existing rows offline; the harvest
     fills them going forward (deep weekly refreshes both; shallow daily refreshes plays). `artistDetail` sorts
-    `songs` by `playCount` desc = real **"Top songs"**. Coverage is cache-dependent (durations ~97%, plays
-    ~55% — plays only where YT shows them, **never on videos**); nullable = unknown = old behavior.
+    `songs` by `playCount` desc = real **"Top songs"**. Coverage: durations ~98%+ (browse pages via
+    `backfill-track-meta.mjs` + cached-`/player` top-up via `backfill-durations-player.mjs`); plays ~55% —
+    plays only where YT shows them, **never on videos**; nullable = unknown = old behavior.
     **Album aggregates** (`type`/`trackCount`/`totalDurationSec`) are **read-time** over `album_track`∪`track`
     (NO stored column) on `allAlbums` (→ `/search` cards), `artistDetail` rows, and the `albumDetail` header
     (full-album total, so it matches the list row even when filters shorten the returned tracks). The **web UI**
@@ -222,11 +223,11 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
     `COALESCE(track.uploadDate, album.uploadDate)` — the track's OWN `/player` date preferred, the album's as
     fallback (`recentTracks`, `artistDetail`, `allTracks`, `albumDetail`). `harvester/releases.mjs` dates
     **videos + standalone tracks** by their own `/player` (their date matters and differs from the album), and
-    **skips album AUDIO tracks** — those are overwhelmingly YouTube Music "art tracks" with **no `/player` date
-    at all** (~85%), so they correctly inherit their album's real date via the COALESCE fallback (dating them
-    would be a mostly-wasted no-date sweep). `album.uploadDate` stays the album-level date (its sample track).
+    **skips album AUDIO tracks** — they were released *with* their album, so inheriting the album's real date
+    via the COALESCE fallback is equally accurate at ~1 `/player` per album instead of per track.
     `/player` is tried WEB_REMIX-first then falls back to the plain **WEB client** (`postPlayer({client})`),
-    which dates the uploads WEB_REMIX can't see (LOGIN_REQUIRED videos, art tracks) — near-total coverage. Endpoints emit `releaseDate` (ISO) on song rows (`/search` `/artist` `/album` `/new`) and album
+    which dates the uploads WEB_REMIX can't see (LOGIN_REQUIRED videos, art tracks) — near-total coverage
+    (the only structural gap: album stubs with no harvested tracklist have no sample track to date from). Endpoints emit `releaseDate` (ISO) on song rows (`/search` `/artist` `/album` `/new`) and album
     rows. **`/player` is blocked from datacenter IPs**, so dating runs off-datacenter (residential) and dates
     are shipped into the server `corpus.db` by `UPDATE`; the album/track upserts leave `uploadDate` untouched,
     so shipped dates survive re-harvest. Dating is IP-safe (net.mjs: paced, cached, aborts on block → resume).
