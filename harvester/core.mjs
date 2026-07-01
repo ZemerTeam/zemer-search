@@ -68,12 +68,20 @@ export async function harvestArtist(artist, browse, { landingMaxAgeMs, shallow =
     if (s.rowArtistId && !ownsRow(s.rowArtistId, owned, whitelist)) return;
     const ex = byId.get(s.videoId);
     // Same videoId can appear on BOTH the Songs and Videos shelves of one artist — a video is a video, so
-    // prefer isVideo=true on re-encounter (cross-artist preference is handled by the upsert's MAX).
-    if (ex) { if (s.isVideo) ex.isVideo = true; return; }
+    // prefer isVideo=true on re-encounter (cross-artist preference is handled by the upsert's MAX). Also
+    // MERGE the detail metadata that lives on different shelves: duration is on the album page, the play
+    // count is on the landing "Songs" shelf — fill duration if missing, keep the highest play count.
+    if (ex) {
+      if (s.isVideo) ex.isVideo = true;
+      if (ex.durationSec == null && s.durationSec != null) ex.durationSec = s.durationSec;
+      if (s.playCount != null && (ex.playCount == null || s.playCount > ex.playCount)) ex.playCount = s.playCount;
+      return;
+    }
     const t = {
       videoId: s.videoId, title: s.title, artistId: artist.id, artistName: artist.name,
       isVideo: !!s.isVideo, explicit: !!s.explicit,
       isFemale: !!artist.isFemale, isChasid: !!artist.isChasid, isKidZone: !!artist.isKidZone,
+      durationSec: s.durationSec ?? null, playCount: s.playCount ?? null,
     };
     byId.set(s.videoId, t); tracks.push(t);
   };

@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistList, communityKeptCounts, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, recentAlbums, recentTracks, setFemaleSet } from "./store.mjs";
+import { parseDurationSec, parsePlays } from "../harness/browse.mjs";
 
 const seed = (db) => upsertArtistCatalog(db, { id: "UCmusic", name: "Test Artist" }, {
   regularChannelId: "UCregular",
@@ -261,6 +262,37 @@ test("community: an un-harvested member with a resolved female artistId is treat
   // a member with NO corpus track AND NO resolved artist is still a true fallback (fail-open kept)
   upsertCommunityPlaylist(db, { id: "PLunk", title: "Unknown", total: 1 }, [{ videoId: "trulyunknwn", pos: 0 }]);
   assert.equal(allCommunityPlaylists(db).find((p) => p.id === "PLunk").fb, 1, "truly-unknown member still fails open");
+});
+
+test("track meta parsers: durationSec + playCount", () => {
+  assert.equal(parseDurationSec("3:45"), 225);
+  assert.equal(parseDurationSec("1:02:03"), 3723);
+  assert.equal(parseDurationSec("nope"), null);
+  assert.equal(parsePlays("74 plays"), 74);
+  assert.equal(parsePlays("1.2M plays"), 1200000);
+  assert.equal(parsePlays("1,234 plays"), 1234);
+  assert.equal(parsePlays("no number"), null);
+});
+
+test("track detail metadata: durationSec + playCount stored; /artist sorts by plays (Top songs); /album has trackNumber", () => {
+  const db = openCorpus(":memory:");
+  upsertArtistCatalog(db, { id: "UCm", name: "M" }, {
+    tracks: [
+      { videoId: "trackaaaaa1", title: "Low", playCount: 10, durationSec: 200 },
+      { videoId: "trackbbbbb2", title: "High", playCount: 5000, durationSec: 180 },
+      { videoId: "trackccccc3", title: "None", durationSec: 150 },
+    ],
+    albums: [{ id: "MPRE1", playlistId: "PL1", title: "A", type: "album", year: 2020 }],
+    albumTracks: [{ albumId: "MPRE1", videoId: "trackbbbbb2", pos: 0 }, { albumId: "MPRE1", videoId: "trackaaaaa1", pos: 1 }],
+  });
+  const d = artistDetail(db, "UCm", {});
+  assert.deepEqual(d.songs.map((s) => s.videoId), ["trackbbbbb2", "trackaaaaa1", "trackccccc3"], "top-played first, null plays last");
+  assert.equal(d.songs[0].playCount, 5000);
+  assert.equal(d.songs[0].durationSec, 180);
+  const al = albumDetail(db, "MPRE1", {});
+  assert.equal(al.tracks[0].trackNumber, 1);
+  assert.equal(al.tracks[0].durationSec, 180); // trackbbbbb2 at pos 0
+  assert.equal(al.tracks[1].trackNumber, 2);
 });
 
 test("community cover is filter-aware: a filtered card shows the first SURVIVING member's art, not a dropped one", () => {

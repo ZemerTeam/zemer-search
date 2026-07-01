@@ -75,6 +75,14 @@ Videos category. `add()` upgrades `isVideo` when the same id reappears on the Vi
 **`harvester/backfill-video-flags.mjs`** (cache-only, `DRY=1`) flips already-stored songs to video for ids
 listed as a video anywhere. Attribution stays the PK owner (no duplicate same-id results).
 
+**Track detail metadata (durations + play counts).** The cached browse rows already carry a track's duration
+(album-page fixed column) and play count (landing "Songs" shelf "N plays") — the parser now extracts both
+(`browse.mjs`), the harvest stores + merges them across shelves (`core.mjs`), and
+**`harvester/backfill-track-meta.mjs`** (cache-only, `DRY=1`) fills existing rows by re-parsing offline via
+`harvestArtist` — **zero YouTube calls**. Drives `durationSec`, `playCount` (real "Top songs" sort), and
+`trackNumber` on the detail endpoints. Coverage is what the cache holds (landing top-songs often have plays
+but no duration, since their shelf videoId differs from the album version).
+
 **Community member artist resolution.** A community-playlist member whose track isn't harvested (e.g. on the
 artist's regular channel) has no corpus row, so the content filter couldn't tell its gender and an all-female
 list with one such member wrongly failed open (showed, then opened empty). Discovery now records each

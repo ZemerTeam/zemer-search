@@ -33,7 +33,22 @@ export async function postBrowse({ browseId = null, params = null, continuation 
 const tabContents = (json) =>
   json?.contents?.singleColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents ?? [];
 
-// MRLIR → minimal song. duration left null (filled later if needed). isVideo passed by the section.
+// "3:45" → 225 ; "1:02:03" → 3723 ; null if not m:ss / h:mm:ss.
+export function parseDurationSec(t) {
+  const m = String(t || "").trim().match(/^(?:(\d+):)?(\d{1,2}):(\d{2})$/);
+  return m ? (m[1] ? +m[1] : 0) * 3600 + +m[2] * 60 + +m[3] : null;
+}
+// "74 plays" / "1.2M plays" / "1,234 plays" → 74 / 1200000 / 1234 ; null if not a play count.
+export function parsePlays(t) {
+  const m = String(t || "").match(/([\d.,]+)\s*([KMB]?)\s*plays?\b/i);
+  if (!m) return null;
+  const n = parseFloat(m[1].replace(/,/g, ""));
+  return isNaN(n) ? null : Math.round(n * ({ k: 1e3, m: 1e6, b: 1e9 }[m[2].toLowerCase()] || 1));
+}
+const fixedText = (r) => (r.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text?.runs || []).map((x) => x.text).join("");
+
+// MRLIR → minimal song, + duration (fixed column) + play count (a "N plays" flex run) when the row carries
+// them (both are already in the cached page — the landing "Songs" shelf has plays, album pages have durations).
 function songFromMRLIR(r, isVideo) {
   const id = videoIdOf(r);
   const title = flexRuns(r, 0)?.[0]?.text;
@@ -47,6 +62,8 @@ function songFromMRLIR(r, isVideo) {
       if (bid && bid.startsWith("UC")) { rowArtistId = bid; rowArtistName = run.text; break; }
     }
   }
+  let playCount = null;
+  for (let col = 1; col <= 3 && playCount == null; col++) for (const run of flexRuns(r, col) || []) { const p = parsePlays(run?.text); if (p != null) { playCount = p; break; } }
   return {
     videoId: id,
     title,
@@ -54,6 +71,7 @@ function songFromMRLIR(r, isVideo) {
     explicit: (r.badges || []).some((b) => b.musicInlineBadgeRenderer?.icon?.iconType === "MUSIC_EXPLICIT_BADGE"),
     isVideo: !!isVideo,
     rowArtistId, rowArtistName,
+    durationSec: parseDurationSec(fixedText(r)), playCount,
   };
 }
 

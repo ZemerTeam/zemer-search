@@ -54,6 +54,7 @@ node harvester/prune.mjs                                      # drop de-whitelis
 DRY=1 node harvester/reconcile.mjs                           # report tracks whose row-artist is a non-whitelisted uploader (shelf pollution); drop DRY=1 to purge (offline, cache-only)
 DRY=1 node harvester/backfill-video-flags.mjs               # report cross-listed songs that are really videos; drop DRY=1 to flip isVideo=1 (offline, cache-only)
 DRY=1 node harvester/backfill-community-artists.mjs         # resolve each community-playlist member's artist (so un-harvested members' gender is known); drop DRY=1 to write (offline, cache-only)
+DRY=1 node harvester/backfill-track-meta.mjs               # extract track durationSec + playCount from the cached pages (album durations + landing "Songs"-shelf plays); drop DRY=1 to write (offline, cache-only)
 node harvester/playlists.mjs                                  # discover COMMUNITY playlists (SEEDS=both FIRSTNAMES=1 N=4000 = full sweep; REVALIDATE=1 prunes stale)
 node harvester/releases.mjs                                   # date releases via /player → album.uploadDate (MIN_YEAR=2025 = recent only); makes New Releases real-date-accurate
 scripts/maintain.sh shallow|deep                             # orchestrate whitelist+blocked-ids→onboard→prune→refresh (flock; cron/systemd; shallow daily / deep weekly)

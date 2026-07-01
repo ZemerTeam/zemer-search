@@ -93,10 +93,10 @@ export function searchCategories(cats, q, o = {}) {
     // every category honors the requested k (filter-then-slice in pick); the app sends k=8 for the "All"
     // summary and k=100 per filter chip, so each chip isn't pinned at a tiny cap.
     artists: pick(cats.artists, (a) => ({ id: a.id, name: a.name, thumbnail: a.thumbnail })),
-    songs: pick(cats.songs, (t) => ({ videoId: t.videoId, title: t.title, artist: t.artistName, explicit: t.explicit })),
+    songs: pick(cats.songs, (t) => ({ videoId: t.videoId, title: t.title, artist: t.artistName, explicit: t.explicit, durationSec: t.durationSec ?? null, playCount: t.playCount ?? null })),
     albums: pick(cats.albums, albumRow),
     singles: pick(cats.singles, albumRow),
-    videos: pick(cats.videos, (t) => ({ videoId: t.videoId, title: t.title, artist: t.artistName, explicit: t.explicit })),
+    videos: pick(cats.videos, (t) => ({ videoId: t.videoId, title: t.title, artist: t.artistName, explicit: t.explicit, durationSec: t.durationSec ?? null, playCount: t.playCount ?? null })),
     playlists: pick(cats.playlists, (p) => ({ id: p.id, title: p.title, artist: p.artistName, thumbnail: p.thumbnail, source: p.source || "artist", whitelisted: p.whitelisted })),
     // title-only ranking; curator kept for display; respects k (not capped at 6). Hides community playlists
     // with no track surviving the content filter (all-female list when female is blocked, etc.).

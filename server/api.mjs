@@ -269,7 +269,7 @@ async function startServer() {
           if (idDropped(s.videoId, cats.blocked, cf.allowFemale)) continue; // server-curated id override
           const c = corpus.get(s.videoId);
           if (c) { // in corpus → real per-track flags
-            if (pass(c.isFemale, c.isKidZone, c.isVideo)) tracks.push({ videoId: c.videoId, title: c.title, artist: c.artist, explicit: c.explicit });
+            if (pass(c.isFemale, c.isKidZone, c.isVideo)) tracks.push({ videoId: c.videoId, title: c.title, artist: c.artist, explicit: c.explicit, durationSec: c.durationSec ?? null });
           } else if (s.rowArtistId && wl.has(s.rowArtistId)) { // whitelisted channel, not in corpus: filter by artist flags (isVideo unknown → kept)
             const f = aflags.get(s.rowArtistId) || {};
             if (pass(!!f.isFemale, !!f.isKidZone, false)) tracks.push({ videoId: s.videoId, title: s.title, artist: s.rowArtistName, explicit: !!s.explicit });

@@ -119,6 +119,13 @@ writer. Indexes on every `artistId` and `album_track.albumId`.
   `/community` `/playlist` `/artist` `/album`; `female` videoIds also merge into the `_female` set. Pure
   filter — **no backfill, no corpus change**; empty list is a no-op. The curated patch for what auto-detection
   misses (Gotcha #7), e.g. a women's playlist surviving on one token male track (add its playlistId as `female`).
+- **Track detail metadata** (`track.durationSec`, `track.playCount`) is extracted from the already-cached
+  browse rows (album-page fixed columns → duration; landing "Songs"-shelf "N plays" → playCount). The harvest
+  captures both (`core.mjs` merges them across shelves — duration lives on the album page, plays on the
+  landing shelf); `harvester/backfill-track-meta.mjs` populates existing rows offline (cache-only). Emitted by
+  `allTracks`/`artistDetail`/`albumDetail`/`tracksByIds`; **`artistDetail` sorts `songs` by `playCount` desc**
+  (real "Top songs"), and `albumDetail` emits `trackNumber` (= `album_track.pos+1`). Both nullable = unknown
+  (old behavior); coverage is cache-dependent (landing top-songs often have plays but no duration).
 - **`tracksByIds` chunks** the `IN (…)` to ≤ 500 ids per statement (SQLite's bound-variable limit).
 - The DB is read **concurrently** by the API (a persistent WAL reader) while the harvester writes —
   that's exactly what WAL is for. The API sees the harvester's latest committed per-artist upserts.
