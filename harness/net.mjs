@@ -66,9 +66,15 @@ export async function cachedPost(url, headers, bodyObj, { maxAgeMs = Infinity, c
     // releases) while immutable pages (albums) keep their forever-cache (default Infinity).
     const fresh = maxAgeMs === Infinity || (Date.now() - fs.statSync(file).mtimeMs) <= maxAgeMs;
     if (fresh) {
-      cacheHits++;
-      try { return { json: JSON.parse(zlib.gunzipSync(fs.readFileSync(file)).toString("utf8")), cached: true }; }
-      catch { /* corrupt cache entry → refetch */ }
+      try {
+        const json = JSON.parse(zlib.gunzipSync(fs.readFileSync(file)).toString("utf8"));
+        // A previously-cached SOFT bot-gate response (see below) is a masked block, not an answer — treat it
+        // as a miss so a later run can retry live (the successful response then overwrites this entry).
+        if (!(json?.playabilityStatus?.reason && /confirm you.?re not a bot/i.test(json.playabilityStatus.reason))) {
+          cacheHits++;
+          return { json, cached: true };
+        }
+      } catch { /* corrupt cache entry → refetch */ }
     }
   }
   // Cache-only readers (e.g. offline report generation alongside a live run) never issue a live request.
@@ -86,6 +92,13 @@ export async function cachedPost(url, headers, bodyObj, { maxAgeMs = Infinity, c
     if (txt.startsWith("<")) { blockedCount++; blockedUntil = Date.now() + BLOCK_COOLDOWN_MS; return { blocked: true, status: res.status }; }
     let json;
     try { json = JSON.parse(txt); } catch (e) { return { error: "non-JSON response", status: res.status }; }
+    // The SOFT anti-bot gate: a valid 200 JSON whose playabilityStatus says "Sign in to confirm you're not a
+    // bot" (seen on /player mid-sweep). It's a block, not an answer — latch the same cooldown and, crucially,
+    // do NOT cache it (a cached gate response would permanently mask the real answer on re-runs).
+    if (json?.playabilityStatus?.reason && /confirm you.?re not a bot/i.test(json.playabilityStatus.reason)) {
+      blockedCount++; blockedUntil = Date.now() + BLOCK_COOLDOWN_MS;
+      return { blocked: true, status: res.status };
+    }
     fs.mkdirSync(CACHE_DIR, { recursive: true });
     const tmp = file + ".tmp";
     fs.writeFileSync(tmp, zlib.gzipSync(JSON.stringify(json)));

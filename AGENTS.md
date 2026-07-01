@@ -159,7 +159,10 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
     ≥`MIN_INTERVAL_MS`+jitter so the aggregate rate is capped regardless of concurrency), gzipped disk
     cache (fetched at most once), and an **anti-bot circuit breaker** (first "Sorry…" page latches a
     `BLOCK_COOLDOWN_MS` back-off that short-circuits all in-flight/pending live requests; callers also
-    abort). Library default stays serial; the maintenance pipeline opts into speed (`CONCURRENCY=5`,
+    abort). The breaker ALSO catches the **soft gate**: a valid 200 JSON whose `playabilityStatus.reason`
+    is "Sign in to confirm you're not a bot" (seen on `/player` mid-sweep) — it latches the same cooldown,
+    is **never cached**, and a previously-cached gate response is treated as a cache **miss** (so re-runs
+    retry it live instead of reading the masked block forever). Library default stays serial; the maintenance pipeline opts into speed (`CONCURRENCY=5`,
     `MIN_INTERVAL_MS=200` → ~3 req/s, still far below anti-bot thresholds, never a burst). Never add a raw
     fetch. A full 1,608-artist harvest is many requests — let it grow politely.
 13. **The whitelist is YouTube **music** channels; uploads use a different **regular** channel.** The

@@ -29,7 +29,10 @@ Ported from the app's `tests/` so it reproduces the app's exact request path.
 2. **Single-flight + rate limit:** one live request at a time, ≥ `MIN_INTERVAL_MS` (default 900) +
    `JITTER_MS` between live requests.
 3. **Anti-bot abort:** if YouTube returns a "Sorry…" challenge page, it returns `{blocked:true}` and the
-   harvest **stops immediately** to protect the IP.
+   harvest **stops immediately** to protect the IP. The same breaker catches the **soft gate** — a valid
+   200 JSON with `playabilityStatus.reason` "Sign in to confirm you're not a bot" (seen on `/player`
+   mid-sweep): latched cooldown, **never cached**, and a previously-cached gate response reads as a cache
+   **miss** so later runs retry it live.
 
 `netStats()` reports live/cache/block counts. **Never add a raw `fetch`** — route through `net.mjs`.
 
