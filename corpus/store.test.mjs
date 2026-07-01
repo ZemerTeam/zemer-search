@@ -293,6 +293,13 @@ test("track detail metadata: durationSec + playCount stored; /artist sorts by pl
   assert.equal(al.tracks[0].trackNumber, 1);
   assert.equal(al.tracks[0].durationSec, 180); // trackbbbbb2 at pos 0
   assert.equal(al.tracks[1].trackNumber, 2);
+  // album-level aggregates (read-time; no stored column)
+  assert.equal(al.album.trackCount, 2);
+  assert.equal(al.album.totalDurationSec, 380); // 180 + 200
+  assert.equal(al.album.type, "album");
+  assert.equal(d.albums[0].trackCount, 2);
+  assert.equal(d.albums[0].totalDurationSec, 380);
+  assert.equal(d.albums[0].type, "album");
 });
 
 test("community cover is filter-aware: a filtered card shows the first SURVIVING member's art, not a dropped one", () => {

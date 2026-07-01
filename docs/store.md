@@ -126,6 +126,11 @@ writer. Indexes on every `artistId` and `album_track.albumId`.
   `allTracks`/`artistDetail`/`albumDetail`/`tracksByIds`; **`artistDetail` sorts `songs` by `playCount` desc**
   (real "Top songs"), and `albumDetail` emits `trackNumber` (= `album_track.pos+1`). Both nullable = unknown
   (old behavior); coverage is cache-dependent (landing top-songs often have plays but no duration).
+- **Album aggregates** (`type`, `trackCount`, `totalDurationSec`) are computed at read time over `album_track`
+  ∪ `track` — NO stored column. Emitted on `allAlbums` (→ `/search` album/single cards), `artistDetail` album
+  rows, and the `albumDetail` header (the header count/runtime describe the FULL album, so they match the
+  `/artist` list row even when content filters shorten the returned `tracks`). Lets the app label
+  "Album · 12 songs · 47 min" without a second call.
 - **`tracksByIds` chunks** the `IN (…)` to ≤ 500 ids per statement (SQLite's bound-variable limit).
 - The DB is read **concurrently** by the API (a persistent WAL reader) while the harvester writes —
   that's exactly what WAL is for. The API sees the harvester's latest committed per-artist upserts.

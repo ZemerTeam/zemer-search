@@ -88,6 +88,10 @@
   .more { flex:none; width:40px; height:40px; border:0; background:transparent; color:var(--onSurfaceVariant);
     font-size:20px; line-height:1; cursor:pointer; border-radius:50%; }
   .more:hover { background:var(--surfaceContainerHigh); color:var(--onSurface); }
+  .item .dur { flex:none; font-size:12px; color:var(--onSurfaceVariant); font-variant-numeric:tabular-nums;
+    padding:0 2px 0 8px; white-space:nowrap; }
+  .tno { display:inline-block; min-width:1.5em; margin-right:8px; text-align:right; color:var(--onSurfaceVariant);
+    font-size:12px; font-variant-numeric:tabular-nums; }
   .empty { color:var(--onSurfaceVariant); padding:48px 14px; text-align:center; font-size:14px; }
   .feednote { color:var(--onSurfaceVariant); font-size:12px; padding:4px 8px 8px; opacity:.85; }
   /* "get the app" dialog (Material 3) */
@@ -137,6 +141,10 @@
 const $ = s => document.querySelector(s);
 const esc = s => (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const yt = id => `https://i.ytimg.com/vi/${id}/mqdefault.jpg`;
+// detail-metadata formatters (durations / runtime / play counts) — all tolerant of null
+function fmtDur(s) { if (s==null) return ''; s=Math.round(s); const h=Math.floor(s/3600), m=Math.floor(s%3600/60), ss=s%60; return (h?h+':'+String(m).padStart(2,'0'):m)+':'+String(ss).padStart(2,'0'); }
+function fmtRuntime(s) { if (!s) return ''; const m=Math.round(s/60); if (m<60) return m+' min'; const h=Math.floor(m/60), r=m%60; return h+' hr'+(r?' '+r+' min':''); }
+function fmtPlays(n) { if (n==null) return ''; const u=(v,s)=>(v>=10?Math.round(v):v.toFixed(1).replace(/\.0$/,''))+s; if (n>=1e9) return u(n/1e9,'B')+' plays'; if (n>=1e6) return u(n/1e6,'M')+' plays'; if (n>=1e3) return u(n/1e3,'K')+' plays'; return n+' plays'; }
 const CHECK = '<svg class="ck" viewBox="0 0 24 24"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg>';
 
 // category chips (app order, albums-first per your earlier note) + which entity each maps to
@@ -164,7 +172,7 @@ const when = (x) => x.releaseDate
   : (x.addedAt ? ` &nbsp;·&nbsp; ${ago(x.addedAt, 'added')}` : '');
 function rowNewSong(t) { return row(`https://music.youtube.com/watch?v=${t.videoId}`, yt(t.videoId), false,
   esc(t.title) + (t.explicit?'<span class="e">E</span>':''),
-  esc(t.artist||'') + when(t), 'song'); }
+  esc(t.artist||'') + when(t), 'song', fmtDur(t.durationSec)); }
 function rowNewAlbum(a) { return row(`openAlbum('${a.id}')`, a.thumbnail, false, esc(a.title),
   esc(a.artist||'') + when(a), 'open'); }
 const NEWRENDER = { songs:rowNewSong, videos:rowNewSong, albums:rowNewAlbum, singles:rowNewAlbum };
@@ -229,20 +237,32 @@ async function loadCommunity() {
 }
 
 // ---- rows (app-style) ----
-function rowSong(t) { return row(`https://music.youtube.com/watch?v=${t.videoId}`, yt(t.videoId), false,
-  esc(t.title) + (t.explicit?'<span class="e">E</span>':''), esc(t.artist||''), 'song'); }
-function rowAlbum(a) { return row(`openAlbum('${a.id}')`, a.thumbnail, false, esc(a.title),
-  esc(a.artist) + (a.year?' · '+a.year:''), 'open'); }
+function rowSong(t) {
+  const num = t.trackNumber ? `<span class="tno">${t.trackNumber}</span>` : '';
+  const plays = t.playCount!=null ? ' · ' + fmtPlays(t.playCount) : '';
+  return row(`https://music.youtube.com/watch?v=${t.videoId}`, yt(t.videoId), false,
+    num + esc(t.title) + (t.explicit?'<span class="e">E</span>':''), esc(t.artist||'') + plays, 'song',
+    fmtDur(t.durationSec));
+}
+const ALBUMTYPE = { single:'Single', ep:'EP', album:'Album' };
+function rowAlbum(a) {
+  const bits = [esc(a.artist)];
+  if (a.year) bits.push(a.year);
+  if (a.trackCount) bits.push(a.trackCount + (a.trackCount==1?' song':' songs'));
+  if (a.totalDurationSec) bits.push(fmtRuntime(a.totalDurationSec));
+  return row(`openAlbum('${a.id}')`, a.thumbnail, false, esc(a.title), bits.join(' · '), 'open');
+}
 function rowArtist(a) { return row(`openArtist('${a.id}')`, a.thumbnail, true, esc(a.name), 'Artist', 'open'); }
 function rowPlaylist(p) { const sub = (p.artist||'Playlist') + (p.source==='community' ? (p.whitelisted!=null?` · community · ${p.whitelisted} tracks`:' · community') : ''); return row(`openPlaylist('${p.id}')`, p.thumbnail, false, esc(p.title), esc(sub), 'open'); }
 const RENDER = { songs:rowSong, videos:rowSong, albums:rowAlbum, singles:rowAlbum, artists:rowArtist, playlists:rowPlaylist, community:rowPlaylist };
 
-function row(action, img, round, title, sub, kind) {
+function row(action, img, round, title, sub, kind, meta) {
   // Songs don't link out to YouTube Music — playback is in the app; show the "get the app" dialog instead.
   const tap = kind === 'song' ? 'listen()' : action;
   return `<div class="item" onclick="${tap}">
     <img class="thumb ${round?'round':''}" loading="lazy" src="${img||''}" onerror="this.style.visibility='hidden'">
     <div class="text"><div class="title">${title}</div><div class="sub">${sub}</div></div>
+    ${meta?`<div class="dur">${meta}</div>`:''}
     <button class="more" onclick="event.stopPropagation();${tap}">⋮</button>
   </div>`;
 }
@@ -363,7 +383,9 @@ async function openArtist(id) {
 }
 async function openAlbum(id) {
   const d = await (await fetch('/album?id='+encodeURIComponent(id))).json(); if (d.error) return;
-  pushView({ title:d.album.title, sub:d.album.artist+(d.album.year?' · '+d.album.year:''), thumb:d.album.thumbnail, sections:[{ key:'tracks', label:'Tracks', items:d.tracks, render:rowSong }] });
+  const a = d.album;
+  const sub = [a.artist, a.year, ALBUMTYPE[a.type], a.trackCount?a.trackCount+(a.trackCount==1?' song':' songs'):'', fmtRuntime(a.totalDurationSec)].filter(Boolean).join(' · ');
+  pushView({ title:a.title, sub, thumb:a.thumbnail, sections:[{ key:'tracks', label:'Tracks', items:d.tracks, render:rowSong }] });
 }
 async function openPlaylist(id) {
   const d = await (await fetch('/playlist?id='+encodeURIComponent(id))).json();

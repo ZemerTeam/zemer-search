@@ -211,9 +211,12 @@ export const allArtists = (db) => db.prepare(
 
 export const allAlbums = (db) => db.prepare(`
   SELECT al.id, al.playlistId, al.title, al.artistId, al.type, al.year, al.thumbnail,
-         a.name AS artistName, a.isFemale, a.isChasid, a.isKidZone
-  FROM album al JOIN artist a ON a.id = al.artistId`).all()
-  .map((r) => ({ id: r.id, playlistId: r.playlistId, title: r.title, artistId: r.artistId, artistName: r.artistName, type: r.type, year: r.year, thumbnail: r.thumbnail, isFemale: !!r.isFemale, isChasid: !!r.isChasid, isKidZone: !!r.isKidZone }));
+         a.name AS artistName, a.isFemale, a.isChasid, a.isKidZone,
+         COUNT(at.videoId) AS trackCount, SUM(t.durationSec) AS totalDurationSec
+  FROM album al JOIN artist a ON a.id = al.artistId
+  LEFT JOIN album_track at ON at.albumId = al.id LEFT JOIN track t ON t.videoId = at.videoId
+  GROUP BY al.id`).all()
+  .map((r) => ({ id: r.id, playlistId: r.playlistId, title: r.title, artistId: r.artistId, artistName: r.artistName, type: r.type, year: r.year, thumbnail: r.thumbnail, trackCount: r.trackCount, totalDurationSec: r.totalDurationSec ?? null, isFemale: !!r.isFemale, isChasid: !!r.isChasid, isKidZone: !!r.isKidZone }));
 
 export const allPlaylists = (db) => db.prepare(`
   SELECT pl.id, pl.title, pl.artistId, pl.thumbnail, a.name AS artistName, a.isFemale, a.isChasid, a.isKidZone
@@ -379,10 +382,15 @@ export function artistDetail(db, artistId, { allowFemale = true, kidZoneOnly = f
   const trk = db.prepare(`SELECT videoId,title,isVideo,explicit,durationSec,playCount FROM track WHERE artistId=@artistId
     AND (@allowFemale=1 OR videoId NOT IN (SELECT videoId FROM _female)) ORDER BY (playCount IS NULL), playCount DESC, harvestedAt`)
     .all({ artistId, allowFemale: allowFemale ? 1 : 0 });
-  const alb = db.prepare("SELECT id,playlistId,title,type,year,thumbnail FROM album WHERE artistId=? ORDER BY (year IS NULL), year DESC").all(artistId);
+  // Album rows carry aggregates computed from album_track ∪ track (trackCount + total runtime) so the app can
+  // label "Album · 12 songs · 47 min" without a second call. Read-time only — no stored column.
+  const alb = db.prepare(`SELECT al.id, al.playlistId, al.title, al.type, al.year, al.thumbnail,
+      COUNT(at.videoId) AS trackCount, SUM(t.durationSec) AS totalDurationSec
+    FROM album al LEFT JOIN album_track at ON at.albumId=al.id LEFT JOIN track t ON t.videoId=at.videoId
+    WHERE al.artistId=? GROUP BY al.id ORDER BY (al.year IS NULL), al.year DESC`).all(artistId);
   const pl = db.prepare("SELECT id,title,thumbnail FROM playlist WHERE artistId=?").all(artistId);
   const song = (t) => ({ videoId: t.videoId, title: t.title, explicit: !!t.explicit, durationSec: t.durationSec ?? null, playCount: t.playCount ?? null });
-  const al = (x) => ({ id: x.id, playlistId: x.playlistId, title: x.title, artist: a.name, year: x.year, thumbnail: x.thumbnail });
+  const al = (x) => ({ id: x.id, playlistId: x.playlistId, title: x.title, artist: a.name, type: x.type, year: x.year, thumbnail: x.thumbnail, trackCount: x.trackCount, totalDurationSec: x.totalDurationSec ?? null });
   return {
     artist: { id: a.id, name: a.name, thumbnail: a.thumbnail },
     songs: trk.filter((t) => !t.isVideo).map(song),
@@ -394,7 +402,7 @@ export function artistDetail(db, artistId, { allowFemale = true, kidZoneOnly = f
 }
 
 export function albumDetail(db, albumId, { allowFemale = true, kidZoneOnly = false, blockVideos = false } = {}) {
-  const al = db.prepare("SELECT al.id,al.title,al.year,al.thumbnail,a.name artistName,a.isFemale,a.isKidZone FROM album al JOIN artist a ON a.id=al.artistId WHERE al.id=?").get(albumId);
+  const al = db.prepare("SELECT al.id,al.title,al.type,al.year,al.thumbnail,a.name artistName,a.isFemale,a.isKidZone FROM album al JOIN artist a ON a.id=al.artistId WHERE al.id=?").get(albumId);
   if (!al) return null;
   // Gate the whole album by its artist (same as artistDetail); then filter the track list per-track (a
   // compilation can mix artists / include video tracks).
@@ -405,7 +413,11 @@ export function albumDetail(db, albumId, { allowFemale = true, kidZoneOnly = fal
     WHERE at.albumId=? ORDER BY at.pos`).all(albumId)
     .filter((t) => (allowFemale || !t.femInv) && (!kidZoneOnly || t.isKidZone) && (!blockVideos || !t.isVideo))
     .map((t) => ({ videoId: t.videoId, title: t.title, artist: t.artistName, explicit: !!t.explicit, durationSec: t.durationSec ?? null, trackNumber: t.pos + 1 }));
-  return { album: { id: al.id, title: al.title, year: al.year, thumbnail: al.thumbnail, artist: al.artistName }, tracks };
+  // Header aggregates from the FULL album (all tracks), so the count/runtime describe the album itself and
+  // match the /artist list row even if content filters shorten the returned `tracks`.
+  const agg = db.prepare(`SELECT COUNT(at.videoId) AS trackCount, SUM(t.durationSec) AS totalDurationSec
+    FROM album_track at JOIN track t ON t.videoId=at.videoId WHERE at.albumId=?`).get(albumId);
+  return { album: { id: al.id, title: al.title, type: al.type, year: al.year, thumbnail: al.thumbnail, artist: al.artistName, trackCount: agg.trackCount, totalDurationSec: agg.totalDurationSec ?? null }, tracks };
 }
 
 // Which of `ids` are whitelisted tracks we already hold (for playlist detail: a playlist may include
@@ -437,7 +449,7 @@ export const whitelistedChannelIds = (db) => new Set([
 // (release date when known, else index time) so the UI's "ago" is accurate. Carries the artist flags.
 export function recentTracks(db, limit = 100) {
   return db.prepare(`
-    SELECT t.videoId, t.title, a.name AS artistName, t.isVideo, t.explicit, t.harvestedAt,
+    SELECT t.videoId, t.title, a.name AS artistName, t.isVideo, t.explicit, t.harvestedAt, t.durationSec,
            (a.isFemale=1 OR t.videoId IN (SELECT videoId FROM _female)) AS isFemale, a.isChasid, a.isKidZone, MAX(al.uploadDate) AS uploadDate
     FROM track t
     JOIN artist a ON a.id = t.artistId
@@ -448,7 +460,7 @@ export function recentTracks(db, limit = 100) {
     ORDER BY (MAX(al.uploadDate) IS NULL), MAX(al.uploadDate) DESC, t.harvestedAt DESC, t.videoId
     LIMIT ?`).all(Math.max(1, limit | 0))
     .map((r) => ({ videoId: r.videoId, title: r.title, artist: r.artistName, isVideo: !!r.isVideo,
-      explicit: !!r.explicit, releaseDate: r.uploadDate || null,
+      explicit: !!r.explicit, durationSec: r.durationSec ?? null, releaseDate: r.uploadDate || null,
       addedAt: r.uploadDate ? Date.parse(r.uploadDate) : r.harvestedAt,
       isFemale: !!r.isFemale, isChasid: !!r.isChasid, isKidZone: !!r.isKidZone }));
 }

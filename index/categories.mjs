@@ -88,7 +88,7 @@ export function searchCategories(cats, q, o = {}) {
   const b = cats.blocked; // server-curated id overrides (global/female); undefined → no-op
   const pick = (idx, map, n = k) =>
     search(idx, q, n * 4).map((r) => r.track).filter((t) => allowed(t, o) && !blockedDoc(t, o, b)).slice(0, n).map(map);
-  const albumRow = (a) => ({ id: a.id, playlistId: a.playlistId, title: a.title, artist: a.artistName, year: a.year, thumbnail: a.thumbnail });
+  const albumRow = (a) => ({ id: a.id, playlistId: a.playlistId, title: a.title, artist: a.artistName, type: a.type, year: a.year, thumbnail: a.thumbnail, trackCount: a.trackCount ?? null, totalDurationSec: a.totalDurationSec ?? null });
   return {
     // every category honors the requested k (filter-then-slice in pick); the app sends k=8 for the "All"
     // summary and k=100 per filter chip, so each chip isn't pinned at a tiny cap.
