@@ -53,6 +53,11 @@ artist queried by first + last name with `allowFemale=0` must return **0** femal
 (songs/videos/albums/singles/playlists/artists/community) — run it against a live API after corpus or
 filter changes.
 
+Detail metadata is pinned too (`store.test.mjs`): the `parseDurationSec`/`parsePlays` parsers, the
+`durationSec`/`playCount` upsert + the `/artist` **play-count sort** ("Top songs"), the `/album`
+`trackNumber`, and the read-time **album aggregates** (`trackCount`/`totalDurationSec`/`type` on
+`artistDetail` rows + the `albumDetail` header).
+
 ## `loadtest` — throughput (needs a running API)
 
 `node bench/loadtest.mjs [total] [concurrency]` against `API` (default `http://localhost:7700`). Simulates

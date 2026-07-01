@@ -70,8 +70,8 @@ scripts/maintain.sh deep        # weekly: full-pagination backfill (refresh defa
 
 | Job | When | What | Cost (this profile) |
 |-----|------|------|------|
-| **daily shallow** | **Mon–Fri 03:00, Sat 22:00** | new releases for all artists + onboard + prune | ~10–12 min |
-| **weekly deep** | **Sun 03:00** | full re-pagination backfill (catches anything buried) | longer |
+| **daily shallow** | **Mon–Fri 03:00, Sat 22:00** | new releases for all artists + onboard + prune (refreshes landing-shelf **play counts**) | ~10–12 min |
+| **weekly deep** | **Sun 03:00** | full re-pagination backfill (catches anything buried; refreshes **durations + play counts** from album/landing pages) | longer |
 
 **Shabbat-aware:** nothing runs on Saturday until after Shabbat — the Saturday pass is at **22:00**, and
 Friday's is at 03:00 (before Shabbat). Sunday is the deep pass. The schedule is split by day so the daily

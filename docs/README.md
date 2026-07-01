@@ -10,12 +10,11 @@ quick orientation + the gotcha list; come here for the deep dives.
 | [architecture.md](architecture.md) | The hybrid design, module map, data flow, why SQLite + in-memory (and not Typesense/Postgres), Android-version strategy. |
 | [search.md](search.md) | **The matcher in full** — normalization, the Hebrew consonant skeleton, IDF, the scoring formula, exact/begins/contains, as-you-type, the precision floor, and the reasoning behind every constant. |
 | [harvester.md](harvester.md) | Harvesting a complete discography, the IP-safe net layer, the cache, the channel map, incremental refresh, issue #108. |
-| [store.md](store.md) | SQLite schema, the store API, migrations, why re-harvest is free. |
+| [store.md](store.md) | SQLite schema, the store API, migrations, track detail metadata (durations/plays/track numbers + album aggregates), why re-harvest is free. |
 | [api.md](api.md) | HTTP endpoints, the web UI, scaling (cluster + LRU cache + staggered reload), env config. |
 | [testing.md](testing.md) | Every benchmark/test harness, what each measures, current numbers, how to read them. |
 | [deployment.md](deployment.md) | Running on a server, env vars, horizontal scaling, operational notes. |
 | [gotchas.md](gotchas.md) | The bug catalog — every real bug found + the fix + the regression test. Institutional memory. |
-| [app-integration.md](app-integration.md) | The deferred app-side `SearchProvider` plan (touches `zemer-app`, out of scope until unfrozen). |
 
 ## One-paragraph summary
 

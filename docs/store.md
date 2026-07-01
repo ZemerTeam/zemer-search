@@ -15,7 +15,9 @@ artist (
 )
 track (
   videoId TEXT PRIMARY KEY, title TEXT, artistId TEXT REFERENCES artist(id),
-  isVideo INTEGER, explicit INTEGER, harvestedAt INTEGER
+  isVideo INTEGER, explicit INTEGER, harvestedAt INTEGER,
+  durationSec INTEGER,           -- track length (from album-page fixed columns); NULL until known
+  playCount INTEGER              -- landing "Songs"-shelf play count; NULL for tracks YT shows no stats for
 )
 album (
   id TEXT PRIMARY KEY,           -- album browseId (MPRE…)
@@ -63,8 +65,8 @@ writer. Indexes on every `artistId` and `album_track.albumId`.
 | `openCorpus(file?)` | Open + create schema + run migrations (see below). |
 | `upsertArtistCatalog(db, artist, catalog)` | **One transaction**: upsert the artist (+ thumbnail + regularChannelId) and *all* its tracks/albums/playlists/album_tracks. The durable per-artist checkpoint. |
 | `allTracks/allArtists/allAlbums/allPlaylists(db)` | Denormalized rows the index/bench/subset consume (artist flags joined in). |
-| `artistDetail(db, id, opts?)` | Artist page: `{artist, songs, videos, albums, singles, playlists}`. `opts` = `{allowFemale, kidZoneOnly, blockVideos}`: a female (when `allowFemale:false`) / non-KidZone (when `kidZoneOnly`) artist returns **`null`** (→ 404); `blockVideos` empties `videos`. |
-| `albumDetail(db, id, opts?)` | Album page: `{album, tracks}` (ordered via `album_track.pos`). Same `opts`: female/non-KidZone artist → `null`; tracks filtered **per-track** (compilations). |
+| `artistDetail(db, id, opts?)` | Artist page: `{artist, songs, videos, albums, singles, playlists}`. `opts` = `{allowFemale, kidZoneOnly, blockVideos}`: a female (when `allowFemale:false`) / non-KidZone (when `kidZoneOnly`) artist returns **`null`** (→ 404); `blockVideos` empties `videos`. Songs/videos carry `durationSec`+`playCount` and **`songs` are sorted by `playCount` desc** (real "Top songs"); album/single rows carry `type`+`trackCount`+`totalDurationSec`. |
+| `albumDetail(db, id, opts?)` | Album page: `{album, tracks}` (ordered via `album_track.pos`). Same `opts`: female/non-KidZone artist → `null`; tracks filtered **per-track** (compilations). Tracks carry `durationSec`+`trackNumber`; the `album` header carries `type`+`trackCount`+`totalDurationSec` (FULL-album aggregates, so they match the `/artist` list row even when filters shorten `tracks`). |
 | `tracksByIds(db, ids)` | Which of `ids` are whitelisted tracks we hold (chunked for the 999-var limit) — for playlist filtering. Each row carries `isVideo/isFemale/isKidZone` so `/playlist` filters per song. |
 | `whitelistedChannelIds(db)` | Set of **music ids ∪ regular channel ids** — for playlist whitelisting. |
 | `harvestedArtistIds(db)` | Distinct artist ids with tracks (refresh iterates these). |

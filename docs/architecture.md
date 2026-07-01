@@ -38,7 +38,7 @@ matching.
 - **Server (primary):** harvest → SQLite → in-memory index loaded by the `/search` API. ~0 MB downloaded
   per query, always fresh.
 - **On-device (fallback, deferred):** a small gzipped subset → the *same* matcher in pure Kotlin. Works
-  offline / when the API is down. See [app-integration.md](app-integration.md).
+  offline / when the API is down.
 
 ## Why SQLite + in-memory (and not Typesense / Postgres)
 
@@ -70,9 +70,10 @@ everything in `index/` is **pure string/data ops** with no platform-version-vari
 
 ## Data flow per request
 
-`GET /search?q=…` → `searchCategories` runs the in-memory `search()` over **six** category indexes
-(artists, songs, albums, singles, videos, playlists), applies the content filter, returns the top-k per
-category as `SongItem`-shaped JSON. The web UI renders them as filter-chip categories like the app. The
+`GET /search?q=…` → `searchCategories` runs the in-memory `search()` over **seven** category indexes
+(artists, songs, albums, singles, videos, playlists, community), applies the content filter, returns the
+top-k per category as `SongItem`-shaped JSON (song rows carry `durationSec`+`playCount`; album rows carry
+`type`+`trackCount`+`totalDurationSec`). The web UI renders them as filter-chip categories like the app. The
 index is rebuilt from `corpus.db` every `RELOAD_MS` (default 30 s) so newly-harvested entities appear.
 
 See [search.md](search.md) for the matcher, [api.md](api.md) for the server, [store.md](store.md) for the

@@ -34,9 +34,9 @@ whitelist (Firestore)  →  harvester (InnerTube, IP-safe)  →  corpus.db (SQLi
 | `harness/` | Ported InnerTube layer: `clients.mjs`, `lib.mjs`, `parsers.mjs`; **`net.mjs`** (gzip disk cache + bounded-concurrency rate-paced limiter + anti-bot circuit breaker; `cacheOnly` option for offline report passes); `browse.mjs` (artist/album/playlist parsers); **`search.mjs`** (IP-safe search via `net.mjs` — community-playlist discovery); **`player.mjs`** (IP-safe `/player` — the real release date, ISO `uploadDate`); `whitelist.mjs` (fetch Firestore whitelist, read-only); **`blocked-ids.mjs`** (fetch Firestore `blockedContentIds` → `data/blocked-ids.json`: per-id `female`/`global` overrides, read-only); `status.mjs` (maintenance progress channel). Browse + search + player are **unauthenticated** — no cookie, no `visitorData`. |
 | `harvester/` | `core.mjs` (shared per-artist harvest; shallow/deep), `harvest.mjs` (initial bulk), `onboard.mjs` (new artists), `refresh.mjs` (incremental; shallow daily / deep weekly), `prune.mjs` (drop de-whitelisted), **`reconcile.mjs`** (purge tracks whose row-artist is a non-whitelisted uploader — cleans YT Music's polluted artist shelves; offline/cache-only), **`playlists.mjs`** (community-playlist discovery — seed-search → whitelist-filter → quality-gate → store; revalidate prunes stale), **`releases.mjs`** (date releases precisely — one `/player` per album → `album.uploadDate`; makes New Releases accurate). |
 | `scripts/`, `deploy/` | `maintain.sh` (refresh orchestrator: whitelist+blocked-ids→onboard→prune→refresh under flock) + systemd timer/service units (`zemer-refresh@`, `zemer-playlists`, and **`zemer-overrides`** — the several-times-a-day id-override fetch). |
-| `corpus/store.mjs` | **SQLite** schema + store API (artist/track/album/playlist/album_track **+ community_playlist/community_playlist_track**). |
+| `corpus/store.mjs` | **SQLite** schema + store API (artist/track/album/playlist/album_track **+ community_playlist/community_playlist_track**; `track` carries **`durationSec`/`playCount`**; album `type`/`trackCount`/`totalDurationSec` are read-time aggregates). |
 | `index/` | `normalize.mjs` (skeleton + Damerau + `skeletonKey`), **`search.mjs`** (the matcher), `synonyms.mjs`, `categories.mjs` (grouped/by-category search), **`credits.mjs`** (featuring female detection — `buildFemaleMatcher`/`isFemaleInvolved`; whole-token + cross-script-only skeleton, whitelist-validated), `build-subset.mjs`, `*.test.mjs`. |
-| `server/` | `api.mjs` (HTTP API + cluster + LRU cache; `/search` `/artist` `/album` `/playlist` `/new` `/community` `/health`+`maintenance`), `ui.html` (web UI: search chips + **Community** chip (browse-all, no search) + **New Releases** chip + live refresh-progress bar). |
+| `server/` | `api.mjs` (HTTP API + cluster + LRU cache; `/search` `/artist` `/album` `/playlist` `/new` `/community` `/health`+`maintenance`), `ui.html` (web UI: search chips + **Community** chip (browse-all, no search) + **New Releases** chip + live refresh-progress bar; renders song **durations**+**play counts**, album **`N songs · MM min`**, numbered album-detail tracklists). |
 | `bench/` | `relevance` `category-relevance` `audit` `fuzz` `deep-test` `loadtest` `bench` `diag-typos`. |
 | `data/` | `corpus.db`, `whitelist.json`, `blocked-ids.json` (fetched id-overrides: `{global:[…], female:[…]}` — global ids hidden always, female ids when female blocked; mirrors the app's `blockedContentIds`), `synonyms.json`, `blocklist.json` (curated exclusions: `videoIds`/`artistIds` + community `playlistIds` + `playlistTerms` title/curator screen), `playlist-seeds.json` (community-playlist discovery seed terms), `rejected-artists.json` (generated: non-whitelisted artists seen in community playlists, for whitelist review), `.httpcache/` (gzipped, prunable). |
 | `docs/` | Comprehensive deep-dive docs — read `docs/README.md`. |
@@ -202,6 +202,21 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
     (cache-only, `DRY=1` to report) flips already-stored songs to video for ids listed as a video anywhere.
     Attribution stays single (the PK owner) — that's intentional; full multi-artist attribution would mean
     duplicate same-id results.
+19. **Track detail metadata lives on DIFFERENT shelves — the harvest must MERGE it.** A track's **duration**
+    is on the **album page** (fixed column) and its **play count** is on the artist **landing "Songs" shelf**;
+    the same `videoId` appears on both, and the harvest dedups it. So `core.mjs` `add()` merges on
+    re-encounter — **fill `durationSec` if missing, keep the MAX `playCount`** — else a track gets one but not
+    the other. Both are already in the cached pages (parsed by `browse.mjs`, no new fetches); `insTrack`
+    upserts `durationSec=COALESCE(…)` and `playCount=NULLIF(MAX(…),0)` (never downgrade; unknown stays NULL).
+    **`harvester/backfill-track-meta.mjs`** (cache-only, `DRY=1`) populates existing rows offline; the harvest
+    fills them going forward (deep weekly refreshes both; shallow daily refreshes plays). `artistDetail` sorts
+    `songs` by `playCount` desc = real **"Top songs"**. Coverage is cache-dependent (durations ~97%, plays
+    ~55% — plays only where YT shows them, **never on videos**); nullable = unknown = old behavior.
+    **Album aggregates** (`type`/`trackCount`/`totalDurationSec`) are **read-time** over `album_track`∪`track`
+    (NO stored column) on `allAlbums` (→ `/search` cards), `artistDetail` rows, and the `albumDetail` header
+    (full-album total, so it matches the list row even when filters shorten the returned tracks). The **web UI**
+    (`ui.html`) renders all of it: song duration + plays, album `Album · N songs · MM min`, numbered
+    album-detail tracklists, New Releases durations (`fmtDur`/`fmtRuntime`/`fmtPlays`).
 
 ## Editing the matcher safely
 
