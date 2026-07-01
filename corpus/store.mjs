@@ -137,6 +137,11 @@ export function openCorpus(file = DB_PATH) {
     db.exec("ALTER TABLE track ADD COLUMN durationSec INTEGER");
   if (!db.prepare("PRAGMA table_info(track)").all().some((c) => c.name === "playCount"))
     db.exec("ALTER TABLE track ADD COLUMN playCount INTEGER");
+  // Per-track real release date (ISO-8601), from one /player on the track itself — for STANDALONE tracks
+  // (not in any album, so they can't inherit an album's uploadDate). Dated off-datacenter (/player is blocked
+  // from datacenters) by harvester/releases.mjs and shipped in; NULL until dated. Preserved across re-harvest.
+  if (!db.prepare("PRAGMA table_info(track)").all().some((c) => c.name === "uploadDate"))
+    db.exec("ALTER TABLE track ADD COLUMN uploadDate TEXT");
   // Per-connection scratch set of "female-involved" videoIds (primary OR a featured female — see
   // index/credits.mjs), populated by setFemaleSet() at index reload. The female content-filter SQL ORs
   // membership here onto the primary `isFemale`. Empty by default → identical to primary-only filtering.
@@ -450,14 +455,15 @@ export const whitelistedChannelIds = (db) => new Set([
 export function recentTracks(db, limit = 100) {
   return db.prepare(`
     SELECT t.videoId, t.title, a.name AS artistName, t.isVideo, t.explicit, t.harvestedAt, t.durationSec,
-           (a.isFemale=1 OR t.videoId IN (SELECT videoId FROM _female)) AS isFemale, a.isChasid, a.isKidZone, MAX(al.uploadDate) AS uploadDate
+           (a.isFemale=1 OR t.videoId IN (SELECT videoId FROM _female)) AS isFemale, a.isChasid, a.isKidZone,
+           COALESCE(MAX(al.uploadDate), t.uploadDate) AS uploadDate
     FROM track t
     JOIN artist a ON a.id = t.artistId
     LEFT JOIN album_track at ON at.videoId = t.videoId
     LEFT JOIN album al ON al.id = at.albumId
     WHERE t.harvestedAt IS NOT NULL
     GROUP BY t.videoId
-    ORDER BY (MAX(al.uploadDate) IS NULL), MAX(al.uploadDate) DESC, t.harvestedAt DESC, t.videoId
+    ORDER BY (COALESCE(MAX(al.uploadDate), t.uploadDate) IS NULL), COALESCE(MAX(al.uploadDate), t.uploadDate) DESC, t.harvestedAt DESC, t.videoId
     LIMIT ?`).all(Math.max(1, limit | 0))
     .map((r) => ({ videoId: r.videoId, title: r.title, artist: r.artistName, isVideo: !!r.isVideo,
       explicit: !!r.explicit, durationSec: r.durationSec ?? null, releaseDate: r.uploadDate || null,
@@ -502,6 +508,23 @@ export const setAlbumUploadDate = (db, id, uploadDate) =>
   db.prepare("UPDATE album SET uploadDate=? WHERE id=?").run(uploadDate, id).changes;
 export const datedAlbumCount = (db) =>
   db.prepare("SELECT COUNT(*) c FROM album WHERE uploadDate IS NOT NULL").get().c;
+
+// STANDALONE tracks (in no album, so no album date to inherit) that still lack their own date — one /player
+// per track dates them directly. Excludes album tracks (they inherit via album.uploadDate) to avoid
+// re-dating what album dating already covers.
+export function tracksNeedingDate(db, { limit = 100000 } = {}) {
+  return db.prepare(`
+    SELECT t.videoId, t.title
+    FROM track t
+    WHERE t.uploadDate IS NULL
+      AND NOT EXISTS (SELECT 1 FROM album_track at WHERE at.videoId = t.videoId)
+    ORDER BY (t.harvestedAt IS NULL), t.harvestedAt DESC, t.videoId
+    LIMIT ?`).all(Math.max(1, limit | 0));
+}
+export const setTrackUploadDate = (db, videoId, uploadDate) =>
+  db.prepare("UPDATE track SET uploadDate=? WHERE videoId=?").run(uploadDate, videoId).changes;
+export const datedTrackCount = (db) =>
+  db.prepare("SELECT COUNT(*) c FROM track WHERE uploadDate IS NOT NULL").get().c;
 
 export const harvestedArtistIds = (db) => db.prepare("SELECT DISTINCT artistId FROM track").all().map((r) => r.artistId);
 // Every artist that has a row (incl. 0-track ones) — used by onboarding to skip already-known artists.

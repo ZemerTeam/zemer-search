@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistList, communityKeptCounts, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, recentAlbums, recentTracks, setFemaleSet } from "./store.mjs";
+import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistList, communityKeptCounts, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, tracksNeedingDate, setTrackUploadDate, recentAlbums, recentTracks, setFemaleSet } from "./store.mjs";
 import { parseDurationSec, parsePlays } from "../harness/browse.mjs";
 
 const seed = (db) => upsertArtistCatalog(db, { id: "UCmusic", name: "Test Artist" }, {
@@ -300,6 +300,23 @@ test("track detail metadata: durationSec + playCount stored; /artist sorts by pl
   assert.equal(d.albums[0].trackCount, 2);
   assert.equal(d.albums[0].totalDurationSec, 380);
   assert.equal(d.albums[0].type, "album");
+});
+
+test("standalone track dating: track.uploadDate fills New Releases where there's no album to inherit from", () => {
+  const db = openCorpus(":memory:");
+  upsertArtistCatalog(db, { id: "UCd", name: "D" }, {
+    tracks: [{ videoId: "albtrackaa1", title: "In album" }, { videoId: "standalone1", title: "Standalone" }],
+    albums: [{ id: "MPREd1", playlistId: "PLd", title: "A", type: "album", year: 2020 }],
+    albumTracks: [{ albumId: "MPREd1", videoId: "albtrackaa1", pos: 0 }],
+  });
+  setAlbumUploadDate(db, "MPREd1", "2020-06-01T00:00:00Z");
+  // only the standalone track needs its own date (the album track inherits the album's)
+  const need = tracksNeedingDate(db, {});
+  assert.deepEqual(need.map((t) => t.videoId), ["standalone1"]);
+  setTrackUploadDate(db, "standalone1", "2021-03-03T00:00:00Z");
+  const byId = Object.fromEntries(recentTracks(db, 10).map((r) => [r.videoId, r.releaseDate]));
+  assert.equal(byId["albtrackaa1"], "2020-06-01T00:00:00Z"); // inherited from the album
+  assert.equal(byId["standalone1"], "2021-03-03T00:00:00Z"); // from track.uploadDate (no album)
 });
 
 test("community cover is filter-aware: a filtered card shows the first SURVIVING member's art, not a dropped one", () => {

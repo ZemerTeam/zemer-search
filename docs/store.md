@@ -17,8 +17,9 @@ track (
   videoId TEXT PRIMARY KEY, title TEXT, artistId TEXT REFERENCES artist(id),
   isVideo INTEGER, explicit INTEGER, harvestedAt INTEGER,
   durationSec INTEGER,           -- track length (from album-page fixed columns); NULL until known
-  playCount INTEGER              -- landing "Songs"-shelf play count; NULL for tracks YT shows no stats for
-)
+  playCount INTEGER,             -- landing "Songs"-shelf play count; NULL for tracks YT shows no stats for
+  uploadDate TEXT                -- REAL release date (ISO) for STANDALONE tracks (no album to inherit from);
+)                                --   dated off-datacenter via one /player on the track; NULL until dated
 album (
   id TEXT PRIMARY KEY,           -- album browseId (MPRE…)
   playlistId TEXT, title TEXT, artistId TEXT REFERENCES artist(id),
@@ -70,8 +71,9 @@ writer. Indexes on every `artistId` and `album_track.albumId`.
 | `tracksByIds(db, ids)` | Which of `ids` are whitelisted tracks we hold (chunked for the 999-var limit) — for playlist filtering. Each row carries `isVideo/isFemale/isKidZone` so `/playlist` filters per song. |
 | `whitelistedChannelIds(db)` | Set of **music ids ∪ regular channel ids** — for playlist whitelisting. |
 | `harvestedArtistIds(db)` | Distinct artist ids with tracks (refresh iterates these). |
-| `recentTracks/recentAlbums(db)` | New Releases rows ordered by REAL release date (`album.uploadDate`; a track inherits its album's) newest-first, undated falling back to `harvestedAt` below. Each carries `releaseDate` (ISO when known). |
-| `albumsNeedingDate(db,{minYear})` / `setAlbumUploadDate` / `datedAlbumCount` | Releases still lacking a date but with a sample track (album-type first, recent-year first) / store a date / count dated. Powers `harvester/releases.mjs`. |
+| `recentTracks/recentAlbums(db)` | New Releases rows ordered by REAL release date newest-first — a track's date is `COALESCE(album.uploadDate, track.uploadDate)` (inherit the album's, else the track's own for STANDALONE tracks); undated falls back to `harvestedAt`. Each carries `releaseDate` (ISO when known). |
+| `albumsNeedingDate(db,{minYear})` / `setAlbumUploadDate` / `datedAlbumCount` | Albums (incl. singles/EPs) still lacking a date but with a sample track (album-type first, recent-year first) / store a date / count dated. Powers `harvester/releases.mjs`. |
+| `tracksNeedingDate(db,{limit})` / `setTrackUploadDate` / `datedTrackCount` | STANDALONE tracks (in no album, so no album date to inherit) still lacking a date / store a date / count dated. The second phase of `harvester/releases.mjs`. |
 | `upsertCommunityPlaylist(db, pl, whitelistedTracks)` | **One transaction**: upsert a community playlist + re-snapshot its whitelisted membership (drops blocklisted ids; re-check shrinks the set cleanly). |
 | `allCommunityPlaylists(db)` | Community playlists shaped like the artist-playlist docs (`{id, title, artistName:"", author, thumbnail, source:"community", whitelisted, total}`) for the search index. Also carries `fb` (has a not-yet-in-corpus member → unknown flags) + `clsMask` (one bit per present `isFemale·isVideo·isKidZone` member class) so `searchCategories` can hide a playlist with no member surviving the filter. |
 | `communityPlaylistList(db, limit, opts?)` | Browse-all list for `/community`. With a filter active (`opts`), hides playlists with **zero** surviving members (all-female list when female blocked, etc.), reduces `whitelisted` to the kept count, and takes the cover from a kept track. |

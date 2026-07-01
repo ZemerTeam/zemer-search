@@ -13,34 +13,44 @@
 import { postPlayer, playerUploadDate } from "../harness/player.mjs";
 import { netStats } from "../harness/net.mjs";
 import { setStatus } from "./status.mjs";
-import { openCorpus, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, stats } from "../corpus/store.mjs";
+import { openCorpus, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, tracksNeedingDate, setTrackUploadDate, datedTrackCount, stats } from "../corpus/store.mjs";
 
 const MIN_YEAR = Number(process.env.MIN_YEAR || 0);
 const LIMIT = process.env.LIMIT ? Number(process.env.LIMIT) : 100000;
+// Which phases to run (both by default): albums (incl. singles/EPs) and STANDALONE tracks (no album to
+// inherit from). TRACKS=0 = albums only (the New-Releases-recent path); ALBUMS=0 = standalone tracks only.
+const DO_ALBUMS = process.env.ALBUMS !== "0";
+const DO_TRACKS = process.env.TRACKS !== "0" && MIN_YEAR === 0; // standalone tracks carry only a real date (no year to gate)
 
 const db = openCorpus();
-const todo = albumsNeedingDate(db, { minYear: MIN_YEAR, limit: LIMIT });
-console.log(`releases: dating ${todo.length} undated albums${MIN_YEAR ? ` (year >= ${MIN_YEAR})` : ""}; already dated ${datedAlbumCount(db)} of ${stats(db).albums + stats(db).singles}`);
+const albums = DO_ALBUMS ? albumsNeedingDate(db, { minYear: MIN_YEAR, limit: LIMIT }) : [];
+const tracks = DO_TRACKS ? tracksNeedingDate(db, { limit: LIMIT }) : [];
+const total = albums.length + tracks.length;
+console.log(`releases: dating ${albums.length} undated albums${MIN_YEAR ? ` (year >= ${MIN_YEAR})` : ""} + ${tracks.length} standalone tracks; already dated ${datedAlbumCount(db)}/${stats(db).albums + stats(db).singles} albums, ${datedTrackCount(db)} tracks`);
 
 let aborted = false, done = 0, dated = 0, nodate = 0;
-if (todo.length) setStatus({ phase: "releases", mode: "date", done: 0, total: todo.length, newTracks: 0, blocks: 0, startedAt: Date.now() });
-for (const al of todo) {
-  if (aborted) break;
+if (total) setStatus({ phase: "releases", mode: "date", done: 0, total, newTracks: 0, blocks: 0, startedAt: Date.now() });
+// One /player per item (album → its sample track; standalone track → itself); IP-safe via net.mjs (paced,
+// cached, aborts on the first anti-bot block → resume from cache next run). Albums first (they cover the most
+// tracks per call), then the standalone tail.
+const dateOne = async (videoId, apply) => {
+  if (aborted) return;
   try {
-    const r = await postPlayer({ videoId: al.sampleVideoId });
-    if (r.blocked) { console.warn("⚠ anti-bot block — stopping to protect the IP (resume from cache next run)"); aborted = true; setStatus({ blocks: 1 }); break; }
+    const r = await postPlayer({ videoId });
+    if (r.blocked) { console.warn("⚠ anti-bot block — stopping to protect the IP (resume from cache next run)"); aborted = true; setStatus({ blocks: 1 }); return; }
     const date = r.json ? playerUploadDate(r.json) : null;
-    if (date) { setAlbumUploadDate(db, al.id, date); dated++; }
-    else nodate++;
-  } catch (e) { console.warn(`  error dating ${al.title}: ${e.message}`); nodate++; }
-  if (todo.length) setStatus({ done: ++done, newTracks: dated });
-}
-if (todo.length) setStatus({ phase: aborted ? "blocked" : "done", done });
+    if (date) { apply(date); dated++; } else nodate++;
+  } catch (e) { console.warn(`  error dating ${videoId}: ${e.message}`); nodate++; }
+  if (total) setStatus({ done: ++done, newTracks: dated });
+};
+for (const al of albums) { if (aborted) break; await dateOne(al.sampleVideoId, (d) => setAlbumUploadDate(db, al.id, d)); }
+for (const t of tracks) { if (aborted) break; await dateOne(t.videoId, (d) => setTrackUploadDate(db, t.videoId, d)); }
+if (total) setStatus({ phase: aborted ? "blocked" : "done", done });
 
-const finalDated = datedAlbumCount(db);
+const finalAlb = datedAlbumCount(db), finalTrk = datedTrackCount(db);
 const s = stats(db);
 db.close();
 const ns = netStats();
-console.log(`\nreleases: dated ${dated}, no-date ${nodate}; corpus now has ${finalDated} dated releases`);
+console.log(`\nreleases: dated ${dated}, no-date ${nodate}; corpus now has ${finalAlb} dated albums + ${finalTrk} dated standalone tracks`);
 console.log(`${aborted ? "ABORTED on block; " : ""}net: ${ns.liveCount} live, ${ns.cacheHits} cached, ${ns.blockedCount} blocks`);
 if (aborted) process.exitCode = 75; // EX_TEMPFAIL — a block is a (resumable) failure

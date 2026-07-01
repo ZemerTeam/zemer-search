@@ -186,7 +186,13 @@ lacking `uploadDate` but with a sample track (we already store `album_track`), i
 on that sample and stores the date on the album — **one request per release, never per track**. Incremental
 (skips already-dated albums; `/player` responses are cached, so re-runs replay free), album-type + recent-year
 first, IP-safe (paced, aborts on a block → exit 75). A song inherits its album's date, so dating albums also
-orders the New Releases Songs list.
+orders the New Releases Songs list. A **second phase** then dates STANDALONE tracks — those in no album, so
+they have no album date to inherit — with one `/player` on the track itself → `track.uploadDate`
+(`recentTracks` uses `COALESCE(album.uploadDate, track.uploadDate)`). Knobs: `TRACKS=0` = albums only,
+`ALBUMS=0` = standalone tracks only, `MIN_YEAR` gates albums (standalone tracks run only at `MIN_YEAR=0`).
+**`/player` is blocked from datacenter IPs**, so this runs off-datacenter (a residential host) and the dates
+are shipped into the server `corpus.db` (the album/track upserts leave `uploadDate` untouched, so shipped
+dates survive re-harvest).
 
 This is what makes New Releases truthful: `recentAlbums`/`recentTracks` order by the real date, and `/new`
 shows **only items dated within a window** (default 10 days). Without it, ordering fell back to `harvestedAt`
