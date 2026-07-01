@@ -302,32 +302,35 @@ test("track detail metadata: durationSec + playCount stored; /artist sorts by pl
   assert.equal(d.albums[0].type, "album");
 });
 
-test("per-track dating: EVERY track gets its OWN date; endpoints prefer it over the album's, fall back to it", () => {
+test("track dating: videos + standalone get their OWN date; album AUDIO tracks inherit the album's (COALESCE)", () => {
   const db = openCorpus(":memory:");
   upsertArtistCatalog(db, { id: "UCd", name: "D" }, {
-    tracks: [{ videoId: "albtrackaa1", title: "In album" }, { videoId: "standalone1", title: "Standalone" }, { videoId: "fallbackaa1", title: "No own date" }],
+    tracks: [
+      { videoId: "albaudioaa1", title: "Album audio" },                 // album audio → inherits the album date
+      { videoId: "albvideoaa1", title: "Album video", isVideo: true },  // video in album → its OWN date
+      { videoId: "standalone1", title: "Standalone" },                  // no album → its OWN date
+    ],
     albums: [{ id: "MPREd1", playlistId: "PLd", title: "A", type: "album", year: 2020 }],
-    albumTracks: [{ albumId: "MPREd1", videoId: "albtrackaa1", pos: 0 }, { albumId: "MPREd1", videoId: "fallbackaa1", pos: 1 }],
+    albumTracks: [{ albumId: "MPREd1", videoId: "albaudioaa1", pos: 0 }, { albumId: "MPREd1", videoId: "albvideoaa1", pos: 1 }],
   });
   setAlbumUploadDate(db, "MPREd1", "2020-06-01T00:00:00Z");
-  // ALL undated tracks need their own date — album membership no longer exempts them (for 100% accuracy)
-  assert.deepEqual(tracksNeedingDate(db, {}).map((t) => t.videoId).sort(), ["albtrackaa1", "fallbackaa1", "standalone1"]);
-  setTrackUploadDate(db, "albtrackaa1", "2019-01-15T00:00:00Z"); // its OWN date — EARLIER than the album (a pre-released single)
+  // Need OWN date = the video + the standalone; the album AUDIO track is skipped (it inherits the album date)
+  assert.deepEqual(tracksNeedingDate(db, {}).map((t) => t.videoId).sort(), ["albvideoaa1", "standalone1"]);
+  setTrackUploadDate(db, "albvideoaa1", "2019-01-15T00:00:00Z"); // its OWN date, differs from the album
   setTrackUploadDate(db, "standalone1", "2021-03-03T00:00:00Z");
-  // fallbackaa1 left undated → should fall back to the album's date
   const rt = Object.fromEntries(recentTracks(db, 10).map((r) => [r.videoId, r.releaseDate]));
-  assert.equal(rt["albtrackaa1"], "2019-01-15T00:00:00Z"); // OWN date, NOT the album's 2020-06-01
+  assert.equal(rt["albaudioaa1"], "2020-06-01T00:00:00Z"); // no own /player date → inherits the album's
+  assert.equal(rt["albvideoaa1"], "2019-01-15T00:00:00Z"); // OWN date preferred over the album's
   assert.equal(rt["standalone1"], "2021-03-03T00:00:00Z");
-  assert.equal(rt["fallbackaa1"], "2020-06-01T00:00:00Z"); // no own date → album fallback
   const d = artistDetail(db, "UCd", {});
   const s = Object.fromEntries(d.songs.map((x) => [x.videoId, x.releaseDate]));
-  assert.equal(s["albtrackaa1"], "2019-01-15T00:00:00Z"); // own date preferred
-  assert.equal(s["fallbackaa1"], "2020-06-01T00:00:00Z"); // album fallback
-  assert.equal(d.albums[0].releaseDate, "2020-06-01T00:00:00Z"); // album keeps its own date
+  const v = Object.fromEntries(d.videos.map((x) => [x.videoId, x.releaseDate]));
+  assert.equal(s["albaudioaa1"], "2020-06-01T00:00:00Z"); // album fallback
+  assert.equal(v["albvideoaa1"], "2019-01-15T00:00:00Z"); // video's own date
+  assert.equal(d.albums[0].releaseDate, "2020-06-01T00:00:00Z");
   const ad = albumDetail(db, "MPREd1", {});
-  assert.equal(ad.album.releaseDate, "2020-06-01T00:00:00Z");
-  assert.equal(ad.tracks.find((t) => t.videoId === "albtrackaa1").releaseDate, "2019-01-15T00:00:00Z"); // track's own
-  assert.equal(ad.tracks.find((t) => t.videoId === "fallbackaa1").releaseDate, "2020-06-01T00:00:00Z"); // album fallback
+  assert.equal(ad.tracks.find((t) => t.videoId === "albaudioaa1").releaseDate, "2020-06-01T00:00:00Z"); // album fallback
+  assert.equal(ad.tracks.find((t) => t.videoId === "albvideoaa1").releaseDate, "2019-01-15T00:00:00Z"); // own
 });
 
 test("community cover is filter-aware: a filtered card shows the first SURVIVING member's art, not a dropped one", () => {

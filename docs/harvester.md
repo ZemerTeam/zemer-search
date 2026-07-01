@@ -186,14 +186,15 @@ lacking `uploadDate` but with a sample track (we already store `album_track`), i
 on that sample and stores the date on the album — **one request per release, never per track**. Incremental
 (skips already-dated albums; `/player` responses are cached, so re-runs replay free), album-type + recent-year
 first, IP-safe (paced, aborts on a block → exit 75). A song inherits its album's date, so dating albums also
-orders the New Releases Songs list. A **second phase** then dates **EVERY** track with one `/player` on the
-track ITSELF → `track.uploadDate`. This is the only way to be **100% accurate per song**: an album track must
-NOT merely inherit the album's sample-track date (that can differ — e.g. a single released before its album).
-A song's date is therefore `COALESCE(track.uploadDate, album.uploadDate)` — its **own** date preferred, the
-album's only as a fallback for a not-yet-individually-dated track. Knobs: `TRACKS=0` = albums only, `ALBUMS=0`
-= tracks only, `MIN_YEAR` gates albums (tracks run only at `MIN_YEAR=0`). **`/player` is blocked from
-datacenter IPs**, so this runs off-datacenter (a residential host) and the dates are shipped into the server
-`corpus.db` (the album/track upserts leave `uploadDate` untouched, so shipped dates survive re-harvest).
+orders the New Releases Songs list. A **second phase** dates **videos + standalone tracks** with one `/player`
+on the track ITSELF → `track.uploadDate`, because their own date matters (a music video or a real single's
+release isn't the album's). **Album AUDIO tracks are skipped**: they're overwhelmingly YouTube Music "art
+tracks" with **no `/player` date at all** (~85%), and they correctly inherit their album's real date via
+`COALESCE(track.uploadDate, album.uploadDate)`. Net: **precise own-date where it exists and matters, accurate
+album date otherwise** — no ~85%-wasted no-date `/player` sweep. Knobs: `TRACKS=0` = albums only, `ALBUMS=0` =
+tracks only, `MIN_YEAR` gates albums (tracks run only at `MIN_YEAR=0`). **`/player` is blocked from datacenter
+IPs**, so this runs off-datacenter (a residential host) and the dates are shipped into the server `corpus.db`
+(the album/track upserts leave `uploadDate` untouched, so shipped dates survive re-harvest).
 
 This is what makes New Releases truthful: `recentAlbums`/`recentTracks` order by the real date, and `/new`
 shows **only items dated within a window** (default 10 days). Without it, ordering fell back to `harvestedAt`

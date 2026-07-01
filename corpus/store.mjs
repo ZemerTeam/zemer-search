@@ -519,15 +519,18 @@ export const setAlbumUploadDate = (db, id, uploadDate) =>
 export const datedAlbumCount = (db) =>
   db.prepare("SELECT COUNT(*) c FROM album WHERE uploadDate IS NOT NULL").get().c;
 
-// EVERY track that still lacks its OWN date — dated by one /player on the track itself. This is the only way
-// to be 100% accurate per song: an album track must NOT merely inherit the album's sample-track date (that can
-// differ from the track's real upload, e.g. a single released before its album). album.uploadDate stays the
-// album-level date; a song's date prefers its own track.uploadDate and only falls back to the album's.
+// Tracks whose OWN date matters and is obtainable: STANDALONE tracks (no album to inherit from) and VIDEOS
+// (a music video is a real upload — its date is its own, not necessarily the album's). Album AUDIO tracks are
+// SKIPPED: they're overwhelmingly YouTube Music "art tracks" with no /player date at all (~85%), and they
+// correctly inherit their album's real date via COALESCE(track.uploadDate, album.uploadDate). Dating them
+// would be mostly wasted no-date /player calls. So: precise own-date where it exists + matters; accurate
+// album date otherwise. album.uploadDate remains the album-level date.
 export function tracksNeedingDate(db, { limit = 100000 } = {}) {
   return db.prepare(`
     SELECT t.videoId, t.title
     FROM track t
     WHERE t.uploadDate IS NULL
+      AND (t.isVideo = 1 OR NOT EXISTS (SELECT 1 FROM album_track at WHERE at.videoId = t.videoId))
     ORDER BY (t.harvestedAt IS NULL), t.harvestedAt DESC, t.videoId
     LIMIT ?`).all(Math.max(1, limit | 0));
 }
