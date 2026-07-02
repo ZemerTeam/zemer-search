@@ -83,12 +83,11 @@ listed as a video anywhere. Attribution stays the PK owner (no duplicate same-id
 (`browse.mjs`), the harvest stores + merges them across shelves (`core.mjs`), and
 **`harvester/backfill-track-meta.mjs`** (cache-only, `DRY=1`) fills existing rows by re-parsing offline via
 `harvestArtist` — **zero YouTube calls**. Drives `durationSec`, `playCount` (real "Top songs" sort), and
-`trackNumber` on the detail endpoints. Coverage is what the cache holds (landing top-songs often have plays
-but no duration, since their shelf videoId differs from the album version).
+`trackNumber` on the detail endpoints.
 **`harvester/backfill-durations-player.mjs`** tops the durations up from cached **`/player`** responses
 (`videoDetails.lengthSeconds`) — the dating pass (`releases.mjs`) caches `/player` for exactly the tracks
 album pages don't cover (videos + standalone), so this is a free cache read (`LIVE=1` fetches the few
-uncached stragglers, IP-safe). Together: durations ~98%+.
+uncached stragglers, IP-safe). Together (measured 2026-07-01): **durations 100%** (70,392/70,392).
 
 **Community member artist resolution.** A community-playlist member whose track isn't harvested (e.g. on the
 artist's regular channel) has no corpus row, so the content filter couldn't tell its gender and an all-female

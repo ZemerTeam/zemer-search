@@ -129,7 +129,8 @@ writer. Indexes on every `artistId` and `album_track.albumId`.
   landing shelf); `harvester/backfill-track-meta.mjs` populates existing rows offline (cache-only). Emitted by
   `allTracks`/`artistDetail`/`albumDetail`/`tracksByIds`; **`artistDetail` sorts `songs` by `playCount` desc**
   (real "Top songs"), and `albumDetail` emits `trackNumber` (= `album_track.pos+1`). Both nullable = unknown
-  (old behavior); coverage is cache-dependent (landing top-songs often have plays but no duration).
+  (old behavior); measured 2026-07-01: durations **100%** (with the `/player` top-up), plays ~55% (only where
+  YT shows them, never on videos).
 - **Album aggregates** (`type`, `trackCount`, `totalDurationSec`) are computed at read time over `album_track`
   ∪ `track` — NO stored column. Emitted on `allAlbums` (→ `/search` album/single cards), `artistDetail` album
   rows, and the `albumDetail` header (the header count/runtime describe the FULL album, so they match the
