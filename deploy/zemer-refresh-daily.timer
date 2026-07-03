@@ -3,10 +3,11 @@ Description=Daily SHALLOW corpus refresh for zemer-search (fast, catches new rel
 
 [Timer]
 Unit=zemer-refresh@shallow.service
-# Shabbat-aware: Mon–Fri early AM (Fri 03:00 is before Shabbat), and Saturday ONLY after Shabbat (22:00).
-# Sunday is the deep pass. Multiple OnCalendar= lines OR together; none overlaps the Sunday deep on the flock.
-OnCalendar=Mon..Fri *-*-* 03:00:00
-OnCalendar=Sat *-*-* 22:00:00
+# Daily shallow pass Mon–Sat 03:00 (Sunday is the separate deep pass; both share a flock). Shabbat is handled
+# IN CODE, not here: each maintenance service has ExecCondition=node harness/shabbat.mjs, which skips the run
+# from 20 min before candle lighting until havdalah using accurate weekly Brooklyn times (Hebcal). So the Sat
+# 03:00 tick that lands in Shabbat is skipped automatically, and Persistent catch-ups are gated the same way.
+OnCalendar=Mon..Sat *-*-* 03:00:00
 Persistent=true
 RandomizedDelaySec=600
 

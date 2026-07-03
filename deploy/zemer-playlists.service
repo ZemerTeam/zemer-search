@@ -23,5 +23,6 @@ Environment=CONCURRENCY=5
 Environment=MIN_INTERVAL_MS=200
 Nice=10
 IOSchedulingClass=idle
+ExecCondition=/usr/bin/env node harness/shabbat.mjs
 ExecStart=/usr/bin/node harvester/playlists.mjs
 TimeoutStartSec=4h

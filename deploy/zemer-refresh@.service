@@ -14,6 +14,7 @@ Environment=MAX_AGE_H=20
 # Stay out of the API's way: low CPU/IO priority so serving never starves.
 Nice=10
 IOSchedulingClass=idle
+ExecCondition=/usr/bin/env node harness/shabbat.mjs
 ExecStart=/usr/bin/env bash scripts/maintain.sh %i
 # A run should never wedge forever (block → exits cleanly; this is a backstop).
 TimeoutStartSec=4h

@@ -3,12 +3,11 @@ Description=Refresh zemer-search id-overrides several times a day (lightweight F
 
 [Timer]
 Unit=zemer-overrides.service
-# Several times a day so a curated blockedContentIds change (e.g. hiding a women's playlist) takes effect within
-# hours, not a day. Shabbat-aware like the refresh timers: every 3h Sun–Thu, Fri only through the morning (before
-# Shabbat), and Saturday ONLY after Shabbat (22:00). Multiple OnCalendar= lines OR together.
-OnCalendar=Sun,Mon,Tue,Wed,Thu *-*-* *:0/10:00
-OnCalendar=Fri *-*-* 00,03,06,09,12:00:00
-OnCalendar=Sat *-*-* 22:00:00
+# Every 10 min so a curated blockedContentIds change (e.g. hiding a women's playlist) takes effect within minutes.
+# Shabbat is handled IN CODE: the service has ExecCondition=node harness/shabbat.mjs, which skips any tick from
+# 20 min before candle lighting until havdalah using accurate weekly Brooklyn times (Hebcal) — so this can run
+# every 10 min all week and simply no-ops through Shabbat.
+OnCalendar=*-*-* *:0/10:00
 Persistent=true
 RandomizedDelaySec=120
 
