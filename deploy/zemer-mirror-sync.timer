@@ -1,0 +1,14 @@
+# Check the whitelist mirror every 10 min and reconcile the corpus (onboard new artists, apply new blocks).
+# Cheap when nothing changed (two small GETs to the mirror, no Firestore, no harvest). Shabbat is handled in
+# code (the service's ExecCondition=node harness/shabbat.mjs), so this runs all week and no-ops through Shabbat.
+[Unit]
+Description=Check the whitelist mirror every 10 min and sync the search corpus
+
+[Timer]
+Unit=zemer-mirror-sync.service
+OnCalendar=*-*-* *:0/10:00
+RandomizedDelaySec=60
+Persistent=false
+
+[Install]
+WantedBy=timers.target

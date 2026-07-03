@@ -1,0 +1,15 @@
+[Unit]
+Description=Sync zemer-search corpus with the whitelist mirror (onboard new artists, apply new blocks)
+# Reads content.zemer.io (the whitelist mirror) — NO Firestore creds needed. Onboard/prune run under the
+# maintenance flock so this never collides with maintain.sh. Shabbat-gated by ExecCondition (see harness/shabbat.mjs).
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/zemer-search
+Environment=MIRROR_URL=http://172.17.0.1:7711
+# CORPUS_DB intentionally unset → defaults to <WorkingDirectory>/data/corpus.db (corpus/store.mjs DB_PATH),
+# which matches the live API + refresh units on this host. Set it only if the corpus moves off the repo dir.
+Environment=CONCURRENCY=5
+Environment=MIN_INTERVAL_MS=200
+ExecCondition=/usr/bin/env node harness/shabbat.mjs
+ExecStart=/usr/bin/env node harvester/mirror-sync.mjs
