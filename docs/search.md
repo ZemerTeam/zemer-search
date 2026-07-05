@@ -138,8 +138,8 @@ everything (a women's playlist that survives on one token male track; a female c
 track's text), so a flat Firestore-fetched id list patches the rest, mirroring the app's `blockedContentIds`:
 an id (matched against a result's `videoId`/`id`/`playlistId`) listed `global` is dropped for everyone,
 `female` only when female is blocked. `searchCategories` applies it to every category incl. community; the API
-applies the same `idDropped` to `/community` `/playlist` `/artist` `/album`. Pure serve-time filter (empty =
-no-op). **Community covers are filter-aware**: a filtered card's thumbnail is the first SURVIVING member's
+applies the same `idDropped` to `/community` `/playlist` `/artist` `/album` `/zemer-playlists`. Pure
+serve-time filter (empty = no-op). **Community covers are filter-aware**: a filtered card's thumbnail is the first SURVIVING member's
 art, never a dropped/female member's (`communityKeptCounts` returns `{kept, cover}`; `/playlist` uses the
 first surviving track).
 

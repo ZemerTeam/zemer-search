@@ -40,6 +40,15 @@ community_playlist (
   discoveredAt INTEGER
 )
 community_playlist_track (playlistId TEXT, videoId TEXT, pos INTEGER, PRIMARY KEY(playlistId, videoId))
+
+-- Zemer-CURATED playlists — hand-picked categories of songs/albums ("Shabbos", "Upbeat", …), authored in
+-- data/zemer-playlists.json and applied wholesale by harvester/zemer-playlists.mjs (the JSON is the source
+-- of truth: removing a playlist from the file removes it here). Served by /zemer-playlists.
+zemer_playlist (id TEXT PRIMARY KEY, title TEXT, pos INTEGER)   -- pos = display order = file order
+zemer_playlist_item (
+  playlistId TEXT, kind TEXT, refId TEXT,   -- kind 'track'|'album'; refId = videoId | album browseId
+  pos INTEGER, PRIMARY KEY(playlistId, kind, refId)
+)
 ```
 
 > **Purity is NOT enforced in these tables — it's enforced at SERVE time.** Opening any playlist hits
@@ -55,6 +64,11 @@ community_playlist_track (playlistId TEXT, videoId TEXT, pos INTEGER, PRIMARY KE
 > art). The **title/curator screen** + **playlist removal** live in `blocklist.json` (`playlistTerms`,
 > `playlistIds`); `upsertCommunityPlaylist` refuses a blocklisted id and `pruneBlocklisted` deletes blocklisted
 > playlists (+ strips blocklisted videoIds from membership, re-syncing counts).
+>
+> **Zemer-curated `album` items expand at READ time** (`zemer_playlist_item` kind `album` → its
+> `album_track` members), so a re-harvested album's new tracks appear in the curated playlist without a
+> re-apply. Only tracks present in the corpus are served (JOIN) — an id that isn't harvested yet is
+> silently pending, never an error.
 
 WAL mode (`journal_mode=WAL`, `synchronous=NORMAL`) → unlimited concurrent readers alongside the single
 writer. Indexes on every `artistId` and `album_track.albumId`.
@@ -80,7 +94,10 @@ writer. Indexes on every `artistId` and `album_track.albumId`.
 | `communityKeptCounts(db, ids, opts?)` | `Map(id → {kept, cover})` for the given community playlists — `kept` = post-filter track count (so `/search` shows the **same reduced count** as `/community`), `cover` = thumbnail of the first **surviving** member (so a filtered card never shows a dropped/female member's art). Returns `null` when no filter is active (caller keeps the stored full count + cover). |
 | `loadBlockedIds()` | Reads `data/blocked-ids.json` → `{global:Set, female:Set}` (the fetched `blockedContentIds` id-overrides; see Gotcha #7). Read fresh each call (an index reload picks up a new fetch). Empty when the file is absent. |
 | `communityPlaylistMeta(db, id)` / `communityPlaylistIds(db)` | Detail-header lookup for `/playlist`; the set of already-discovered ids (so a re-run skips them unless `RECHECK=1`). |
-| `stats(db)` | `{tracks, artists, videos, albums, singles, playlists, communityPlaylists}` — the live `/health` numbers. |
+| `loadZemerPlaylists()` / `applyZemerPlaylists(db, doc, {dry})` | Read `data/zemer-playlists.json` (`ZEMER_PLAYLISTS` overrides) / REPLACE the `zemer_playlist` tables with it (one transaction; throws on a missing id/title or duplicate playlist id). Returns `{playlists, items, missing}` — `missing` = ids not (yet) in the corpus, curator typo feedback. `dry:true` validates without writing. |
+| `zemerPlaylistList(db, opts?, dropId?)` | Browse-all curated list for `/zemer-playlists` (file order). Rows `{id, title, thumbnail, trackCount, totalDurationSec}` are **post-filter**: `opts` = the content flags, `dropId` = the server's blocked-ids predicate — a playlist with **zero** surviving members is hidden (gotcha #7), the cover is the first **surviving** track's art, and count/runtime reflect what actually plays. |
+| `zemerPlaylistDetail(db, id, opts?, dropId?)` | One curated playlist: `{playlist, tracks}` — direct track items in file order, `album` items expanded **in place** via `album_track` (a videoId reached twice appears once, first position wins). Tracks carry `title/artist/explicit/isVideo/durationSec/playCount/releaseDate` (dates via the usual `COALESCE(track.uploadDate, album.uploadDate)`). `null` for an unknown id **or** when every member is filtered out (the list hides it, so drill-in 404s too). |
+| `stats(db)` | `{tracks, artists, videos, albums, singles, playlists, communityPlaylists, zemerPlaylists}` — the live `/health` numbers. |
 
 ## Migrations & re-harvest
 

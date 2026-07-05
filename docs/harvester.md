@@ -194,6 +194,35 @@ community playlists (discover|check) — N / total"; results get their **own Com
 `/community`, no search needed). Stored in `community_playlist` / `community_playlist_track`
 ([store.md](store.md)); separate from the artist-owned `playlist` table, so the pilot is fully reversible.
 
+## Zemer-curated playlists
+
+**`harvester/zemer-playlists.mjs`** applies the hand-curated playlists file into `corpus.db` — **fully
+offline** (no network, runs anywhere, no Shabbat/IP concerns). These are Zemer's own editorial categories
+("Shabbos", "Upbeat", …), served by `/zemer-playlists` and intended as the app's "Zemer playlists" section.
+
+```jsonc
+// data/zemer-playlists.json (committed, like blocklist.json — the curated input)
+{ "playlists": [
+  { "id": "shabbos", "title": "Shabbos", "videoIds": ["…"], "albumIds": ["MPRE…"] }
+] }
+```
+
+- **The JSON is the source of truth.** Every apply REPLACES the `zemer_playlist` tables wholesale
+  (`applyZemerPlaylists`, one transaction) — removing a playlist from the file removes it from the server.
+  File order = display order; id order = track order (`videoIds` first, then each album in place).
+- **Album ids expand at READ time** to their `album_track` members, so a re-harvested album's new tracks
+  appear in the curated playlist without a re-apply.
+- **Unknown ids are pending, not errors**: only corpus tracks are served, so a not-yet-harvested id simply
+  contributes nothing until it lands. The apply **reports** every id not in the corpus (typo feedback);
+  `DRY=1` validates + reports without writing.
+- **No reload step**: writing `corpus.db` bumps its mtime, so a running API picks the change up on its
+  next reload tick (same change-gate as the harvest).
+
+```bash
+DRY=1 node harvester/zemer-playlists.mjs   # validate + report (incl. ids not in the corpus)
+node harvester/zemer-playlists.mjs         # apply → corpus.db
+```
+
 ## Release dating (New Releases accuracy)
 
 Browse pages carry only a release **year**; the real date lives in the `/player` microformat (`uploadDate`,

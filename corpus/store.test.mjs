@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistList, communityKeptCounts, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, tracksNeedingDate, setTrackUploadDate, recentAlbums, recentTracks, setFemaleSet } from "./store.mjs";
+import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistList, communityKeptCounts, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, tracksNeedingDate, setTrackUploadDate, recentAlbums, recentTracks, setFemaleSet, applyZemerPlaylists, zemerPlaylistList, zemerPlaylistDetail } from "./store.mjs";
 import { parseDurationSec, parsePlays } from "../harness/browse.mjs";
 
 const seed = (db) => upsertArtistCatalog(db, { id: "UCmusic", name: "Test Artist" }, {
@@ -473,4 +473,80 @@ test("communityKeptCounts: a mixed playlist's count is reduced to the post-filte
   assert.equal(communityKeptCounts(db, ["PLmix"], { allowFemale: false }).get("PLmix").kept,2, "female blocked → counts only the 2 non-female tracks");
   assert.equal(communityKeptCounts(db, ["PLmix"], { blockVideos: true }).get("PLmix").kept,2, "videos blocked → counts only the 2 non-video tracks");
   assert.equal(communityKeptCounts(db, ["PLmix"], { allowFemale: false, blockVideos: true }).get("PLmix").kept,1, "both blocked → only the male audio track");
+});
+
+// Zemer-curated playlists ---------------------------------------------------------------------------
+const zseed = (db) => {
+  upsertArtistCatalog(db, { id: "UCzm", name: "Male Artist" }, {
+    tracks: [
+      { videoId: "zvid0000001", title: "Alef", isVideo: false, durationSec: 100 },
+      { videoId: "zvid0000002", title: "Bet", isVideo: false, durationSec: 200 },
+      { videoId: "zvid0000003", title: "Clip", isVideo: true },
+    ],
+    albums: [{ id: "MPRE_zalbum", playlistId: "PLz", title: "Z Album", type: "album", year: 2024 }],
+    albumTracks: [
+      { albumId: "MPRE_zalbum", videoId: "zvid0000001", pos: 0 },
+      { albumId: "MPRE_zalbum", videoId: "zvid0000002", pos: 1 },
+    ],
+  });
+  upsertArtistCatalog(db, { id: "UCzf", name: "Female Artist", isFemale: true }, {
+    tracks: [{ videoId: "zvidfem0001", title: "Her Song", isVideo: false, durationSec: 150 }],
+  });
+};
+
+test("zemer playlists: apply + list + detail (album expansion, order, dedup, cover, runtime, dates)", () => {
+  const db = openCorpus(":memory:"); zseed(db);
+  const r = applyZemerPlaylists(db, { playlists: [
+    { id: "mix", title: "Mix", videoIds: ["zvid0000003"], albumIds: ["MPRE_zalbum"] },
+    { id: "dup", title: "Dup", videoIds: ["zvid0000002"], albumIds: ["MPRE_zalbum"] },
+  ] });
+  assert.equal(r.playlists, 2); assert.equal(r.missing.length, 0);
+  assert.deepEqual(zemerPlaylistList(db).map((p) => p.id), ["mix", "dup"], "file order");
+  const mix = zemerPlaylistDetail(db, "mix");
+  assert.deepEqual(mix.tracks.map((t) => t.videoId), ["zvid0000003", "zvid0000001", "zvid0000002"], "direct tracks first, album expands in album order");
+  assert.equal(mix.playlist.trackCount, 3);
+  assert.equal(mix.playlist.totalDurationSec, 300, "sums the known durations (the clip's unknown counts 0)");
+  assert.ok(mix.playlist.thumbnail.includes("zvid0000003"), "cover = first track's art");
+  assert.deepEqual(zemerPlaylistDetail(db, "dup").tracks.map((t) => t.videoId), ["zvid0000002", "zvid0000001"], "same id via direct AND album appears once, first position wins");
+  setAlbumUploadDate(db, "MPRE_zalbum", "2025-01-01");
+  assert.equal(zemerPlaylistDetail(db, "mix").tracks.find((t) => t.videoId === "zvid0000001").releaseDate, "2025-01-01", "album tracks inherit the album's real date (COALESCE)");
+  assert.equal(zemerPlaylistDetail(db, "nosuch"), null, "unknown id → null (404)");
+});
+
+test("zemer playlists honor content filters + blocked-ids; fully-filtered → hidden from list AND 404 on detail", () => {
+  const db = openCorpus(":memory:"); zseed(db);
+  applyZemerPlaylists(db, { playlists: [
+    { id: "all", title: "All", videoIds: ["zvid0000001", "zvid0000003", "zvidfem0001"] },
+    { id: "women", title: "Women", videoIds: ["zvidfem0001"] },
+  ] });
+  assert.equal(zemerPlaylistList(db).length, 2, "no filter → default-open (gotcha #7)");
+  const cf = { allowFemale: false };
+  const list = zemerPlaylistList(db, cf);
+  assert.deepEqual(list.map((p) => p.id), ["all"], "all-female playlist hidden when female blocked");
+  assert.equal(list[0].trackCount, 2, "displayed count = post-filter total");
+  assert.deepEqual(zemerPlaylistDetail(db, "all", cf).tracks.map((t) => t.videoId), ["zvid0000001", "zvid0000003"]);
+  assert.equal(zemerPlaylistDetail(db, "women", cf), null, "hidden list 404s on drill-in too");
+  setFemaleSet(db, ["zvid0000001"]); // featuring-female (credits) drops the same way as /search
+  assert.deepEqual(zemerPlaylistDetail(db, "all", cf).tracks.map((t) => t.videoId), ["zvid0000003"]);
+  setFemaleSet(db, []);
+  assert.deepEqual(zemerPlaylistDetail(db, "all", { blockVideos: true }).tracks.map((t) => t.videoId), ["zvid0000001", "zvidfem0001"]);
+  assert.equal(zemerPlaylistList(db, { kidZoneOnly: true }).length, 0, "no KidZone member → hidden");
+  const drop = (x) => x === "zvid0000001"; // server-curated blocked-id predicate, applied inside the read
+  assert.equal(zemerPlaylistList(db, {}, drop)[0].trackCount, 2, "list count excludes blocked ids");
+  assert.ok(zemerPlaylistList(db, {}, drop)[0].thumbnail.includes("zvid0000003"), "cover = first SURVIVING track");
+});
+
+test("zemer playlists: re-apply REPLACES wholesale; missing ids reported; dry validates without writing", () => {
+  const db = openCorpus(":memory:"); zseed(db);
+  applyZemerPlaylists(db, { playlists: [{ id: "a", title: "A", videoIds: ["zvid0000001"] }] });
+  assert.equal(stats(db).zemerPlaylists, 1);
+  const r = applyZemerPlaylists(db, { playlists: [{ id: "b", title: "B", videoIds: ["zvid0000002", "nosuchvid01"], albumIds: ["MPRE_nope"] }] });
+  assert.equal(zemerPlaylistDetail(db, "a"), null, "removed from the file = removed from the server");
+  assert.deepEqual(r.missing.map((m) => m.id), ["nosuchvid01", "MPRE_nope"], "not-in-corpus ids reported (typo feedback)");
+  assert.deepEqual(zemerPlaylistDetail(db, "b").tracks.map((t) => t.videoId), ["zvid0000002"], "unknown ids are pending, never an error at serve time");
+  const dry = applyZemerPlaylists(db, { playlists: [{ id: "c", title: "C", videoIds: ["nope0000001"] }] }, { dry: true });
+  assert.equal(dry.missing.length, 1, "dry still validates ids");
+  assert.equal(stats(db).zemerPlaylists, 1, "dry wrote nothing");
+  assert.throws(() => applyZemerPlaylists(db, { playlists: [{ id: "x" }] }), /id \+ title/, "id+title required");
+  assert.throws(() => applyZemerPlaylists(db, { playlists: [{ id: "x", title: "X" }, { id: "x", title: "X2" }] }), /duplicate/, "duplicate ids rejected");
 });

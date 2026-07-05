@@ -7,14 +7,14 @@
 //                            Cleared on each index reload so results never go stale.
 //   • staggered reloads    — workers rebuild the index at offset times so they don't all stall together.
 //
-//   GET /  /search  /artist  /album  /playlist  /health      POST /reload
+//   GET /  /search  /artist  /album  /playlist  /community  /zemer-playlists  /new  /health      POST /reload
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import cluster from "node:cluster";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, BLOCKED_IDS_PATH } from "../corpus/store.mjs";
+import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, BLOCKED_IDS_PATH } from "../corpus/store.mjs";
 import { buildCategories, searchCategories } from "../index/categories.mjs";
 import { buildFemaleMatcher, collectFemaleVideoIds } from "../index/credits.mjs";
 import { loadDefaultSynonyms } from "../index/synonyms.mjs";
@@ -152,7 +152,7 @@ async function startServer() {
 
   const send = (res, code, obj) => { const body = JSON.stringify(obj); res.writeHead(code, CORS); res.end(body); return body; };
   const cacheSet = (key, body) => { cache.set(key, body); if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value); };
-  const CACHEABLE = new Set(["/search", "/artist", "/album", "/playlist", "/community"]); // /new self-caches via the feed TTL
+  const CACHEABLE = new Set(["/search", "/artist", "/album", "/playlist", "/community", "/zemer-playlists"]); // /new self-caches via the feed TTL
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -235,6 +235,22 @@ async function startServer() {
         const k = Math.min(100000, Math.max(1, Number(u.searchParams.get("k") || 100000)));
         const cf = contentFlags(u.searchParams);
         const playlists = communityPlaylistList(liveDb, k, cf).filter((p) => !idDropped(p.id, cats.blocked, cf.allowFemale));
+        return cacheSet(req.url, send(res, 200, { count: playlists.length, playlists }));
+      }
+      if (u.pathname === "/zemer-playlists") {
+        // Zemer-CURATED playlists (data/zemer-playlists.json → zemer_playlist tables, applied by
+        // harvester/zemer-playlists.mjs). Pure corpus reads — no live fetch. The app plugs this in as a
+        // "Zemer playlists" section: no id = the browseable card list; ?id= = one playlist's tracks.
+        // Content filters + blocked-ids apply INSIDE the store reads (dropId), so counts/covers/durations
+        // are post-filter and a playlist with no surviving member is hidden/404 (gotcha #7).
+        const cf = contentFlags(u.searchParams);
+        const dropId = (x) => idDropped(x, cats.blocked, cf.allowFemale);
+        const id = u.searchParams.get("id");
+        if (id) {
+          const d = !dropId(id) && zemerPlaylistDetail(liveDb, id, cf, dropId);
+          return d ? cacheSet(req.url, send(res, 200, d)) : send(res, 404, { error: "playlist not found" });
+        }
+        const playlists = zemerPlaylistList(liveDb, cf, dropId).filter((p) => !dropId(p.id));
         return cacheSet(req.url, send(res, 200, { count: playlists.length, playlists }));
       }
       if (u.pathname === "/artist") {

@@ -115,6 +115,23 @@ export function openCorpus(file = DB_PATH) {
       PRIMARY KEY (playlistId, videoId)
     );
     CREATE INDEX IF NOT EXISTS idx_cpt_playlist ON community_playlist_track(playlistId);
+    -- Zemer-CURATED playlists (the /zemer-playlists endpoint): hand-picked categories of songs/albums,
+    -- authored in data/zemer-playlists.json and applied by harvester/zemer-playlists.mjs (offline). An
+    -- 'album' item expands to its member tracks at READ time (via album_track), so a re-harvested album's
+    -- new tracks appear automatically. Replaced wholesale on every apply — the JSON is the source of truth.
+    CREATE TABLE IF NOT EXISTS zemer_playlist (
+      id    TEXT PRIMARY KEY,                -- slug from the JSON (e.g. "shabbos")
+      title TEXT NOT NULL,
+      pos   INTEGER NOT NULL DEFAULT 0       -- display order = file order
+    );
+    CREATE TABLE IF NOT EXISTS zemer_playlist_item (
+      playlistId TEXT NOT NULL,
+      kind       TEXT NOT NULL,              -- 'track' | 'album'
+      refId      TEXT NOT NULL,              -- videoId | album browseId (MPRE…)
+      pos        INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (playlistId, kind, refId)
+    );
+    CREATE INDEX IF NOT EXISTS idx_zpi_playlist ON zemer_playlist_item(playlistId);
   `);
   // Migrate existing DBs (CREATE TABLE IF NOT EXISTS won't add a new column to an existing table).
   if (!db.prepare("PRAGMA table_info(artist)").all().some((c) => c.name === "regularChannelId"))
@@ -380,6 +397,103 @@ export function removeCommunityPlaylist(db, id) {
   tx();
 }
 
+// Zemer-curated playlists --------------------------------------------------------------------------
+// Hand-curated categories ("Shabbos", "Upbeat", …) authored in data/zemer-playlists.json:
+//   { "playlists": [ { "id": "shabbos", "title": "Shabbos", "videoIds": […], "albumIds": ["MPRE…"] } ] }
+// File order = display order; id order = track order (videoIds first, then each album expanded in place).
+// Applied to the zemer_playlist tables by harvester/zemer-playlists.mjs (offline, DRY=1 previews); served
+// by /zemer-playlists. Album items expand to member tracks at READ time via album_track, so a re-harvested
+// album's new tracks appear without a re-apply. Only tracks present in the corpus are ever served (JOIN),
+// so an id that isn't harvested yet is silently pending until it lands — never an error at serve time.
+export const ZEMER_PLAYLISTS_PATH = process.env.ZEMER_PLAYLISTS || path.resolve(HERE, "../data/zemer-playlists.json");
+export function loadZemerPlaylists() {
+  try { return { playlists: JSON.parse(fs.readFileSync(ZEMER_PLAYLISTS_PATH, "utf8")).playlists || [] }; }
+  catch { return { playlists: [] }; } // no/invalid file → empty (endpoint serves [])
+}
+
+// Replace the zemer_playlist tables with the curated doc (one transaction — the JSON is the source of
+// truth, so removal from the file removes the playlist). Returns counts + the ids not (yet) in the corpus
+// (curator feedback: a typo'd id would otherwise just silently never play). dry=1 validates without writing.
+export function applyZemerPlaylists(db, doc = loadZemerPlaylists(), { dry = false } = {}) {
+  const pls = doc.playlists || [];
+  const seen = new Set();
+  for (const p of pls) {
+    if (!p?.id || !p?.title) throw new Error(`zemer-playlists: every playlist needs id + title (got ${JSON.stringify(p)})`);
+    if (seen.has(p.id)) throw new Error(`zemer-playlists: duplicate playlist id "${p.id}"`);
+    seen.add(p.id);
+  }
+  const hasTrack = db.prepare("SELECT 1 FROM track WHERE videoId=?");
+  const hasAlbum = db.prepare("SELECT 1 FROM album WHERE id=?");
+  const insPl = db.prepare("INSERT INTO zemer_playlist(id,title,pos) VALUES(?,?,?)");
+  const insItem = db.prepare("INSERT OR REPLACE INTO zemer_playlist_item(playlistId,kind,refId,pos) VALUES(?,?,?,?)");
+  const missing = [];
+  let items = 0;
+  const pass = () => pls.forEach((p, pi) => {
+    if (!dry) insPl.run(p.id, p.title, pi);
+    let pos = 0;
+    for (const v of p.videoIds || []) { if (!hasTrack.get(v)) missing.push({ playlist: p.id, kind: "track", id: v }); if (!dry) insItem.run(p.id, "track", v, pos); pos++; items++; }
+    for (const a of p.albumIds || []) { if (!hasAlbum.get(a)) missing.push({ playlist: p.id, kind: "album", id: a }); if (!dry) insItem.run(p.id, "album", a, pos); pos++; items++; }
+  });
+  if (dry) pass();
+  else db.transaction(() => { db.prepare("DELETE FROM zemer_playlist_item").run(); db.prepare("DELETE FROM zemer_playlist").run(); pass(); })();
+  return { playlists: pls.length, items, missing };
+}
+
+// Expanded, filtered, display-shaped tracks of one curated playlist. Direct track items keep file order;
+// an album item expands in place in album order. The same videoId reached twice (listed directly AND via
+// an album) appears ONCE (first position wins). Content filters follow albumDetail exactly: female =
+// primary OR featuring (_female set), kidZone/video per artist/track flags; `dropId` is the server's
+// blocked-ids predicate (gotcha #7 — applied here so list counts/covers/durations agree with the detail).
+function zemerPlaylistTracks(db, id, { allowFemale = true, kidZoneOnly = false, blockVideos = false } = {}, dropId = null) {
+  const rows = db.prepare(`
+    SELECT x.ipos, x.spos, t.videoId, t.title, t.explicit, t.isVideo, t.durationSec, t.playCount,
+           COALESCE(t.uploadDate, MAX(al.uploadDate)) AS releaseDate,
+           a.name AS artistName, a.isKidZone,
+           (a.isFemale=1 OR t.videoId IN (SELECT videoId FROM _female)) AS femInv
+    FROM (
+      SELECT pos AS ipos, -1 AS spos, refId AS videoId FROM zemer_playlist_item WHERE playlistId=@id AND kind='track'
+      UNION ALL
+      SELECT zpi.pos, at.pos, at.videoId FROM zemer_playlist_item zpi
+        JOIN album_track at ON at.albumId=zpi.refId WHERE zpi.playlistId=@id AND zpi.kind='album'
+    ) x
+    JOIN track t ON t.videoId=x.videoId JOIN artist a ON a.id=t.artistId
+    LEFT JOIN album_track at2 ON at2.videoId=t.videoId LEFT JOIN album al ON al.id=at2.albumId
+    GROUP BY x.ipos, x.spos, t.videoId ORDER BY x.ipos, x.spos`).all({ id });
+  const seen = new Set(), out = [];
+  for (const r of rows) {
+    if (seen.has(r.videoId)) continue;
+    seen.add(r.videoId);
+    if (dropId && dropId(r.videoId)) continue;
+    if ((!allowFemale && r.femInv) || (kidZoneOnly && !r.isKidZone) || (blockVideos && r.isVideo)) continue;
+    out.push({ videoId: r.videoId, title: r.title, artist: r.artistName, explicit: !!r.explicit, isVideo: !!r.isVideo,
+      durationSec: r.durationSec ?? null, playCount: r.playCount ?? null, releaseDate: r.releaseDate ?? null });
+  }
+  return out;
+}
+
+// Card row for the curated list + header for the detail: post-filter count/runtime, cover = first
+// SURVIVING track's art (never a filtered-out member's — same rule as community covers).
+const zemerCard = (id, title, tracks) => ({ id, title, thumbnail: ytThumb(tracks[0].videoId), trackCount: tracks.length,
+  totalDurationSec: tracks.some((t) => t.durationSec != null) ? tracks.reduce((s, t) => s + (t.durationSec || 0), 0) : null });
+
+// Browse-all curated list (file order). A playlist with NO member surviving the active filter is hidden
+// (gotcha #7 — an all-female list would open empty under allowFemale=0), matching the detail's 404.
+export function zemerPlaylistList(db, cf = {}, dropId = null) {
+  return db.prepare("SELECT id,title FROM zemer_playlist ORDER BY pos, id").all()
+    .map((p) => { const tracks = zemerPlaylistTracks(db, p.id, cf, dropId); return tracks.length ? zemerCard(p.id, p.title, tracks) : null; })
+    .filter(Boolean);
+}
+
+// One curated playlist + its tracks. null for an unknown id OR when every member is filtered out (the
+// list hides it, so drilling in must 404 too — nothing leaks on drill-in).
+export function zemerPlaylistDetail(db, id, cf = {}, dropId = null) {
+  const p = db.prepare("SELECT id,title FROM zemer_playlist WHERE id=?").get(id);
+  if (!p) return null;
+  const tracks = zemerPlaylistTracks(db, id, cf, dropId);
+  if (!tracks.length) return null;
+  return { playlist: zemerCard(p.id, p.title, tracks), tracks };
+}
+
 // Detail pages -----------------------------------------------------------------------------------
 export function artistDetail(db, artistId, { allowFemale = true, kidZoneOnly = false, blockVideos = false } = {}) {
   const a = db.prepare("SELECT id,name,thumbnail,isFemale,isKidZone FROM artist WHERE id=?").get(artistId);
@@ -619,4 +733,5 @@ export const stats = (db) => ({
   singles: db.prepare("SELECT COUNT(*) c FROM album WHERE type='single'").get().c,
   playlists: db.prepare("SELECT COUNT(*) c FROM playlist").get().c,
   communityPlaylists: db.prepare("SELECT COUNT(*) c FROM community_playlist").get().c,
+  zemerPlaylists: db.prepare("SELECT COUNT(*) c FROM zemer_playlist").get().c,
 });
