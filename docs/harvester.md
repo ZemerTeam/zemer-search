@@ -131,7 +131,17 @@ on a block so the wrapper can stop the pipeline):
 refetch → `onboard` → **`prune` → `refresh`** (prune first so refresh doesn't re-harvest doomed artists).
 An anti-bot block in any step **aborts the whole pipeline** (no more live requests at a flagged IP). Uses
 a fast-but-IP-safe profile (`CONCURRENCY=5`, `MIN_INTERVAL_MS=200`). Schedule daily shallow + weekly deep,
-**Shabbat-aware** — see [deployment.md](deployment.md).
+gated by the accurate **Shabbat gate** (`harness/shabbat.mjs`) — see [deployment.md](deployment.md).
+
+**`harvester/mirror-sync.mjs`** (every 10 min via `zemer-mirror-sync.timer`, Shabbat-gated) keeps the corpus
+in sync with the **whitelist mirror** (`content.zemer.io`) *between* daily runs: it reads the mirror's
+whitelist **version gate** (advances only on a real content change) plus its blocked-id list — **zero
+Firestore reads**. Blocked-ids changed → rewrite `data/blocked-ids.json` (the API auto-reloads; newly-blocked
+content disappears). Whitelist gate changed → pull `/whitelist` from the mirror, rewrite
+`data/whitelist.json`, then **onboard** the new artists and **prune** the de-whitelisted, under the
+maintenance flock (non-blocking — a held lock or an anti-bot block leaves the gate uncommitted so the next
+run retries). Net effect: a newly-whitelisted artist is fully searchable within **~10 minutes**. Unchanged =
+two tiny GETs, a true no-op. `DRY=1` previews.
 
 ## Community playlists (pilot)
 

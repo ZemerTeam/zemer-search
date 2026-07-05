@@ -70,12 +70,19 @@ scripts/maintain.sh deep        # weekly: full-pagination backfill (refresh defa
 
 | Job | When | What | Cost (this profile) |
 |-----|------|------|------|
-| **daily shallow** | **Mon–Fri 03:00, Sat 22:00** | new releases for all artists + onboard + prune (refreshes landing-shelf **play counts**) | ~10–12 min |
+| **daily shallow** | **Mon–Sat 03:00** | new releases for all artists + onboard + prune (refreshes landing-shelf **play counts**) | ~10–12 min |
 | **weekly deep** | **Sun 03:00** | full re-pagination backfill (catches anything buried; refreshes **durations + play counts** from album/landing pages) | longer |
+| **mirror-sync** | **every 10 min** | watch the whitelist mirror (`content.zemer.io`); on a version-gate change, onboard new artists + prune de-whitelisted + rewrite `blocked-ids.json` — zero Firestore reads | ~2 GETs when unchanged |
 
-**Shabbat-aware:** nothing runs on Saturday until after Shabbat — the Saturday pass is at **22:00**, and
-Friday's is at 03:00 (before Shabbat). Sunday is the deep pass. The schedule is split by day so the daily
-and weekly never contend for the flock (the weekly deep is never skipped). Album track-lists are immutable
+**Shabbat gate (accurate zmanim):** the timers run all week; every maintenance service carries
+`ExecCondition=/usr/bin/env node harness/shabbat.mjs`, which **skips** the run from **20 min before candle
+lighting until havdalah** using accurate weekly **Brooklyn, NY** times from the Hebcal Shabbat API
+(geonameid 5110302; handles multi-day Yom Tov). Times are cached to `data/shabbat.json` (refetched only when
+stale — the frequent timers keep it warm, so **no network call happens on Shabbos itself**); if Hebcal is
+unreachable with no cache it **fails safe** to a conservative static NY window (Fri 15:00 → Sat 22:00 ET).
+This replaced the old static `OnCalendar` split (Sat-22:00-UTC = 6pm EDT Saturday — *during* Brooklyn
+Shabbos). The daily (Mon–Sat) and weekly (Sun) timers are still split by day so they never contend for the
+flock (the weekly deep is never skipped). Album track-lists are immutable
 (forever-cached); a **shallow** pass re-pulls only each
 artist's landing (~1 request/artist) to catch new releases, while **deep** re-paginates every shelf. The
 bounded-concurrency limiter (above) makes both ~3× faster than serial while staying well under anti-bot
@@ -98,13 +105,26 @@ incremental: the searches re-fetch on a TTL (`SEARCH_MAX_AGE_H`, so each run sur
 the revalidation of already-stored playlists is served from the gzip cache (no network):
 ```bash
 sudo cp deploy/zemer-playlists.service deploy/zemer-playlists-weekly.timer /etc/systemd/system/  # edit WorkingDirectory
-sudo systemctl daemon-reload && sudo systemctl enable --now zemer-playlists-weekly.timer         # Sun 05:00, Shabbat-aware
+sudo systemctl daemon-reload && sudo systemctl enable --now zemer-playlists-weekly.timer         # Sun 05:00, Shabbat-gated
+```
+
+**Whitelist mirror sync** (`harvester/mirror-sync.mjs` + `zemer-mirror-sync.timer`, every 10 min, Shabbat-gated)
+watches the whitelist mirror's version gate (`content.zemer.io/whitelist/version`, which advances only on a
+real content change). On a change it pulls the whitelist + `blockedContentIds` **from the mirror** (zero
+Firestore reads), rewrites `data/whitelist.json`/`data/blocked-ids.json`, and reconciles the corpus —
+**onboard** newly-whitelisted artists (full per-artist harvest → searchable within ~10 min instead of the
+03:00 daily) and **prune** de-whitelisted — under the maintenance flock (non-blocking: a held lock or an
+anti-bot block leaves the gate uncommitted so the next run retries). Unchanged = two tiny GETs, no harvest.
+`DRY=1` previews.
+```bash
+sudo cp deploy/zemer-mirror-sync.service deploy/zemer-mirror-sync.timer /etc/systemd/system/  # edit WorkingDirectory
+sudo systemctl daemon-reload && sudo systemctl enable --now zemer-mirror-sync.timer           # every 10 min, Shabbat-gated
 ```
 
 **Conditional id-overrides** (the Firestore `blockedContentIds` list — per-id `female`/`global` blocks the app
 honors; see [search.md](search.md) + gotcha #7) are fetched to `data/blocked-ids.json` by
 `harness/blocked-ids.mjs`. `maintain.sh` refreshes it alongside the whitelist (step 1b), **and** a dedicated
-`zemer-overrides` timer re-fetches it **~every 10 min** (Shabbat-aware) so a curated change (e.g. hiding a
+`zemer-overrides` timer re-fetches it **~every 10 min** (Shabbat-gated) so a curated change (e.g. hiding a
 women's playlist) takes effect within ~10 min — the API picks up the new file on its next reload tick
 (`blocked-ids.json` is in the reload change-gate, so **no restart**). It's cheap because the fetcher **rewrites
 `blocked-ids.json` only when the list actually changed**, so the frequent unchanged fetches are true no-ops
@@ -112,14 +132,13 @@ women's playlist) takes effect within ~10 min — the API picks up the new file 
 fine on any IP:
 ```bash
 sudo cp deploy/zemer-overrides.service deploy/zemer-overrides.timer /etc/systemd/system/  # edit WorkingDirectory + ZEMER_APP
-sudo systemctl daemon-reload && sudo systemctl enable --now zemer-overrides.timer          # every 10 min Sun–Thu, Fri AM, Sat 22:00
+sudo systemctl daemon-reload && sudo systemctl enable --now zemer-overrides.timer          # every 10 min, Shabbat-gated
 ```
 
-Cron alternative (Shabbat-aware — Mon–Fri AM + Sat after Shabbat shallow, Sunday deep):
+Cron alternative (gate each job yourself with `node harness/shabbat.mjs &&` — exit 0 = safe to run):
 ```cron
-0 3  * * 1-5  cd /path/to/zemer-search && ZEMER_APP=/path/to/zemer-app scripts/maintain.sh shallow >> /var/log/zemer-refresh.log 2>&1
-0 22 * * 6    cd /path/to/zemer-search && ZEMER_APP=/path/to/zemer-app scripts/maintain.sh shallow >> /var/log/zemer-refresh.log 2>&1
-0 3  * * 0    cd /path/to/zemer-search && ZEMER_APP=/path/to/zemer-app scripts/maintain.sh deep    >> /var/log/zemer-refresh.log 2>&1
+0 3 * * 1-6  cd /path/to/zemer-search && node harness/shabbat.mjs && ZEMER_APP=/path/to/zemer-app scripts/maintain.sh shallow >> /var/log/zemer-refresh.log 2>&1
+0 3 * * 0    cd /path/to/zemer-search && node harness/shabbat.mjs && ZEMER_APP=/path/to/zemer-app scripts/maintain.sh deep    >> /var/log/zemer-refresh.log 2>&1
 ```
 
 ## Horizontal scaling
