@@ -7,7 +7,9 @@ Wants=network-online.target
 Type=oneshot
 # --- EDIT WorkingDirectory for your deployment ---
 WorkingDirectory=/opt/zemer-search
-Environment=CORPUS_DB=/var/lib/zemer-search/corpus.db
+# CORPUS_DB defaults to <WorkingDirectory>/data/corpus.db (same default as the API unit); set it only if
+# the DB lives elsewhere — it must match the API's.
+# Environment=CORPUS_DB=/var/lib/zemer-search/corpus.db
 # Discover from the topical seeds (data/playlist-seeds.json) + REVALIDATE all stored playlists (prune
 # stale, refresh counts, regenerate the rejected-artists review report). Browse+search only — no /player —
 # so this runs fine on a datacenter IP. Heavier artist-name sweeps are a manual op (SEEDS=both FIRSTNAMES=1).
@@ -24,5 +26,5 @@ Environment=MIN_INTERVAL_MS=200
 Nice=10
 IOSchedulingClass=idle
 ExecCondition=/usr/bin/env node harness/shabbat.mjs
-ExecStart=/usr/bin/node harvester/playlists.mjs
+ExecStart=/usr/bin/env node harvester/playlists.mjs
 TimeoutStartSec=4h

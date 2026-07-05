@@ -8,8 +8,10 @@ Type=oneshot
 # --- EDIT these for your deployment ---
 WorkingDirectory=/opt/zemer-search
 Environment=ZEMER_APP=/opt/zemer-app
-# MUST match the CORPUS_DB the API serves from, or maintenance writes a DB the API never reads.
-Environment=CORPUS_DB=/var/lib/zemer-search/corpus.db
+# CORPUS_DB defaults to <WorkingDirectory>/data/corpus.db — the same default as the API unit, so leaving it
+# unset in both keeps them consistent. If you relocate the DB, set it here AND in the API unit: it MUST
+# match the CORPUS_DB the API serves from, or maintenance writes a DB the API never reads.
+# Environment=CORPUS_DB=/var/lib/zemer-search/corpus.db
 Environment=MAX_AGE_H=20
 # Stay out of the API's way: low CPU/IO priority so serving never starves.
 Nice=10

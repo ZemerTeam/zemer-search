@@ -5,10 +5,13 @@ Description=Sync zemer-search corpus with the whitelist mirror (onboard new arti
 
 [Service]
 Type=oneshot
+# --- EDIT WorkingDirectory for your deployment ---
 WorkingDirectory=/opt/zemer-search
-Environment=MIRROR_URL=http://172.17.0.1:7711
+# MIRROR_URL defaults to the public mirror (https://content.zemer.io). Set it only when the mirror is
+# co-located behind Docker on the same box (e.g. the docker bridge gateway, http://172.17.0.1:7711).
+# Environment=MIRROR_URL=http://172.17.0.1:7711
 # CORPUS_DB intentionally unset → defaults to <WorkingDirectory>/data/corpus.db (corpus/store.mjs DB_PATH),
-# which matches the live API + refresh units on this host. Set it only if the corpus moves off the repo dir.
+# the same default as the API + refresh units. Set it only if the corpus moves off the repo dir.
 Environment=CONCURRENCY=5
 Environment=MIN_INTERVAL_MS=200
 ExecCondition=/usr/bin/env node harness/shabbat.mjs

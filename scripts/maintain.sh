@@ -10,10 +10,11 @@
 # about to be deleted. On an anti-bot block in any network step the whole pipeline ABORTS immediately
 # (exit 75) — we never fire more live requests at a flagged IP; the gzip cache makes the next run resume
 # for free. The API on the same box auto-reloads corpus.db within RELOAD_MS, so there's no reload step.
-# A single flock prevents the daily and weekly runs from overlapping on the single-writer DB.
+# A single flock (ZEMER_LOCK) serializes every corpus writer on the single-writer DB — the daily and
+# weekly runs AND harvester/mirror-sync.mjs's onboard/prune (which takes the same lock, non-blocking).
 #
 # Env: ZEMER_APP (path to zemer-app, for the whitelist Firestore creds), MAX_AGE_H (default 20),
-#      MIN_INTERVAL_MS (request pacing), CORPUS_DB, MAINTAIN_STATUS, ZEMER_LOCK.
+#      CONCURRENCY / MIN_INTERVAL_MS / JITTER_MS (request pacing), CORPUS_DB, MAINTAIN_STATUS, ZEMER_LOCK.
 set -uo pipefail
 
 MODE="${1:-shallow}"
