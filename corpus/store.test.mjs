@@ -514,6 +514,17 @@ test("zemer playlists: apply + list + detail (album expansion, order, dedup, cov
   setAlbumUploadDate(db, "MPRE_zalbum", "2025-01-01");
   assert.equal(zemerPlaylistDetail(db, "mix").tracks.find((t) => t.videoId === "zvid0000001").releaseDate, "2025-01-01", "album tracks inherit the album's real date (COALESCE)");
   assert.equal(zemerPlaylistDetail(db, "nosuch"), null, "unknown id → null (404)");
+  // curated ALBUMS as browsable rows (the app's Albums chip): /search-album-row shape, curated order,
+  // counts covering only the album's contribution to THIS playlist
+  const albums = zemerPlaylistDetail(db, "mix").albums;
+  assert.equal(albums.length, 1);
+  assert.deepEqual({ id: albums[0].id, artist: albums[0].artist, trackCount: albums[0].trackCount, totalDurationSec: albums[0].totalDurationSec, releaseDate: albums[0].releaseDate },
+    { id: "MPRE_zalbum", artist: "Male Artist", trackCount: 2, totalDurationSec: 300, releaseDate: "2025-01-01" });
+  // per-member post-filter counts; zero-survivor album omitted entirely
+  const drop1 = (x) => x === "zvid0000001";
+  assert.equal(zemerPlaylistDetail(db, "mix", {}, drop1).albums[0].trackCount, 1, "album count excludes dropped members");
+  const dropBoth = (x) => x === "zvid0000001" || x === "zvid0000002";
+  assert.deepEqual(zemerPlaylistDetail(db, "mix", {}, dropBoth).albums, [], "album with zero surviving members omitted");
 });
 
 test("zemer playlists honor content filters + blocked-ids; fully-filtered → hidden from list AND 404 on detail", () => {

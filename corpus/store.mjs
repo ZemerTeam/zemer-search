@@ -488,14 +488,41 @@ export function zemerPlaylistList(db, cf = {}, dropId = null) {
     .filter(Boolean);
 }
 
-// One curated playlist + its tracks. null for an unknown id OR when every member is filtered out (the
-// list hides it, so drilling in must 404 too — nothing leaks on drill-in).
+// One curated playlist + its tracks + its curated ALBUMS as browsable rows (the app's Albums chip —
+// /search-album-row shape, curated order). Album rows describe ONLY the album's contribution to THIS
+// playlist: counts/runtime cover just its members that serve here, post-filter (an album with zero
+// surviving members is omitted — its tracks are absent from `tracks` too, gotcha #7). Note the album
+// rows keep their real album art — the no-album-art cover policy applies to the PLAYLIST card, not to
+// rows that ARE albums. null for an unknown id OR when every member is filtered out.
 export function zemerPlaylistDetail(db, id, cf = {}, dropId = null) {
   const p = db.prepare("SELECT id,title FROM zemer_playlist WHERE id=?").get(id);
   if (!p) return null;
   const tracks = zemerPlaylistTracks(db, id, cf, dropId);
   if (!tracks.length) return null;
-  return { playlist: zemerCard(p.id, p.title, tracks), tracks };
+  const { allowFemale = true, kidZoneOnly = false, blockVideos = false } = cf;
+  const alb = db.prepare(`
+    SELECT zpi.pos ipos, al.id, al.playlistId, al.title, al.year, al.thumbnail, al.uploadDate, a.name AS artistName
+    FROM zemer_playlist_item zpi JOIN album al ON al.id=zpi.refId JOIN artist a ON a.id=al.artistId
+    WHERE zpi.playlistId=@id AND zpi.kind='album' ORDER BY zpi.pos`).all({ id });
+  const members = db.prepare(`
+    SELECT zpi.refId albumId, t.videoId, t.durationSec, t.isVideo, a2.isKidZone,
+           (a2.isFemale=1 OR t.videoId IN (SELECT videoId FROM _female)) AS femInv
+    FROM zemer_playlist_item zpi JOIN album_track at ON at.albumId=zpi.refId
+    JOIN track t ON t.videoId=at.videoId JOIN artist a2 ON a2.id=t.artistId
+    WHERE zpi.playlistId=@id AND zpi.kind='album'`).all({ id });
+  const agg = new Map(); // albumId -> {kept, dur, anyDur}
+  for (const m of members) {
+    if (dropId && dropId(m.videoId)) continue;
+    if ((!allowFemale && m.femInv) || (kidZoneOnly && !m.isKidZone) || (blockVideos && m.isVideo)) continue;
+    const a = agg.get(m.albumId) || { kept: 0, dur: 0, anyDur: false };
+    a.kept++; if (m.durationSec != null) { a.dur += m.durationSec; a.anyDur = true; }
+    agg.set(m.albumId, a);
+  }
+  const albums = alb
+    .filter((x) => !(dropId && dropId(x.id)) && agg.get(x.id)?.kept)
+    .map((x) => { const a = agg.get(x.id); return { id: x.id, playlistId: x.playlistId, title: x.title, artist: x.artistName,
+      year: x.year, thumbnail: x.thumbnail, releaseDate: x.uploadDate ?? null, trackCount: a.kept, totalDurationSec: a.anyDur ? a.dur : null }; });
+  return { playlist: zemerCard(p.id, p.title, tracks), albums, tracks };
 }
 
 // Detail pages -----------------------------------------------------------------------------------
