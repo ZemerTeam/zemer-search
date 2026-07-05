@@ -122,7 +122,8 @@ export function openCorpus(file = DB_PATH) {
     CREATE TABLE IF NOT EXISTS zemer_playlist (
       id    TEXT PRIMARY KEY,                -- slug from the JSON (e.g. "shabbos")
       title TEXT NOT NULL,
-      pos   INTEGER NOT NULL DEFAULT 0       -- display order = file order
+      pos   INTEGER NOT NULL DEFAULT 0,      -- display order = file order
+      year  INTEGER                          -- DYNAMIC rule: non-NULL = "everything released in <year>" (no items)
     );
     CREATE TABLE IF NOT EXISTS zemer_playlist_item (
       playlistId TEXT NOT NULL,
@@ -147,6 +148,10 @@ export function openCorpus(file = DB_PATH) {
   // backfilled (harvester/backfill-community-artists.mjs), and NULL behaves exactly like the old behavior.
   if (!db.prepare("PRAGMA table_info(community_playlist_track)").all().some((c) => c.name === "artistId"))
     db.exec("ALTER TABLE community_playlist_track ADD COLUMN artistId TEXT");
+  // Zemer-curated DYNAMIC year playlists ("Year of 2026"): a rule instead of an id list — contents are
+  // computed at read time from release dates, so the playlist grows with every harvest all year.
+  if (!db.prepare("PRAGMA table_info(zemer_playlist)").all().some((c) => c.name === "year"))
+    db.exec("ALTER TABLE zemer_playlist ADD COLUMN year INTEGER");
   // Track detail metadata, extracted from the already-cached browse rows (no new fetches — see
   // harvester/backfill-track-meta.mjs): durationSec (from album-page fixed columns) + playCount (from the
   // landing "Songs" shelf, for a real "Top songs" ranking). Both nullable; absent = unknown (old behavior).
@@ -420,16 +425,20 @@ export function applyZemerPlaylists(db, doc = loadZemerPlaylists(), { dry = fals
   for (const p of pls) {
     if (!p?.id || !p?.title) throw new Error(`zemer-playlists: every playlist needs id + title (got ${JSON.stringify(p)})`);
     if (seen.has(p.id)) throw new Error(`zemer-playlists: duplicate playlist id "${p.id}"`);
+    if (p.year != null) { // dynamic year rule — contents computed at read time, so it can't also list ids
+      if (!Number.isInteger(p.year) || p.year < 1900 || p.year > 2100) throw new Error(`zemer-playlists: "${p.id}" has an invalid year ${JSON.stringify(p.year)}`);
+      if ((p.videoIds || []).length || (p.albumIds || []).length) throw new Error(`zemer-playlists: "${p.id}" is a year rule — it can't also list videoIds/albumIds`);
+    }
     seen.add(p.id);
   }
   const hasTrack = db.prepare("SELECT 1 FROM track WHERE videoId=?");
   const hasAlbum = db.prepare("SELECT 1 FROM album WHERE id=?");
-  const insPl = db.prepare("INSERT INTO zemer_playlist(id,title,pos) VALUES(?,?,?)");
+  const insPl = db.prepare("INSERT INTO zemer_playlist(id,title,pos,year) VALUES(?,?,?,?)");
   const insItem = db.prepare("INSERT OR REPLACE INTO zemer_playlist_item(playlistId,kind,refId,pos) VALUES(?,?,?,?)");
   const missing = [];
   let items = 0;
   const pass = () => pls.forEach((p, pi) => {
-    if (!dry) insPl.run(p.id, p.title, pi);
+    if (!dry) insPl.run(p.id, p.title, pi, p.year ?? null);
     let pos = 0;
     for (const v of p.videoIds || []) { if (!hasTrack.get(v)) missing.push({ playlist: p.id, kind: "track", id: v }); if (!dry) insItem.run(p.id, "track", v, pos); pos++; items++; }
     for (const a of p.albumIds || []) { if (!hasAlbum.get(a)) missing.push({ playlist: p.id, kind: "album", id: a }); if (!dry) insItem.run(p.id, "album", a, pos); pos++; items++; }
@@ -445,20 +454,37 @@ export function applyZemerPlaylists(db, doc = loadZemerPlaylists(), { dry = fals
 // primary OR featuring (_female set), kidZone/video per artist/track flags; `dropId` is the server's
 // blocked-ids predicate (gotcha #7 — applied here so list counts/covers/durations agree with the detail).
 function zemerPlaylistTracks(db, id, { allowFemale = true, kidZoneOnly = false, blockVideos = false } = {}, dropId = null) {
-  const rows = db.prepare(`
-    SELECT x.ipos, x.spos, t.videoId, t.title, t.explicit, t.isVideo, t.durationSec, t.playCount,
-           COALESCE(t.uploadDate, MAX(al.uploadDate)) AS releaseDate,
-           a.name AS artistName, a.isKidZone,
-           (a.isFemale=1 OR t.videoId IN (SELECT videoId FROM _female)) AS femInv
-    FROM (
-      SELECT pos AS ipos, -1 AS spos, refId AS videoId FROM zemer_playlist_item WHERE playlistId=@id AND kind='track'
-      UNION ALL
-      SELECT zpi.pos, at.pos, at.videoId FROM zemer_playlist_item zpi
-        JOIN album_track at ON at.albumId=zpi.refId WHERE zpi.playlistId=@id AND zpi.kind='album'
-    ) x
-    JOIN track t ON t.videoId=x.videoId JOIN artist a ON a.id=t.artistId
-    LEFT JOIN album_track at2 ON at2.videoId=t.videoId LEFT JOIN album al ON al.id=at2.albumId
-    GROUP BY x.ipos, x.spos, t.videoId ORDER BY x.ipos, x.spos`).all({ id });
+  const rule = db.prepare("SELECT year FROM zemer_playlist WHERE id=?").get(id);
+  // DYNAMIC year rule ("Year of 2026"): everything whose resolved release date (the usual
+  // COALESCE(track.uploadDate, album.uploadDate)) falls in the year, NEWEST FIRST — computed at read
+  // time so the playlist grows with every harvest, no re-apply. fromAlbum = the track is on any album
+  // (the app's Albums chip shows album tracks; Songs = standalone singles/videos).
+  const rows = rule?.year != null
+    ? db.prepare(`
+        SELECT t.videoId, t.title, t.explicit, t.isVideo, t.durationSec, t.playCount,
+               COALESCE(t.uploadDate, MAX(al.uploadDate)) AS releaseDate,
+               MAX(at2.videoId IS NOT NULL) AS onAlbum,
+               a.name AS artistName, a.isKidZone,
+               (a.isFemale=1 OR t.videoId IN (SELECT videoId FROM _female)) AS femInv
+        FROM track t JOIN artist a ON a.id=t.artistId
+        LEFT JOIN album_track at2 ON at2.videoId=t.videoId LEFT JOIN album al ON al.id=at2.albumId
+        GROUP BY t.videoId HAVING substr(releaseDate,1,4)=@y
+        ORDER BY releaseDate DESC, t.videoId`).all({ y: String(rule.year) })
+        .map((r) => ({ ...r, spos: r.onAlbum ? 0 : -1 }))
+    : db.prepare(`
+        SELECT x.ipos, x.spos, t.videoId, t.title, t.explicit, t.isVideo, t.durationSec, t.playCount,
+               COALESCE(t.uploadDate, MAX(al.uploadDate)) AS releaseDate,
+               a.name AS artistName, a.isKidZone,
+               (a.isFemale=1 OR t.videoId IN (SELECT videoId FROM _female)) AS femInv
+        FROM (
+          SELECT pos AS ipos, -1 AS spos, refId AS videoId FROM zemer_playlist_item WHERE playlistId=@id AND kind='track'
+          UNION ALL
+          SELECT zpi.pos, at.pos, at.videoId FROM zemer_playlist_item zpi
+            JOIN album_track at ON at.albumId=zpi.refId WHERE zpi.playlistId=@id AND zpi.kind='album'
+        ) x
+        JOIN track t ON t.videoId=x.videoId JOIN artist a ON a.id=t.artistId
+        LEFT JOIN album_track at2 ON at2.videoId=t.videoId LEFT JOIN album al ON al.id=at2.albumId
+        GROUP BY x.ipos, x.spos, t.videoId ORDER BY x.ipos, x.spos`).all({ id });
   const seen = new Set(), out = [];
   for (const r of rows) {
     if (seen.has(r.videoId)) continue;
@@ -468,6 +494,7 @@ function zemerPlaylistTracks(db, id, { allowFemale = true, kidZoneOnly = false, 
     // fromAlbum: which branch of the UNION the KEPT position came from (spos=-1 = direct videoIds pick,
     // spos>=0 = album expansion) — for the app's All/Albums/Songs detail chips. A videoId reachable both
     // ways gets the kind that owns its kept (first) position, same rule as the dedup itself.
+    // (Year playlists: fromAlbum = on any album, per the mapping above.)
     out.push({ videoId: r.videoId, title: r.title, artist: r.artistName, explicit: !!r.explicit, isVideo: !!r.isVideo,
       durationSec: r.durationSec ?? null, playCount: r.playCount ?? null, releaseDate: r.releaseDate ?? null,
       fromAlbum: r.spos >= 0 });
@@ -495,27 +522,35 @@ export function zemerPlaylistList(db, cf = {}, dropId = null) {
 // rows keep their real album art — the no-album-art cover policy applies to the PLAYLIST card, not to
 // rows that ARE albums. null for an unknown id OR when every member is filtered out.
 export function zemerPlaylistDetail(db, id, cf = {}, dropId = null) {
-  const p = db.prepare("SELECT id,title FROM zemer_playlist WHERE id=?").get(id);
+  const p = db.prepare("SELECT id,title,year FROM zemer_playlist WHERE id=?").get(id);
   if (!p) return null;
   const tracks = zemerPlaylistTracks(db, id, cf, dropId);
   if (!tracks.length) return null;
   const { allowFemale = true, kidZoneOnly = false, blockVideos = false } = cf;
-  const alb = db.prepare(`
-    SELECT zpi.pos ipos, al.id, al.playlistId, al.title, al.year, al.thumbnail, al.uploadDate, a.name AS artistName
-    FROM zemer_playlist_item zpi JOIN album al ON al.id=zpi.refId JOIN artist a ON a.id=al.artistId
-    WHERE zpi.playlistId=@id AND zpi.kind='album' ORDER BY zpi.pos`).all({ id });
-  const members = db.prepare(`
-    SELECT zpi.refId albumId, t.videoId, t.durationSec, t.isVideo, a2.isKidZone,
-           (a2.isFemale=1 OR t.videoId IN (SELECT videoId FROM _female)) AS femInv
-    FROM zemer_playlist_item zpi JOIN album_track at ON at.albumId=zpi.refId
-    JOIN track t ON t.videoId=at.videoId JOIN artist a2 ON a2.id=t.artistId
-    WHERE zpi.playlistId=@id AND zpi.kind='album'`).all({ id });
+  // Album rows + their member pairs: curated items normally; for a DYNAMIC year playlist, the albums
+  // RELEASED in the year (dated in-year; the few undated stubs fall back to the metadata year), newest
+  // first. Either way the aggregates below count only members actually serving in this playlist.
+  const alb = p.year != null
+    ? db.prepare(`SELECT al.id, al.playlistId, al.title, al.year, al.thumbnail, al.uploadDate, a.name AS artistName
+        FROM album al JOIN artist a ON a.id=al.artistId
+        WHERE substr(al.uploadDate,1,4)=@y OR (al.uploadDate IS NULL AND al.year=@yi)
+        ORDER BY (al.uploadDate IS NULL), al.uploadDate DESC, al.id`).all({ y: String(p.year), yi: p.year })
+    : db.prepare(`SELECT al.id, al.playlistId, al.title, al.year, al.thumbnail, al.uploadDate, a.name AS artistName
+        FROM zemer_playlist_item zpi JOIN album al ON al.id=zpi.refId JOIN artist a ON a.id=al.artistId
+        WHERE zpi.playlistId=@id AND zpi.kind='album' ORDER BY zpi.pos`).all({ id });
+  const pairs = p.year != null
+    ? db.prepare(`SELECT at.albumId, at.videoId FROM album_track at JOIN album al ON al.id=at.albumId
+        WHERE substr(al.uploadDate,1,4)=@y OR (al.uploadDate IS NULL AND al.year=@yi)`).all({ y: String(p.year), yi: p.year })
+    : db.prepare(`SELECT zpi.refId albumId, at.videoId FROM zemer_playlist_item zpi
+        JOIN album_track at ON at.albumId=zpi.refId WHERE zpi.playlistId=@id AND zpi.kind='album'`).all({ id });
+  // Aggregate over the KEPT tracks (same filters/blocked-ids/year rule as `tracks` — one source of truth).
+  const kept = new Map(tracks.map((t) => [t.videoId, t.durationSec]));
   const agg = new Map(); // albumId -> {kept, dur, anyDur}
-  for (const m of members) {
-    if (dropId && dropId(m.videoId)) continue;
-    if ((!allowFemale && m.femInv) || (kidZoneOnly && !m.isKidZone) || (blockVideos && m.isVideo)) continue;
+  for (const m of pairs) {
+    if (!kept.has(m.videoId)) continue;
+    const dur = kept.get(m.videoId);
     const a = agg.get(m.albumId) || { kept: 0, dur: 0, anyDur: false };
-    a.kept++; if (m.durationSec != null) { a.dur += m.durationSec; a.anyDur = true; }
+    a.kept++; if (dur != null) { a.dur += dur; a.anyDur = true; }
     agg.set(m.albumId, a);
   }
   const albums = alb

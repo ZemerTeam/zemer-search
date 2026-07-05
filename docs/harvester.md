@@ -203,7 +203,8 @@ offline** (no network, runs anywhere, no Shabbat/IP concerns). These are Zemer's
 ```jsonc
 // data/zemer-playlists.json (committed, like blocklist.json — the curated input)
 { "playlists": [
-  { "id": "shabbos", "title": "Shabbos", "videoIds": ["…"], "albumIds": ["MPRE…"] }
+  { "id": "shabbos", "title": "Shabbos", "videoIds": ["…"], "albumIds": ["MPRE…"] },
+  { "id": "year-2026", "title": "Year of 2026", "year": 2026 }
 ] }
 ```
 
@@ -212,6 +213,9 @@ offline** (no network, runs anywhere, no Shabbat/IP concerns). These are Zemer's
   File order = display order; id order = track order (`videoIds` first, then each album in place).
 - **Album ids expand at READ time** to their `album_track` members, so a re-harvested album's new tracks
   appear in the curated playlist without a re-apply.
+- **A `year` entry is a fully DYNAMIC rule** (it can't also list ids): everything released in that year
+  (by the resolved real release date), newest first, computed at read time — the playlist grows with
+  every harvest all year, and past years are naturally frozen.
 - **Unknown ids are pending, not errors**: only corpus tracks are served, so a not-yet-harvested id simply
   contributes nothing until it lands. The apply **reports** every id not in the corpus (typo feedback);
   `DRY=1` validates + reports without writing.

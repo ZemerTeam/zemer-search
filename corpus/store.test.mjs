@@ -550,6 +550,28 @@ test("zemer playlists honor content filters + blocked-ids; fully-filtered → hi
   assert.ok(zemerPlaylistList(db, {}, drop)[0].thumbnail.includes("zvid0000003"), "cover = first SURVIVING track");
 });
 
+test("zemer playlists: DYNAMIC year rule — everything released in the year, newest first, read-time", () => {
+  const db = openCorpus(":memory:"); zseed(db);
+  applyZemerPlaylists(db, { playlists: [{ id: "y26", title: "Year of 2026", year: 2026 }] });
+  assert.equal(zemerPlaylistList(db).length, 0, "no dated content yet → hidden (empty year)");
+  setAlbumUploadDate(db, "MPRE_zalbum", "2026-03-01T00:00:00-07:00"); // zvid1+zvid2 inherit via COALESCE
+  setTrackUploadDate(db, "zvid0000003", "2026-05-01T00:00:00-07:00"); // standalone video, own date
+  setTrackUploadDate(db, "zvidfem0001", "2025-06-01T00:00:00-07:00"); // 2025 → excluded
+  const d = zemerPlaylistDetail(db, "y26");
+  assert.deepEqual(d.tracks.map((t) => t.videoId), ["zvid0000003", "zvid0000001", "zvid0000002"], "in-year only, newest first");
+  assert.deepEqual(d.tracks.map((t) => t.fromAlbum), [false, true, true], "year rule: fromAlbum = on an album");
+  assert.deepEqual(d.albums.map((a) => a.id), ["MPRE_zalbum"], "albums released in the year");
+  assert.equal(d.albums[0].trackCount, 2);
+  assert.equal(zemerPlaylistDetail(db, "y26", { blockVideos: true }).tracks.length, 2, "filters apply to year rule too");
+  // a new harvest-dated track appears WITHOUT a re-apply (the rule is read-time)
+  upsertArtistCatalog(db, { id: "UCzm", name: "Male Artist" }, { tracks: [{ videoId: "zvid0000004", title: "Dalet", isVideo: false }] });
+  setTrackUploadDate(db, "zvid0000004", "2026-06-15T00:00:00-07:00");
+  assert.deepEqual(zemerPlaylistDetail(db, "y26").tracks[0].videoId, "zvid0000004", "new in-year release joins at the top, no re-apply");
+  // validation: a year rule can't also carry ids; year must be sane
+  assert.throws(() => applyZemerPlaylists(db, { playlists: [{ id: "x", title: "X", year: 2026, videoIds: ["v"] }] }), /can't also list/);
+  assert.throws(() => applyZemerPlaylists(db, { playlists: [{ id: "x", title: "X", year: "2026" }] }), /invalid year/);
+});
+
 test("zemer playlists: re-apply REPLACES wholesale; missing ids reported; dry validates without writing", () => {
   const db = openCorpus(":memory:"); zseed(db);
   applyZemerPlaylists(db, { playlists: [{ id: "a", title: "A", videoIds: ["zvid0000001"] }] });
