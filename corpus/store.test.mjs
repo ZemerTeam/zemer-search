@@ -504,10 +504,13 @@ test("zemer playlists: apply + list + detail (album expansion, order, dedup, cov
   assert.deepEqual(zemerPlaylistList(db).map((p) => p.id), ["mix", "dup"], "file order");
   const mix = zemerPlaylistDetail(db, "mix");
   assert.deepEqual(mix.tracks.map((t) => t.videoId), ["zvid0000003", "zvid0000001", "zvid0000002"], "direct tracks first, album expands in album order");
+  assert.deepEqual(mix.tracks.map((t) => t.fromAlbum), [false, true, true], "fromAlbum marks album-expanded tracks (direct pick = false)");
   assert.equal(mix.playlist.trackCount, 3);
   assert.equal(mix.playlist.totalDurationSec, 300, "sums the known durations (the clip's unknown counts 0)");
   assert.ok(mix.playlist.thumbnail.includes("zvid0000003"), "cover = first track's art");
-  assert.deepEqual(zemerPlaylistDetail(db, "dup").tracks.map((t) => t.videoId), ["zvid0000002", "zvid0000001"], "same id via direct AND album appears once, first position wins");
+  const dup = zemerPlaylistDetail(db, "dup");
+  assert.deepEqual(dup.tracks.map((t) => t.videoId), ["zvid0000002", "zvid0000001"], "same id via direct AND album appears once, first position wins");
+  assert.deepEqual(dup.tracks.map((t) => t.fromAlbum), [false, true], "both-ways videoId takes the kind that owns its kept position (direct won here)");
   setAlbumUploadDate(db, "MPRE_zalbum", "2025-01-01");
   assert.equal(zemerPlaylistDetail(db, "mix").tracks.find((t) => t.videoId === "zvid0000001").releaseDate, "2025-01-01", "album tracks inherit the album's real date (COALESCE)");
   assert.equal(zemerPlaylistDetail(db, "nosuch"), null, "unknown id → null (404)");

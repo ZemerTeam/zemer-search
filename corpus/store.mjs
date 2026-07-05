@@ -465,8 +465,12 @@ function zemerPlaylistTracks(db, id, { allowFemale = true, kidZoneOnly = false, 
     seen.add(r.videoId);
     if (dropId && dropId(r.videoId)) continue;
     if ((!allowFemale && r.femInv) || (kidZoneOnly && !r.isKidZone) || (blockVideos && r.isVideo)) continue;
+    // fromAlbum: which branch of the UNION the KEPT position came from (spos=-1 = direct videoIds pick,
+    // spos>=0 = album expansion) — for the app's All/Albums/Songs detail chips. A videoId reachable both
+    // ways gets the kind that owns its kept (first) position, same rule as the dedup itself.
     out.push({ videoId: r.videoId, title: r.title, artist: r.artistName, explicit: !!r.explicit, isVideo: !!r.isVideo,
-      durationSec: r.durationSec ?? null, playCount: r.playCount ?? null, releaseDate: r.releaseDate ?? null });
+      durationSec: r.durationSec ?? null, playCount: r.playCount ?? null, releaseDate: r.releaseDate ?? null,
+      fromAlbum: r.spos >= 0 });
   }
   return out;
 }
