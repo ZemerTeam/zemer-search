@@ -150,6 +150,46 @@ async function startServer() {
     return songs;
   }
 
+  // Generated text cover for a Zemer-CURATED playlist — these are editorial categories, not albums, so
+  // they get a branded title card instead of a member track's album art (which would wrongly spotlight one
+  // artist). Pure SVG string (no image deps, crisp at any size); the gradient is picked deterministically
+  // from the playlist id so each playlist keeps a stable, distinct color. Served by
+  // GET /zemer-playlists/cover?id=… and referenced by the (relative) `thumbnail` on /zemer-playlists rows.
+  const COVER_PALETTES = [
+    ["#1e3a8a", "#3b82f6"], ["#581c87", "#a855f7"], ["#7c2d12", "#f97316"], ["#134e4a", "#14b8a6"],
+    ["#831843", "#ec4899"], ["#0c4a6e", "#0ea5e9"], ["#14532d", "#22c55e"], ["#713f12", "#eab308"],
+  ];
+  const xmlEsc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  function zemerCoverSvg(id, title) {
+    let h = 0; for (const ch of String(id)) h = (h * 31 + ch.codePointAt(0)) >>> 0; // stable per id
+    const [c1, c2] = COVER_PALETTES[h % COVER_PALETTES.length];
+    // Wrap the title into short centered lines, then size the font to the longest line (bold ≈ 0.58em/char).
+    const words = String(title).trim().split(/\s+/);
+    const lines = [];
+    for (const w of words) {
+      if (lines.length && (lines[lines.length - 1] + " " + w).length <= 12) lines[lines.length - 1] += " " + w;
+      else lines.push(w);
+    }
+    while (lines.length > 3) { const last = lines.pop(); lines[lines.length - 1] += " " + last; } // cap at 3 lines
+    const maxLen = Math.max(...lines.map((l) => l.length), 1);
+    const fs = Math.max(40, Math.min(92, Math.round(440 / (0.58 * maxLen))));
+    const lh = Math.round(fs * 1.12);
+    const startY = 266 - Math.round(((lines.length - 1) * lh) / 2);
+    const font = "font-family=\"'Segoe UI',Roboto,'Helvetica Neue','Noto Sans Hebrew',Arial,sans-serif\"";
+    const text = lines.map((l, i) => `<text x="256" y="${startY + i * lh}" ${font} font-size="${fs}" font-weight="800" fill="#ffffff" text-anchor="middle">${xmlEsc(l)}</text>`).join("");
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">` +
+      `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient></defs>` +
+      `<rect width="512" height="512" fill="url(#g)"/>` +
+      `<circle cx="432" cy="84" r="190" fill="#ffffff" opacity="0.08"/>` +
+      `<circle cx="56" cy="450" r="150" fill="#000000" opacity="0.12"/>` +
+      `<text x="428" y="158" ${font} font-size="150" fill="#ffffff" opacity="0.14" text-anchor="middle">♪</text>` +
+      text +
+      `<rect x="216" y="418" width="80" height="3" rx="1.5" fill="#ffffff" opacity="0.5"/>` +
+      `<text x="256" y="462" ${font} font-size="24" font-weight="600" letter-spacing="8" fill="#ffffff" opacity="0.85" text-anchor="middle">ZEMER</text>` +
+      `</svg>`;
+  }
+  const zemerCoverUrl = (id) => `/zemer-playlists/cover?id=${encodeURIComponent(id)}`;
+
   const send = (res, code, obj) => { const body = JSON.stringify(obj); res.writeHead(code, CORS); res.end(body); return body; };
   const cacheSet = (key, body) => { cache.set(key, body); if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value); };
   const CACHEABLE = new Set(["/search", "/artist", "/album", "/playlist", "/community", "/zemer-playlists"]); // /new self-caches via the feed TTL
@@ -248,10 +288,21 @@ async function startServer() {
         const id = u.searchParams.get("id");
         if (id) {
           const d = !dropId(id) && zemerPlaylistDetail(liveDb, id, cf, dropId);
+          if (d) d.playlist.thumbnail = zemerCoverUrl(d.playlist.id); // generated text cover, never album art
           return d ? cacheSet(req.url, send(res, 200, d)) : send(res, 404, { error: "playlist not found" });
         }
-        const playlists = zemerPlaylistList(liveDb, cf, dropId).filter((p) => !dropId(p.id));
+        const playlists = zemerPlaylistList(liveDb, cf, dropId).filter((p) => !dropId(p.id))
+          .map((p) => ({ ...p, thumbnail: zemerCoverUrl(p.id) })); // generated text cover, never album art
         return cacheSet(req.url, send(res, 200, { count: playlists.length, playlists }));
+      }
+      if (u.pathname === "/zemer-playlists/cover") {
+        // Branded SVG title card for a curated playlist (see zemerCoverSvg). Relative-linked from the
+        // `thumbnail` fields above; resolves against whatever host serves the API.
+        const id = u.searchParams.get("id") || "";
+        const p = liveDb.prepare("SELECT title FROM zemer_playlist WHERE id=?").get(id);
+        if (!p) return send(res, 404, { error: "playlist not found" });
+        res.writeHead(200, { "Content-Type": "image/svg+xml; charset=utf-8", "Cache-Control": "public, max-age=3600", "Access-Control-Allow-Origin": "*" });
+        return res.end(zemerCoverSvg(id, p.title));
       }
       if (u.pathname === "/artist") {
         const id = u.searchParams.get("id"), cf = contentFlags(u.searchParams);
