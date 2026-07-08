@@ -156,15 +156,20 @@ async function startServer() {
   // from the playlist id so each playlist keeps a stable, distinct color. Served by
   // GET /zemer-playlists/cover?id=… and referenced by the (relative) `thumbnail` on /zemer-playlists rows.
   const xmlEsc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-  // The gradient hue is EVENLY SPACED across the playlist set — playlist `slot` of `total` gets hue
-  // slot·360/total — so no two playlists ever share a color, for ANY number of playlists (a fixed palette
-  // or id-hash collides once you have more than a handful, e.g. auto-top-50 vs auto-favorites). When the
-  // slot/total aren't known (defensive), fall back to a golden-angle spread of the id-hash, still well-spread.
-  function zemerCoverSvg(id, title, slot = -1, total = 0) {
-    let hue;
-    if (slot >= 0 && total > 0) hue = Math.round((slot * 360) / total);
-    else { let h = 0; for (const ch of String(id)) h = (h * 31 + ch.codePointAt(0)) >>> 0; hue = Math.round((h * 137.508) % 360); }
-    const c1 = `hsl(${hue} 60% 26%)`, c2 = `hsl(${(hue + 18) % 360} 68% 54%)`; // dark→bright, same hue family
+  // Each playlist gets a STABLE, well-separated, VIVID hue keyed to its id — stable so a cover never changes
+  // color when other playlists are added/removed (no stale-cache collisions), well-separated + vivid so
+  // adjacent cards read as clearly different colors (not muddy dark near-duplicates). The known lists get
+  // hand-picked, maximally-spread hues; any other id falls back to a golden-angle spread of its hash.
+  const FIXED_HUES = { "auto-top-50": 210, "auto-trending": 25, "auto-favorites": 315, "auto-acapella-top-50": 265, "auto-acapella-favorites": 165, "acapella": 60 };
+  function coverHue(id) {
+    if (FIXED_HUES[id] != null) return FIXED_HUES[id];
+    if (String(id).startsWith("auto-year-")) return 135; // "Year of ‹Y›" — green, whatever the year
+    let h = 0; for (const ch of String(id)) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+    return Math.round((h * 137.508) % 360);
+  }
+  function zemerCoverSvg(id, title) {
+    const hue = coverHue(id);
+    const c1 = `hsl(${hue} 70% 30%)`, c2 = `hsl(${(hue + 20) % 360} 85% 58%)`; // vivid dark→bright gradient
     // FIXED font size on every cover (never scaled to the title) — a long title wraps into MORE lines
     // instead of shrinking, and the block is vertically centered so it always looks tidy.
     const FS = 62, LH = 72, WRAP = 11; // ~11 chars/line fits 512px at this bold size
@@ -302,11 +307,8 @@ async function startServer() {
         const id = u.searchParams.get("id") || "";
         const p = liveDb.prepare("SELECT title FROM zemer_playlist WHERE id=?").get(id);
         if (!p) return send(res, 404, { error: "playlist not found" });
-        // evenly-spaced hue: this playlist's slot among all playlists (by display order) out of the total,
-        // so no two covers ever share a color regardless of how many playlists exist.
-        const ids = liveDb.prepare("SELECT id FROM zemer_playlist ORDER BY pos, id").all().map((r) => r.id);
         res.writeHead(200, { "Content-Type": "image/svg+xml; charset=utf-8", "Cache-Control": "public, max-age=3600", "Access-Control-Allow-Origin": "*" });
-        return res.end(zemerCoverSvg(id, p.title, ids.indexOf(id), ids.length));
+        return res.end(zemerCoverSvg(id, p.title));
       }
       if (u.pathname === "/artist") {
         const id = u.searchParams.get("id"), cf = contentFlags(u.searchParams);
