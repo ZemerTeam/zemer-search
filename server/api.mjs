@@ -155,26 +155,27 @@ async function startServer() {
   // artist). Pure SVG string (no image deps, crisp at any size); the gradient is picked deterministically
   // from the playlist id so each playlist keeps a stable, distinct color. Served by
   // GET /zemer-playlists/cover?id=… and referenced by the (relative) `thumbnail` on /zemer-playlists rows.
-  const COVER_PALETTES = [
-    ["#1e3a8a", "#3b82f6"], ["#581c87", "#a855f7"], ["#7c2d12", "#f97316"], ["#134e4a", "#14b8a6"],
-    ["#831843", "#ec4899"], ["#0c4a6e", "#0ea5e9"], ["#14532d", "#22c55e"], ["#713f12", "#eab308"],
-  ];
   const xmlEsc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-  function zemerCoverSvg(id, title) {
-    let h = 0; for (const ch of String(id)) h = (h * 31 + ch.codePointAt(0)) >>> 0; // stable per id
-    const [c1, c2] = COVER_PALETTES[h % COVER_PALETTES.length];
-    // Wrap the title into short centered lines, then size the font to the longest line (bold ≈ 0.58em/char).
+  // The gradient hue is EVENLY SPACED across the playlist set — playlist `slot` of `total` gets hue
+  // slot·360/total — so no two playlists ever share a color, for ANY number of playlists (a fixed palette
+  // or id-hash collides once you have more than a handful, e.g. auto-top-50 vs auto-favorites). When the
+  // slot/total aren't known (defensive), fall back to a golden-angle spread of the id-hash, still well-spread.
+  function zemerCoverSvg(id, title, slot = -1, total = 0) {
+    let hue;
+    if (slot >= 0 && total > 0) hue = Math.round((slot * 360) / total);
+    else { let h = 0; for (const ch of String(id)) h = (h * 31 + ch.codePointAt(0)) >>> 0; hue = Math.round((h * 137.508) % 360); }
+    const c1 = `hsl(${hue} 60% 26%)`, c2 = `hsl(${(hue + 18) % 360} 68% 54%)`; // dark→bright, same hue family
+    // FIXED font size on every cover (never scaled to the title) — a long title wraps into MORE lines
+    // instead of shrinking, and the block is vertically centered so it always looks tidy.
+    const FS = 62, LH = 72, WRAP = 11; // ~11 chars/line fits 512px at this bold size
     const words = String(title).trim().split(/\s+/);
     const lines = [];
     for (const w of words) {
-      if (lines.length && (lines[lines.length - 1] + " " + w).length <= 12) lines[lines.length - 1] += " " + w;
+      if (lines.length && (lines[lines.length - 1] + " " + w).length <= WRAP) lines[lines.length - 1] += " " + w;
       else lines.push(w);
     }
-    while (lines.length > 3) { const last = lines.pop(); lines[lines.length - 1] += " " + last; } // cap at 3 lines
-    const maxLen = Math.max(...lines.map((l) => l.length), 1);
-    const fs = Math.max(40, Math.min(92, Math.round(440 / (0.58 * maxLen))));
-    const lh = Math.round(fs * 1.12);
-    const startY = 266 - Math.round(((lines.length - 1) * lh) / 2);
+    const fs = FS, lh = LH;
+    const startY = 262 - Math.round(((lines.length - 1) * lh) / 2);
     const font = "font-family=\"'Segoe UI',Roboto,'Helvetica Neue','Noto Sans Hebrew',Arial,sans-serif\"";
     const text = lines.map((l, i) => `<text x="256" y="${startY + i * lh}" ${font} font-size="${fs}" font-weight="800" fill="#ffffff" text-anchor="middle">${xmlEsc(l)}</text>`).join("");
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">` +
@@ -301,8 +302,11 @@ async function startServer() {
         const id = u.searchParams.get("id") || "";
         const p = liveDb.prepare("SELECT title FROM zemer_playlist WHERE id=?").get(id);
         if (!p) return send(res, 404, { error: "playlist not found" });
+        // evenly-spaced hue: this playlist's slot among all playlists (by display order) out of the total,
+        // so no two covers ever share a color regardless of how many playlists exist.
+        const ids = liveDb.prepare("SELECT id FROM zemer_playlist ORDER BY pos, id").all().map((r) => r.id);
         res.writeHead(200, { "Content-Type": "image/svg+xml; charset=utf-8", "Cache-Control": "public, max-age=3600", "Access-Control-Allow-Origin": "*" });
-        return res.end(zemerCoverSvg(id, p.title));
+        return res.end(zemerCoverSvg(id, p.title, ids.indexOf(id), ids.length));
       }
       if (u.pathname === "/artist") {
         const id = u.searchParams.get("id"), cf = contentFlags(u.searchParams);
