@@ -258,6 +258,15 @@ endpoint change; content filters (female/blocked/kidzone/video) are applied down
     released this year at read time, newest first, growing with each harvest. It's emitted here so it lives in
     the auto-managed set on the same schedule and **auto-rolls** to the current UTC year (`YEAR` pins it,
     `YEAR_PLAYLIST=0` disables) — no annual hand-edit. (This replaces the former hand-curated `year-2026`.)
+  - **Acapella season (The Three Weeks)** — during the mourning period **17 Tammuz → 9 Av (Tisha b'Av)**, when
+    observant Jews listen to acapella only, the generator **ADDS** `auto-acapella-top-50` / `auto-acapella-favorites`
+    (the same popularity ranking, restricted to the audio-verified **acapella** curated set) and places them
+    **first** so the app surfaces them at the top — **nothing is removed**, the regular lists stay below, and the
+    added lists disappear on their own after Tisha b'Av. The window is computed from the **Hebrew calendar**
+    (`Intl` `en-u-ca-hebrew`, offline), so it **recurs correctly every year** despite the shifting Gregorian dates
+    (day granularity; the Hebrew day rolls at sunset so a boundary can be off by an evening — fine for a day gate).
+    `ACAPELLA_SEASON=on|off` forces the state (testing / rabbinic override); `NINE_DAYS=1` narrows to 1–9 Av. A
+    list with no data (e.g. Acapella Favorites before any acapella track is favorited) is simply omitted until it fills.
 - **Self-calibrating, no re-tuning.** Backfill grows as more users update to the tracking build (deduped
   server-side), and live grows forever; because weighting keys off each signal's *reach*, whichever has more
   evidence earns more weight automatically. Regenerating on the timer folds new data in for free.

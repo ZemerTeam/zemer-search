@@ -58,6 +58,36 @@ const die = (msg) => { console.error(`auto-playlists: ${msg}`); process.exit(1);
 const benign = (msg) => { console.warn(`auto-playlists: ${msg}`); process.exit(0); };
 if (!STATS_URL || !STATS_KEY) die("STATS_URL and STATS_KEY must be set (see .env) — refusing to run.");
 
+// ── Acapella season (The Three Weeks) ─────────────────────────────────────────────────────────────────
+// During the mourning period from 17 Tammuz through 9 Av (Tisha b'Av) observant Jews listen to acapella
+// only. We ADD acapella-popularity lists on top of the normal ones (nothing is removed). The window is
+// computed from the HEBREW calendar (Intl, offline), so it recurs correctly every year on its own — the
+// Gregorian dates drift yearly but 17 Tammuz–9 Av don't. Day granularity (civil midnight in Brooklyn; the
+// Hebrew day rolls at sunset, so the boundary can be off by an evening — fine for a day-based gate).
+// ACAPELLA_SEASON=on|off forces the state (testing / rabbinic override); NINE_DAYS=1 narrows to 1–9 Av.
+function hebDate(d) {
+  const p = new Intl.DateTimeFormat("en-u-ca-hebrew", { month: "long", day: "numeric", timeZone: "America/New_York" }).formatToParts(d);
+  return { month: p.find((x) => x.type === "month")?.value || "", day: +(p.find((x) => x.type === "day")?.value) };
+}
+function inThreeWeeks(d = new Date()) {
+  const { month, day } = hebDate(d);
+  const isTammuz = /^tam+uz$/i.test(month), isAv = month === "Av"; // ICU spells it "Tamuz"; match defensively
+  if (process.env.NINE_DAYS === "1") return isAv && day <= 9;
+  return (isTammuz && day >= 17) || (isAv && day <= 9);
+}
+const seasonEnv = (process.env.ACAPELLA_SEASON || "auto").toLowerCase();
+const mourning = seasonEnv === "on" ? true : seasonEnv === "off" ? false : inThreeWeeks();
+
+// The audio-verified acapella set = the curated `acapella` playlist's tracks (videoIds + expanded albums).
+// Read from the SOURCE-OF-TRUTH curated file (not the DB), so it's correct even before this run's apply.
+function acapellaSet(db) {
+  let ac; try { ac = (JSON.parse(fs.readFileSync(ZEMER_PLAYLISTS_PATH, "utf8")).playlists || []).find((p) => p?.id === "acapella"); } catch { ac = null; }
+  if (!ac) return null;
+  const set = new Set(ac.videoIds || []);
+  for (const aid of ac.albumIds || []) for (const r of db.prepare("SELECT videoId FROM album_track WHERE albumId=?").all(aid)) set.add(r.videoId);
+  return set;
+}
+
 async function fetchStats(days) {
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(), 30000);
@@ -127,13 +157,26 @@ const trendingIds = rows(trend, "topPlays")
   .sort((a, b) => b.score - a.score).slice(0, TRENDING_N).map((x) => x.v);
 
 // ── favorites = favorite-primary, download-corroborated ───────────────────────────────────────────────
-const favIds = [...new Set([...favDev.keys(), ...dlDev.keys()])].filter((v) => inCorpus.has(v))
+const favRanked = [...new Set([...favDev.keys(), ...dlDev.keys()])].filter((v) => inCorpus.has(v))
   .map((v) => ({ v, score: W.favorite * s(favDev.get(v) || 0) + W.download * s(dlDev.get(v) || 0) }))
   .filter((x) => (favDev.get(x.v) || 0) > 0) // must have at least one real favorite; downloads alone are too noisy to seed
-  .sort((a, b) => b.score - a.score).slice(0, FAV_N).map((x) => x.v);
+  .sort((a, b) => b.score - a.score);
+const favIds = favRanked.slice(0, FAV_N).map((x) => x.v);
 
-// ── the auto blocks (empty videoId lists are dropped — the serve layer would hide them anyway) ────────
+// ── acapella season: ADD acapella-only popularity lists on top (same ranking, restricted to the acapella
+// set). Nothing is removed — the regular lists stay below, and these disappear on their own after Tisha b'Av.
+const acap = mourning ? acapellaSet(db) : null;
+const acBlocks = [];
+if (acap && acap.size) {
+  const acTop = loved.filter((x) => acap.has(x.v)).slice(0, TOP_N).map((x) => x.v);
+  const acFav = favRanked.filter((x) => acap.has(x.v)).slice(0, FAV_N).map((x) => x.v);
+  if (acTop.length) acBlocks.push({ id: "auto-acapella-top-50", title: "Acapella Top 50", videoIds: acTop });
+  if (acFav.length) acBlocks.push({ id: "auto-acapella-favorites", title: "Acapella Favorites", videoIds: acFav });
+}
+
+// ── the auto blocks (acapella-season lists FIRST when active, empty videoId lists dropped) ─────────────
 const autoBlocks = [
+  ...acBlocks, // acapella season: on top so the app surfaces them first; [] outside the Three Weeks
   { id: "auto-top-50", title: "Top 50", videoIds: top50 },
   { id: "auto-trending", title: "Trending", videoIds: trendingIds },
   { id: "auto-favorites", title: "Favorites", videoIds: favIds },
@@ -158,7 +201,7 @@ const dbHasAuto = db.prepare("SELECT 1 FROM zemer_playlist WHERE id LIKE 'auto-%
 const changed = nextJson !== prevJson || (autoBlocks.length && !dbHasAuto);
 
 for (const b of autoBlocks) console.log(`  ${b.id} — "${b.title}"  ${b.year ? `dynamic (year ${b.year})` : `${b.videoIds.length} track(s)`}`);
-console.log(`auto-playlists: ${autoBlocks.length} auto list(s)${DRY ? "  [DRY]" : ""}${changed ? "" : "  [unchanged — no write]"}`);
+console.log(`auto-playlists: ${autoBlocks.length} auto list(s)${mourning ? `  [acapella season — ${hebDate(new Date()).month} ${hebDate(new Date()).day}]` : ""}${DRY ? "  [DRY]" : ""}${changed ? "" : "  [unchanged — no write]"}`);
 
 if (DRY || !changed) process.exit(0);
 
