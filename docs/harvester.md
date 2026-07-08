@@ -259,12 +259,13 @@ endpoint change; content filters (female/blocked/kidzone/video) are applied down
     the auto-managed set on the same schedule and **auto-rolls** to the current UTC year (`YEAR` pins it,
     `YEAR_PLAYLIST=0` disables) — no annual hand-edit. (This replaces the former hand-curated `year-2026`.)
   - **Acapella season (The Three Weeks)** — during the mourning period **17 Tammuz → 9 Av (Tisha b'Av)**, when
-    observant Jews listen to acapella only, the generator **ADDS** `auto-acapella-top-50` / `auto-acapella-favorites`
-    (the same popularity ranking, restricted to **only the songs hand-listed in the curated `acapella`
-    playlist's `videoIds`** — album ids are NOT expanded, since that would pull in unvetted, possibly
-    non-acapella album tracks) and places them
-    **first** so the app surfaces them at the top — **nothing is removed**, the regular lists stay below, and the
-    added lists disappear on their own after Tisha b'Av. The window is computed from the **Hebrew calendar**
+    observant Jews listen to acapella only, the generator **ADDS** `auto-acapella-top-50` — the most-played
+    acapella songs **this season** — under two hard rules: (1) **only songs hand-listed in the curated
+    `acapella` playlist's `videoIds`** (album ids are NOT expanded — that would pull in unvetted, possibly
+    non-acapella album tracks), and (2) ranked by **plays FROM the Three Weeks only** (a `/stats` window sized
+    to the days elapsed since 17 Tammuz — **no all-time backfill, no favorites/downloads**), reach-primary with
+    a light skip dampener like Trending. It's placed **first** so the app surfaces it at the top — **nothing is
+    removed**, the regular lists stay below, and it disappears on its own after Tisha b'Av. The window is computed from the **Hebrew calendar**
     (`Intl` `en-u-ca-hebrew`, offline), so it **recurs correctly every year** despite the shifting Gregorian dates
     (day granularity; the Hebrew day rolls at sunset so a boundary can be off by an evening — fine for a day gate).
     `ACAPELLA_SEASON=on|off` forces the state (testing / rabbinic override); `NINE_DAYS=1` narrows to 1–9 Av. A

@@ -77,6 +77,13 @@ function inThreeWeeks(d = new Date()) {
 }
 const seasonEnv = (process.env.ACAPELLA_SEASON || "auto").toLowerCase();
 const mourning = seasonEnv === "on" ? true : seasonEnv === "off" ? false : inThreeWeeks();
+// How many days (incl. today) we're into the current Three Weeks — the /stats window for the acapella lists,
+// so they rank by plays FROM the Three Weeks only (no all-time backfill). Grows 1→~22 across the period.
+function threeWeeksDays() {
+  let n = 0, d = new Date();
+  for (let i = 0; i < 30 && inThreeWeeks(d); i++) { n++; d = new Date(d.getTime() - 86400000); }
+  return Math.max(n, 1);
+}
 
 // The acapella set = ONLY the songs HAND-LISTED in the curated `acapella` playlist's `videoIds`. We do NOT
 // expand its `albumIds`: album-expansion pulls in every track of those albums (unvetted — not each one
@@ -101,9 +108,15 @@ const s = (d) => (d > 0 ? d / (d + PRIOR) : 0); // shrunk saturating reach score
 const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
 
 // ── fetch (fail-safe: any error → abort, never touch the file/DB) ─────────────────────────────────────
-let all, trend;
+// During the acapella season, also pull a window covering ONLY the Three Weeks so far, so the acapella
+// lists rank by plays from the Three Weeks (no all-time backfill).
+const SEASON_DAYS = mourning ? threeWeeksDays() : 0;
+let all, trend, season = null;
 try {
-  [all, trend] = await Promise.all([fetchStats(ALLTIME_DAYS), fetchStats(TRENDING_DAYS)]);
+  const reqs = [fetchStats(ALLTIME_DAYS), fetchStats(TRENDING_DAYS)];
+  if (mourning) reqs.push(fetchStats(SEASON_DAYS));
+  const r = await Promise.all(reqs);
+  [all, trend] = r; if (mourning) season = r[2];
 } catch (e) { benign(`/stats fetch failed (${e.message}) — leaving existing playlists untouched.`); }
 const rows = (o, k) => (Array.isArray(o?.[k]) ? o[k] : []);
 if (!rows(all, "topBackfilled").length && !rows(all, "topPlays").length)
@@ -162,15 +175,18 @@ const favRanked = [...new Set([...favDev.keys(), ...dlDev.keys()])].filter((v) =
   .sort((a, b) => b.score - a.score);
 const favIds = favRanked.slice(0, FAV_N).map((x) => x.v);
 
-// ── acapella season: ADD acapella-only popularity lists on top (same ranking, restricted to the acapella
-// set). Nothing is removed — the regular lists stay below, and these disappear on their own after Tisha b'Av.
+// ── acapella season: ADD an acapella list on top. Two hard rules: (1) ONLY songs hand-listed in the curated
+// acapella playlist, and (2) ranked by plays FROM THE THREE WEEKS ONLY (the `season` window — NO all-time
+// backfill, NO favorites/downloads) — so it reflects what people are actually playing this season. Reach-
+// primary with a light skip dampener (same as Trending). Nothing is removed; it disappears after Tisha b'Av.
 const acap = mourning ? acapellaSet() : null;
 const acBlocks = [];
-if (acap && acap.size) {
-  const acTop = loved.filter((x) => acap.has(x.v)).slice(0, TOP_N).map((x) => x.v);
-  const acFav = favRanked.filter((x) => acap.has(x.v)).slice(0, FAV_N).map((x) => x.v);
+if (acap && acap.size && season) {
+  const acTop = rows(season, "topPlays")
+    .filter((r) => acap.has(r.videoId) && inCorpus.has(r.videoId) && (r.devices || 0) >= 1)
+    .map((r) => ({ v: r.videoId, score: (r.devices || 0) * (1 - TREND_SKIP_PENALTY * clamp(r.skipRate || 0, 0, 1)) }))
+    .sort((a, b) => b.score - a.score).slice(0, TOP_N).map((x) => x.v);
   if (acTop.length) acBlocks.push({ id: "auto-acapella-top-50", title: "Acapella Top 50", videoIds: acTop });
-  if (acFav.length) acBlocks.push({ id: "auto-acapella-favorites", title: "Acapella Favorites", videoIds: acFav });
 }
 
 // ── the auto blocks (acapella-season lists FIRST when active, empty videoId lists dropped) ─────────────
