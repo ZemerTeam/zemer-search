@@ -44,6 +44,7 @@ const FAV_N = num(process.env.FAV_N, 30);
 const ALLTIME_DAYS = 3650; // "all the days we have" — the window just spans everything since launch
 const PRIOR = 3; // shrinkage: a 3-device song scores 0.5, small-n songs are damped, needs no max-reach
 const TREND_MIN_DEVICES = 3, TREND_MAX_SKIP = 0.5; // trending precision floor
+const TREND_SKIP_PENALTY = 0.5; // skip is a HALF-weight dampener on reach (not a full multiplier)
 
 // Signal weights for the loved-score blend. Backfill plays lead (deep + unbiased by our surfacing);
 // favorites weigh most per-listener (deliberate intent); live plays are modest + skip-penalized
@@ -113,10 +114,16 @@ const loved = [...candidates].map((v) => ({
 
 const top50 = loved.slice(0, TOP_N).map((x) => x.v);
 
-// ── trending = short-window live plays, reach-scored, skip-penalized, precision-floored ───────────────
+// ── trending = short-window live plays, REACH-PRIMARY, skip a light quality dampener, precision-floored ─
+// A user reading "Trending" expects reach ("lots of people are playing this"), so distinct-device reach is
+// the primary sort — NOT the shrunk/saturated reach used for the loved-score (which would let a strong
+// finish-rate on a small audience beat a much larger one). Skip is a HALF-weight penalty (docks up to 50%)
+// plus the <0.5 floor, so a genuinely skipped track is demoted/removed but a popular one with some skips
+// still leads. (Velocity — reach growth week-over-week — is the truer trending signal, but needs ≥2 weeks
+// of live history; revisit once the data supports it.)
 const trendingIds = rows(trend, "topPlays")
   .filter((r) => inCorpus.has(r.videoId) && (r.devices || 0) >= TREND_MIN_DEVICES && (r.skipRate || 0) < TREND_MAX_SKIP)
-  .map((r) => ({ v: r.videoId, score: s(r.devices) * (1 - clamp(r.skipRate || 0, 0, 0.8)) }))
+  .map((r) => ({ v: r.videoId, score: (r.devices || 0) * (1 - TREND_SKIP_PENALTY * clamp(r.skipRate || 0, 0, 1)) }))
   .sort((a, b) => b.score - a.score).slice(0, TRENDING_N).map((x) => x.v);
 
 // ── favorites = favorite-primary, download-corroborated ───────────────────────────────────────────────

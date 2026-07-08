@@ -246,8 +246,13 @@ endpoint change; content filters (female/blocked/kidzone/video) are applied down
     surfaced** (live plays partly measure freshly-featured content); favorites weigh most per-listener (intent);
     downloads are weak corroboration (noisy: auto-download-on-like/retries). Signals with total overlap
     (live vs backfill favorites/downloads) are combined by **MAX, not sum**.
-  - **Trending** = short-window (`TRENDING_DAYS=7`) live plays only, skip-penalized, precision-floored
-    (`devices≥3`, `skipRate<0.5`). Backfill is frozen history → excluded here by design.
+  - **Trending** = short-window (`TRENDING_DAYS=7`) live plays only, **reach-primary**: sorted by raw
+    distinct-device reach (what a user means by "trending" — lots of people playing it now), with skip a
+    HALF-weight dampener (`reach·(1 − 0.5·skipRate)`) plus the `skipRate<0.5`/`devices≥3` floor — so a
+    genuinely skipped track is demoted/removed but a popular one with some skips still leads (unlike the
+    loved-score's saturated reach, which would let a small high-finish-rate audience beat a much larger one).
+    Backfill is frozen history → excluded here by design. (Velocity — reach growth week-over-week — is the
+    truer trending signal; revisit once there's ≥2 weeks of live history.)
   - **Favorites** = favorite-primary, download-corroborated (an item needs ≥1 real favorite to seed).
   - **Year of ‹Y›** (`auto-year-<Y>`) = a **dynamic year rule** (no telemetry): the store computes everything
     released this year at read time, newest first, growing with each harvest. It's emitted here so it lives in
