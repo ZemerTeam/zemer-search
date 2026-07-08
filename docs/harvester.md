@@ -266,7 +266,13 @@ endpoint change; content filters (female/blocked/kidzone/video) are applied down
     non-acapella album tracks), and (2) ranked by **plays FROM the Three Weeks only** (a `/stats` window sized
     to the days elapsed since 17 Tammuz — **no all-time backfill, no favorites/downloads**), reach-primary with
     a light skip dampener like Trending. It's placed **first** so the app surfaces it at the top — **nothing is
-    removed**, the regular lists stay below, and it disappears on its own after Tisha b'Av. The window is computed from the **Hebrew calendar**
+    removed**, the regular lists stay below, and it disappears on its own after Tisha b'Av.
+    A **recurring auto-add** runs every generation: recent releases whose TITLE clearly says acapella —
+    a STRICT marker (`acapella` / `a cappella` / `vocal version` / `(vocal)` / Hebrew `ווקאלי`/`אקפלה`), so
+    nothing ambiguous is ever added — are appended to the gitignored `data/acapella-auto.json` (rolling
+    `ACAPELLA_SCAN_DAYS=60` window = NEW releases only). `loadZemerPlaylists` folds that list into the curated
+    `acapella` playlist (dedup), so both the browsable Acapella playlist and the season's Acapella Top 50 pick
+    up newly-released acapella automatically — the committed curated file stays pristine. The window is computed from the **Hebrew calendar**
     (`Intl` `en-u-ca-hebrew`, offline), so it **recurs correctly every year** despite the shifting Gregorian dates
     (day granularity; the Hebrew day rolls at sunset so a boundary can be off by an evening — fine for a day gate).
     `ACAPELLA_SEASON=on|off` forces the state (testing / rabbinic override); `NINE_DAYS=1` narrows to 1–9 Av. A

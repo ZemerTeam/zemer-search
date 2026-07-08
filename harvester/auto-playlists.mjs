@@ -31,7 +31,7 @@
 //   STATS_URL=… STATS_KEY=… node harvester/auto-playlists.mjs        # generate + apply
 //   DRY=1 …                                                          # print what it would write, no write
 import fs from "node:fs";
-import { openCorpus, applyZemerPlaylists, ZEMER_PLAYLISTS_PATH, ZEMER_PLAYLISTS_AUTO_PATH } from "../corpus/store.mjs";
+import { openCorpus, loadZemerPlaylists, applyZemerPlaylists, ZEMER_PLAYLISTS_PATH, ZEMER_PLAYLISTS_AUTO_PATH, ACAPELLA_AUTO_PATH } from "../corpus/store.mjs";
 
 const num = (v, d) => (Number.isFinite(+v) && +v > 0 ? +v : d); // NaN/blank/≤0 env → default (never slice(0,NaN))
 const DRY = process.env.DRY === "1";
@@ -85,13 +85,34 @@ function threeWeeksDays() {
   return Math.max(n, 1);
 }
 
-// The acapella set = ONLY the songs HAND-LISTED in the curated `acapella` playlist's `videoIds`. We do NOT
-// expand its `albumIds`: album-expansion pulls in every track of those albums (unvetted — not each one
-// hand-picked as acapella), which polluted the list with non-acapella songs. Only the curator's explicit
-// song picks qualify. Read from the SOURCE-OF-TRUTH curated file so it's correct even before this run's apply.
+// The acapella set = the curated `acapella` playlist's `videoIds` PLUS auto-discovered clearly-labeled
+// acapella releases (loadZemerPlaylists folds `data/acapella-auto.json` into the acapella entry). We do NOT
+// expand the playlist's `albumIds` — album-expansion pulls in unvetted, possibly-non-acapella album tracks.
 function acapellaSet() {
-  let ac; try { ac = (JSON.parse(fs.readFileSync(ZEMER_PLAYLISTS_PATH, "utf8")).playlists || []).find((p) => p?.id === "acapella"); } catch { ac = null; }
+  const ac = loadZemerPlaylists().playlists.find((p) => p.id === "acapella");
   return ac ? new Set(ac.videoIds || []) : null;
+}
+
+// Recurring auto-add: recent releases whose TITLE clearly says acapella / vocal-version get appended to the
+// gitignored acapella-auto list (folded into the curated acapella playlist by loadZemerPlaylists). ONLY clear
+// labels — a STRICT marker, so nothing ambiguous is ever added; a rolling window keeps it to NEW releases.
+const CLEAR_ACAP = /a[\s-]?c+app?ell?a|\bvocal\s+version\b|\(\s*vocal\s*\)|ווקאל|וואקאל|אקפלה/i;
+function scanAcapellaReleases(db) {
+  const since = new Date(Date.now() - num(process.env.ACAPELLA_SCAN_DAYS, 60) * 86400000).toISOString().slice(0, 10);
+  let curated; try { curated = (JSON.parse(fs.readFileSync(ZEMER_PLAYLISTS_PATH, "utf8")).playlists || []).find((p) => p?.id === "acapella"); } catch { curated = null; }
+  let existing = []; try { existing = JSON.parse(fs.readFileSync(ACAPELLA_AUTO_PATH, "utf8")).videoIds || []; } catch { /* first run */ }
+  const have = new Set([...(curated?.videoIds || []), ...existing]);
+  const rows = db.prepare(`
+    SELECT t.videoId, t.title, COALESCE(t.uploadDate, MAX(al.uploadDate)) AS rd
+    FROM track t LEFT JOIN album_track at ON at.videoId=t.videoId LEFT JOIN album al ON al.id=at.albumId
+    GROUP BY t.videoId HAVING rd IS NOT NULL AND substr(rd,1,10) >= @since`).all({ since });
+  const fresh = rows.filter((r) => CLEAR_ACAP.test(r.title || "") && !have.has(r.videoId)).map((r) => r.videoId);
+  if (fresh.length && !DRY) {
+    const tmp = `${ACAPELLA_AUTO_PATH}.tmp-${process.pid}`;
+    fs.writeFileSync(tmp, JSON.stringify({ videoIds: [...existing, ...fresh] }, null, 2) + "\n");
+    fs.renameSync(tmp, ACAPELLA_AUTO_PATH);
+  }
+  return fresh;
 }
 
 async function fetchStats(days) {
@@ -125,6 +146,10 @@ if (!rows(all, "topBackfilled").length && !rows(all, "topPlays").length)
 // ── corpus membership (only servable ids go in; guarantees the lists actually fill to N) ──────────────
 const db = openCorpus();
 const inCorpus = new Set(db.prepare("SELECT videoId FROM track").all().map((r) => r.videoId));
+
+// recurring auto-add of clearly-labeled acapella new releases (before ranking, so they're eligible now)
+const acapellaAdded = scanAcapellaReleases(db);
+if (acapellaAdded.length) console.log(`acapella: +${acapellaAdded.length} clearly-labeled release(s) added to the acapella set`);
 
 // ── per-signal device-reach maps ──────────────────────────────────────────────────────────────────────
 const bpDev = new Map(), lpDev = new Map(), lpSkip = new Map(), favDev = new Map(), dlDev = new Map();
@@ -216,19 +241,18 @@ const autoDoc = { playlists: autoBlocks };
 const nextJson = JSON.stringify(autoDoc, null, 2) + "\n";
 const prevJson = (() => { try { return fs.readFileSync(ZEMER_PLAYLISTS_AUTO_PATH, "utf8"); } catch { return ""; } })();
 const dbHasAuto = db.prepare("SELECT 1 FROM zemer_playlist WHERE id LIKE 'auto-%' LIMIT 1").get();
-const changed = nextJson !== prevJson || (autoBlocks.length && !dbHasAuto);
+const changed = nextJson !== prevJson || (autoBlocks.length && !dbHasAuto) || acapellaAdded.length > 0;
 
 for (const b of autoBlocks) console.log(`  ${b.id} — "${b.title}"  ${b.year ? `dynamic (year ${b.year})` : `${b.videoIds.length} track(s)`}`);
 console.log(`auto-playlists: ${autoBlocks.length} auto list(s)${mourning ? `  [acapella season — ${hebDate(new Date()).month} ${hebDate(new Date()).day}]` : ""}${DRY ? "  [DRY]" : ""}${changed ? "" : "  [unchanged — no write]"}`);
 
 if (DRY || !changed) process.exit(0);
 
-// Build the SAME union loadZemerPlaylists() would (auto-* first, then curated with the auto-* namespace
-// reserved) — but in memory, so we can APPLY FIRST and only commit the file on success. If applyZemerPlaylists
-// throws (e.g. a bad hand-curated entry), the DB transaction rolls back AND the auto file is left unchanged, so
-// the next run retries instead of the change-gate silently skipping forever on a file/DB mismatch.
-const curated = (() => { try { return JSON.parse(fs.readFileSync(ZEMER_PLAYLISTS_PATH, "utf8")).playlists || []; } catch { return []; } })()
-  .filter((p) => !String(p?.id || "").startsWith("auto-"));
+// Apply FIRST, commit the auto file only on success — if applyZemerPlaylists throws (e.g. a bad hand-curated
+// entry), the DB rolls back AND the auto file is left unchanged, so the next run retries (no silent file/DB
+// drift). `curated` comes from loadZemerPlaylists (which already folds in acapella-auto, written above) with
+// its auto-* blocks stripped, then combined with THIS run's freshly-built autoBlocks.
+const curated = loadZemerPlaylists().playlists.filter((p) => !String(p.id || "").startsWith("auto-"));
 const r = applyZemerPlaylists(db, { playlists: [...autoBlocks, ...curated] }, { dry: false });
 
 const tmp = `${ZEMER_PLAYLISTS_AUTO_PATH}.tmp-${process.pid}`;

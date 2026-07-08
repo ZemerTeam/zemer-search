@@ -23,6 +23,10 @@ data/subset.json.gz
 # harvester/auto-playlists.mjs from usage telemetry; the hand-curated zemer-playlists.json stays committed
 data/zemer-playlists-auto.json
 
+# auto-discovered clearly-labeled acapella releases (folded into the acapella playlist) — VPS-local,
+# maintained by harvester/auto-playlists.mjs; the committed acapella curation stays pristine
+data/acapella-auto.json
+
 # transient maintenance progress status (runtime only — written by the harvest/refresh steps)
 data/.maintain-status.json*
 data/.releases-status.json*

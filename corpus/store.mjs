@@ -415,12 +415,23 @@ export const ZEMER_PLAYLISTS_PATH = process.env.ZEMER_PLAYLISTS || path.resolve(
 // the hand-curated source-of-truth file stays pristine + committed (deploy = `git pull` never conflicts).
 // harvester/auto-playlists.mjs regenerates it on a timer; loadZemerPlaylists() MERGES it in (auto first).
 export const ZEMER_PLAYLISTS_AUTO_PATH = process.env.ZEMER_PLAYLISTS_AUTO || path.resolve(HERE, "../data/zemer-playlists-auto.json");
+// Auto-discovered, CLEARLY-LABELED acapella tracks (videoIds) — recent releases whose title unambiguously
+// says acapella/vocal-version, found by harvester/auto-playlists.mjs. Gitignored + VPS-local so the committed
+// curated file stays pristine; folded into the curated `acapella` playlist here so both the browsable playlist
+// and the season's auto Acapella Top 50 see them.
+export const ACAPELLA_AUTO_PATH = process.env.ACAPELLA_AUTO || path.resolve(HERE, "../data/acapella-auto.json");
 const readPls = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")).playlists || []; } catch { return []; } };
+const readAcapellaAuto = () => { try { return JSON.parse(fs.readFileSync(ACAPELLA_AUTO_PATH, "utf8")).videoIds || []; } catch { return []; } };
 export function loadZemerPlaylists() {
   // auto-* blocks first (flagship prominence), then curated. The `auto-` id namespace is RESERVED for the
   // generator: any `auto-*` id in the hand-curated file is dropped so it can never collide with a generated
   // block and make applyZemerPlaylists throw a duplicate-id on every run (freezing both apply jobs).
   const curated = readPls(ZEMER_PLAYLISTS_PATH).filter((p) => !String(p?.id || "").startsWith("auto-"));
+  const extra = readAcapellaAuto();
+  if (extra.length) { // union auto-discovered acapella into the curated acapella playlist (dedup, order preserved)
+    const ac = curated.find((p) => p.id === "acapella");
+    if (ac) { const have = new Set(ac.videoIds || []); ac.videoIds = [...(ac.videoIds || []), ...extra.filter((v) => !have.has(v))]; }
+  }
   return { playlists: [...readPls(ZEMER_PLAYLISTS_AUTO_PATH), ...curated] };
 }
 
