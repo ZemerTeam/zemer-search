@@ -241,11 +241,12 @@ endpoint change; content filters (female/blocked/kidzone/video) are applied down
 - **Ranking uses live AND backfill telemetry, never summed naively.** Each signal is scored by a *shrunk,
   saturating* distinct-device reach `s(d)=d/(d+PRIOR)` (magnitude-aware but damped at small n; needs no
   magnitude constant that would rot as data grows), then blended by intent weight:
-  - **Top 50 = loved-score** = `1.0·backfill-plays + 0.6·live-plays·(1−skip) + 1.2·favorites + 0.3·downloads`.
-    Backfill leads because it is the DEPTH today (live tracking is only days old) and is **unbiased by what we
-    surfaced** (live plays partly measure freshly-featured content); favorites weigh most per-listener (intent);
-    downloads are weak corroboration (noisy: auto-download-on-like/retries). Signals with total overlap
-    (live vs backfill favorites/downloads) are combined by **MAX, not sum**.
+  - **Top 50 = most PLAYED, plays dominate.** Primary sort = play reach `1.0·backfill-plays +
+    0.6·live-plays·(1−skip)` (all-time backfill leads — the DEPTH, and unbiased by what we surfaced; live is
+    thinner + exposure-biased). **Favorites/downloads ONLY break ties** (secondary sort) between songs with the
+    SAME play score — so the genuinely most-played songs always lead and a low-play/high-favorite song can't
+    leapfrog them (an earlier blended score let a 6-play song beat a 17-play one; fixed). Favorites also have
+    their own dedicated list. Signals with total overlap (live vs backfill favorites/downloads) → **MAX, not sum**.
   - **Trending** = short-window (`TRENDING_DAYS=7`) live plays only, **reach-primary**: sorted by raw
     distinct-device reach (what a user means by "trending" — lots of people playing it now), with skip a
     HALF-weight dampener (`reach·(1 − 0.5·skipRate)`) plus the `skipRate<0.5`/`devices≥3` floor — so a

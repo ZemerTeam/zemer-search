@@ -140,7 +140,11 @@ for (const r of rows(all, "topActionsBackfilled")) {
   if (m) m.set(r.id, Math.max(m.get(r.id) || 0, r.devices || 0));
 }
 
-// ── loved-score = weighted blend of shrunk reach across ALL signals ───────────────────────────────────
+// ── Top 50 = most PLAYED. PLAYS DOMINATE; favorites (then downloads) ONLY BREAK TIES ──────────────────
+// Primary sort = play reach (all-time backfill + recent live, device-reach, live plays skip-penalized).
+// Secondary sort = favorites/downloads — so a song can only be reordered by favorites against another song
+// with the SAME play score. A 6-play song can NEVER leapfrog a 17-play song on favorites (the old blended
+// score let it, which is why Top 50 didn't match the play data). Favorites also have their own dedicated list.
 const candidates = new Set([...bpDev.keys(), ...lpDev.keys(), ...favDev.keys(), ...dlDev.keys()].filter((v) => inCorpus.has(v)));
 // Fail-safe: a valid /stats whose ids don't intersect the corpus (e.g. corpus.db mid-rebuild, or a stats
 // schema change that renamed the id field) would otherwise yield empty lists and WIPE the live auto rows.
@@ -148,11 +152,10 @@ const candidates = new Set([...bpDev.keys(), ...lpDev.keys(), ...favDev.keys(), 
 if (!candidates.size) benign("no /stats ids intersect the corpus — leaving existing playlists untouched.");
 const loved = [...candidates].map((v) => ({
   v,
-  score: W.backPlay * s(bpDev.get(v) || 0)
-       + W.livePlay * s(lpDev.get(v) || 0) * (1 - clamp(lpSkip.get(v) || 0, 0, 0.8))
-       + W.favorite * s(favDev.get(v) || 0)
-       + W.download * s(dlDev.get(v) || 0),
-})).sort((a, b) => b.score - a.score);
+  play: W.backPlay * s(bpDev.get(v) || 0)
+      + W.livePlay * s(lpDev.get(v) || 0) * (1 - clamp(lpSkip.get(v) || 0, 0, 0.8)),
+  tie: W.favorite * s(favDev.get(v) || 0) + W.download * s(dlDev.get(v) || 0), // tiebreak only
+})).sort((a, b) => b.play - a.play || b.tie - a.tie);
 
 const top50 = loved.slice(0, TOP_N).map((x) => x.v);
 
