@@ -19,6 +19,10 @@ data/blocked-ids.json
 # derived on-device search subset — rebuilt via `node index/build-subset.mjs`
 data/subset.json.gz
 
+# data-driven auto playlists (Top 50 / Trending / Favorites) — regenerated on the VPS by
+# harvester/auto-playlists.mjs from usage telemetry; the hand-curated zemer-playlists.json stays committed
+data/zemer-playlists-auto.json
+
 # transient maintenance progress status (runtime only — written by the harvest/refresh steps)
 data/.maintain-status.json*
 data/.releases-status.json*

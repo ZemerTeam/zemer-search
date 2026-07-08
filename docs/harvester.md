@@ -227,6 +227,43 @@ DRY=1 node harvester/zemer-playlists.mjs   # validate + report (incl. ids not in
 node harvester/zemer-playlists.mjs         # apply → corpus.db
 ```
 
+### Auto (data-driven) playlists — `harvester/auto-playlists.mjs`
+
+Alongside the hand-curated categories, three playlists are **generated from anonymous usage telemetry** (the
+sibling `zemer-stats` server, `tracking.zemer.io`): **Top 50** (`auto-top-50`), **Trending** (`auto-trending`),
+**Favorites** (`auto-favorites`). It fetches `GET /stats` (key from `STATS_KEY`, base from `STATS_URL`), scores
+every song, and writes the results as ordinary `auto-*` playlist blocks into the **gitignored**
+`data/zemer-playlists-auto.json` — which `loadZemerPlaylists()` merges *in front of* the curated file, then
+`applyZemerPlaylists` writes the union. **The curated file is never touched**, so `git pull` on the VPS never
+conflicts with runtime-generated content. The app renders these identically to curated ones — no app/schema/
+endpoint change; content filters (female/blocked/kidzone/video) are applied downstream by `/zemer-playlists`.
+
+- **Ranking uses live AND backfill telemetry, never summed naively.** Each signal is scored by a *shrunk,
+  saturating* distinct-device reach `s(d)=d/(d+PRIOR)` (magnitude-aware but damped at small n; needs no
+  magnitude constant that would rot as data grows), then blended by intent weight:
+  - **Top 50 = loved-score** = `1.0·backfill-plays + 0.6·live-plays·(1−skip) + 1.2·favorites + 0.3·downloads`.
+    Backfill leads because it is the DEPTH today (live tracking is only days old) and is **unbiased by what we
+    surfaced** (live plays partly measure freshly-featured content); favorites weigh most per-listener (intent);
+    downloads are weak corroboration (noisy: auto-download-on-like/retries). Signals with total overlap
+    (live vs backfill favorites/downloads) are combined by **MAX, not sum**.
+  - **Trending** = short-window (`TRENDING_DAYS=7`) live plays only, skip-penalized, precision-floored
+    (`devices≥3`, `skipRate<0.5`). Backfill is frozen history → excluded here by design.
+  - **Favorites** = favorite-primary, download-corroborated (an item needs ≥1 real favorite to seed).
+- **Self-calibrating, no re-tuning.** Backfill grows as more users update to the tracking build (deduped
+  server-side), and live grows forever; because weighting keys off each signal's *reach*, whichever has more
+  evidence earns more weight automatically. Regenerating on the timer folds new data in for free.
+- **"Just works" guarantees.** A down/empty `/stats` **aborts without touching the file or DB** (last-good
+  playlists stay live); atomic write (tmp→rename); a **no-op when the generated ids are unchanged** (no needless
+  index reload); only servable (in-corpus) ids are included, so the lists actually fill to N.
+
+```bash
+STATS_URL=… STATS_KEY=… node harvester/auto-playlists.mjs         # generate + apply (env from .env locally)
+DRY=1 STATS_URL=… STATS_KEY=… node harvester/auto-playlists.mjs   # print what it would write, no write
+```
+
+Runs twice daily via `deploy/zemer-autoplaylists.timer` (Shabbat-gated). Knobs: `TOP_N=50`, `TRENDING_N=25`,
+`TRENDING_DAYS=7`, `FAV_N=30`.
+
 ## Release dating (New Releases accuracy)
 
 Browse pages carry only a release **year**; the real date lives in the `/player` microformat (`uploadDate`,

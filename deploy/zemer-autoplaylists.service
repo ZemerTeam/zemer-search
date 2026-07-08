@@ -1,0 +1,27 @@
+[Unit]
+Description=zemer-search auto playlists (Top 50 / Trending / Favorites from usage telemetry -> zemer_playlist)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# --- EDIT WorkingDirectory for your deployment (match the API's) ---
+WorkingDirectory=/opt/zemer-search
+# The stats server is public; the read KEY is a SECRET and must NOT live in this committed unit. Put it in
+# a non-committed, chmod-600 file loaded below (the repo .env already carries STATS_KEY locally):
+#     /opt/zemer-search/.env   →   STATS_KEY=…
+Environment=STATS_URL=https://tracking.zemer.io
+EnvironmentFile=-/opt/zemer-search/.env
+# CORPUS_DB defaults to <WorkingDirectory>/data/corpus.db (same as the API + refresh units) — set only if
+# the DB lives elsewhere; it MUST match the API's.
+# Environment=CORPUS_DB=/var/lib/zemer-search/corpus.db
+# Lightweight (one HTTP read + a tiny DB write); stay out of the API's + refresh's way.
+Nice=10
+IOSchedulingClass=idle
+# Shabbat handled IN CODE: skips any tick from 20 min before candle lighting until havdalah (Brooklyn zmanim).
+ExecCondition=/usr/bin/env node harness/shabbat.mjs
+# Regenerates data/zemer-playlists-auto.json (gitignored) + applies the merged (auto + curated) doc. It is a
+# no-op when the generated ids are unchanged, and ABORTS without touching the file/DB if /stats is down. The
+# API picks the change up on its next reload tick (corpus.db mtime is in the reload gate) — NO restart.
+ExecStart=/usr/bin/env node harvester/auto-playlists.mjs
+TimeoutStartSec=5m

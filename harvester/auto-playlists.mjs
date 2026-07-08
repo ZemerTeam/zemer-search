@@ -1,0 +1,165 @@
+// Auto-generate the DATA-DRIVEN Zemer playlists from anonymous usage telemetry (zemer-stats).
+//
+//   Top 50   (auto-top-50)   — the audience's most-loved songs (a blend of ALL signals, below)
+//   Trending (auto-trending) — hot right now (short-window live plays, skip-penalized)
+//   Favorites(auto-favorites)— what people SAVE (favorite-primary, download-corroborated)
+//
+// It fetches the stats server's /stats aggregates, scores every songs by DISTINCT-DEVICE reach (so one
+// device looping a song can't inflate it), and writes the results as ordinary `auto-*` playlists into
+// data/zemer-playlists.json — then applies the file the normal way (harvester/zemer-playlists.mjs's
+// applyZemerPlaylists). The app renders them identically to the hand-curated ones; nothing app-side or
+// schema-side changes. Content filters (female/blocked/kidzone/video) are applied DOWNSTREAM by the
+// /zemer-playlists reads, so raw ids are safe to store here.
+//
+// ── Ranking (uses live AND backfill, never summed naively) ────────────────────────────────────────────
+//   Backfill = each install's ONE-TIME upload of its pre-existing listen history + currently-liked/
+//   downloaded snapshot. It is the DEPTH today (live tracking is only days old) and it GROWS as more users
+//   update to the tracking build (currently ~44% of devices have sent it). Live = events since tracking
+//   shipped; thin now, grows forever, and is EXPOSURE-BIASED (it partly measures what we surfaced, e.g. a
+//   freshly-featured album). So for "most loved", backfill is weighted higher; live earns weight as its
+//   reach grows. Each signal is scored by a SHRUNK, saturating reach score  s(d) = d/(d+PRIOR)  — magnitude-
+//   aware (17 devices ≠ 12) yet damped at small n, and needs no absolute-magnitude constant that would rot
+//   as the corpus grows. Signals that measure the SAME act with TOTAL overlap (live vs backfill favorites)
+//   are combined by MAX, not sum (the stats repo warns their overlap is total + un-dedupable).
+//
+// ── "Just works" guarantees ───────────────────────────────────────────────────────────────────────────
+//   • A failed/empty /stats fetch ABORTS without touching the file or DB — last-good playlists stay live.
+//   • Owns ONLY the `auto-*` id namespace; hand-curated playlists pass through untouched.
+//   • Atomic write (tmp→rename) + no-op when the generated ids are unchanged (no needless index reload).
+//   • Self-calibrating weights (evidence-based) + relative thresholds — no re-tuning as data grows.
+//
+//   STATS_URL=… STATS_KEY=… node harvester/auto-playlists.mjs        # generate + apply
+//   DRY=1 …                                                          # print what it would write, no write
+import fs from "node:fs";
+import { openCorpus, applyZemerPlaylists, ZEMER_PLAYLISTS_PATH, ZEMER_PLAYLISTS_AUTO_PATH } from "../corpus/store.mjs";
+
+const num = (v, d) => (Number.isFinite(+v) && +v > 0 ? +v : d); // NaN/blank/≤0 env → default (never slice(0,NaN))
+const DRY = process.env.DRY === "1";
+const STATS_URL = (process.env.STATS_URL || "").replace(/\/+$/, "");
+const STATS_KEY = process.env.STATS_KEY || "";
+const TOP_N = num(process.env.TOP_N, 50);
+const TRENDING_N = num(process.env.TRENDING_N, 25);
+const TRENDING_DAYS = num(process.env.TRENDING_DAYS, 7);
+const FAV_N = num(process.env.FAV_N, 30);
+const ALLTIME_DAYS = 3650; // "all the days we have" — the window just spans everything since launch
+const PRIOR = 3; // shrinkage: a 3-device song scores 0.5, small-n songs are damped, needs no max-reach
+const TREND_MIN_DEVICES = 3, TREND_MAX_SKIP = 0.5; // trending precision floor
+
+// Signal weights for the loved-score blend. Backfill plays lead (deep + unbiased by our surfacing);
+// favorites weigh most per-listener (deliberate intent); live plays are modest + skip-penalized
+// (exposure-biased, still thin); downloads are weak corroboration (noisy: auto-download-on-like/retries).
+const W = { backPlay: 1.0, livePlay: 0.6, favorite: 1.2, download: 0.3 };
+
+// Misconfiguration (missing key) fails LOUD (exit 1). A benign, self-healing condition (a down/empty /stats,
+// or no stats id intersecting the corpus mid-rebuild) leaves the last-good playlists untouched and exits 0 —
+// the twice-daily timer just retries next tick, so it must not spam a systemd unit failure.
+const die = (msg) => { console.error(`auto-playlists: ${msg}`); process.exit(1); };
+const benign = (msg) => { console.warn(`auto-playlists: ${msg}`); process.exit(0); };
+if (!STATS_URL || !STATS_KEY) die("STATS_URL and STATS_KEY must be set (see .env) — refusing to run.");
+
+async function fetchStats(days) {
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), 30000);
+  try {
+    const res = await fetch(`${STATS_URL}/stats?key=${encodeURIComponent(STATS_KEY)}&days=${days}`, { signal: ac.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } finally { clearTimeout(t); }
+}
+
+const s = (d) => (d > 0 ? d / (d + PRIOR) : 0); // shrunk saturating reach score
+const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
+
+// ── fetch (fail-safe: any error → abort, never touch the file/DB) ─────────────────────────────────────
+let all, trend;
+try {
+  [all, trend] = await Promise.all([fetchStats(ALLTIME_DAYS), fetchStats(TRENDING_DAYS)]);
+} catch (e) { benign(`/stats fetch failed (${e.message}) — leaving existing playlists untouched.`); }
+const rows = (o, k) => (Array.isArray(o?.[k]) ? o[k] : []);
+if (!rows(all, "topBackfilled").length && !rows(all, "topPlays").length)
+  benign("/stats returned no play data — leaving existing playlists untouched.");
+
+// ── corpus membership (only servable ids go in; guarantees the lists actually fill to N) ──────────────
+const db = openCorpus();
+const inCorpus = new Set(db.prepare("SELECT videoId FROM track").all().map((r) => r.videoId));
+
+// ── per-signal device-reach maps ──────────────────────────────────────────────────────────────────────
+const bpDev = new Map(), lpDev = new Map(), lpSkip = new Map(), favDev = new Map(), dlDev = new Map();
+for (const r of rows(all, "topBackfilled")) bpDev.set(r.videoId, r.devices || 0);
+for (const r of rows(all, "topPlays")) { lpDev.set(r.videoId, r.devices || 0); lpSkip.set(r.videoId, r.skipRate || 0); }
+// favorites/downloads: use the BACKFILL snapshot, which carries real distinct-DEVICE reach (`r.id` = videoId).
+// Live topActions is intentionally NOT folded in: the stats server emits only a raw event COUNT (`n`, not
+// devices) for it, and mixing a count into a device-reach score would over-rank a song one device saved many
+// times — the exact inflation the device-reach ranking exists to prevent. (Live favorites are negligible today
+// and would need per-device counts from the stats server to fold in correctly.)
+for (const r of rows(all, "topActionsBackfilled")) {
+  const m = r.kind === "favorite" ? favDev : r.kind === "download" ? dlDev : null;
+  if (m) m.set(r.id, Math.max(m.get(r.id) || 0, r.devices || 0));
+}
+
+// ── loved-score = weighted blend of shrunk reach across ALL signals ───────────────────────────────────
+const candidates = new Set([...bpDev.keys(), ...lpDev.keys(), ...favDev.keys(), ...dlDev.keys()].filter((v) => inCorpus.has(v)));
+// Fail-safe: a valid /stats whose ids don't intersect the corpus (e.g. corpus.db mid-rebuild, or a stats
+// schema change that renamed the id field) would otherwise yield empty lists and WIPE the live auto rows.
+// Leave last-good untouched instead.
+if (!candidates.size) benign("no /stats ids intersect the corpus — leaving existing playlists untouched.");
+const loved = [...candidates].map((v) => ({
+  v,
+  score: W.backPlay * s(bpDev.get(v) || 0)
+       + W.livePlay * s(lpDev.get(v) || 0) * (1 - clamp(lpSkip.get(v) || 0, 0, 0.8))
+       + W.favorite * s(favDev.get(v) || 0)
+       + W.download * s(dlDev.get(v) || 0),
+})).sort((a, b) => b.score - a.score);
+
+const top50 = loved.slice(0, TOP_N).map((x) => x.v);
+
+// ── trending = short-window live plays, reach-scored, skip-penalized, precision-floored ───────────────
+const trendingIds = rows(trend, "topPlays")
+  .filter((r) => inCorpus.has(r.videoId) && (r.devices || 0) >= TREND_MIN_DEVICES && (r.skipRate || 0) < TREND_MAX_SKIP)
+  .map((r) => ({ v: r.videoId, score: s(r.devices) * (1 - clamp(r.skipRate || 0, 0, 0.8)) }))
+  .sort((a, b) => b.score - a.score).slice(0, TRENDING_N).map((x) => x.v);
+
+// ── favorites = favorite-primary, download-corroborated ───────────────────────────────────────────────
+const favIds = [...new Set([...favDev.keys(), ...dlDev.keys()])].filter((v) => inCorpus.has(v))
+  .map((v) => ({ v, score: W.favorite * s(favDev.get(v) || 0) + W.download * s(dlDev.get(v) || 0) }))
+  .filter((x) => (favDev.get(x.v) || 0) > 0) // must have at least one real favorite; downloads alone are too noisy to seed
+  .sort((a, b) => b.score - a.score).slice(0, FAV_N).map((x) => x.v);
+
+// ── the auto blocks (empty lists are dropped — the serve layer would hide them anyway) ────────────────
+const autoBlocks = [
+  { id: "auto-top-50", title: "Top 50", videoIds: top50 },
+  { id: "auto-trending", title: "Trending", videoIds: trendingIds },
+  { id: "auto-favorites", title: "Favorites", videoIds: favIds },
+].filter((b) => b.videoIds.length);
+
+// The auto file holds ONLY the auto-* blocks; the hand-curated file is never touched here. The loader
+// (loadZemerPlaylists) merges the two, so the apply below writes the full union — curated stays pristine
+// and committed, the auto file is gitignored + regenerated by this timer (deploy = `git pull` never clashes).
+const autoDoc = { playlists: autoBlocks };
+
+// change-gate: no-op when the generated auto file is byte-identical (avoids a needless index reload) — but
+// still (re)apply if the DB has lost the auto rows (e.g. corpus.db was rebuilt from scratch since last run).
+const nextJson = JSON.stringify(autoDoc, null, 2) + "\n";
+const prevJson = (() => { try { return fs.readFileSync(ZEMER_PLAYLISTS_AUTO_PATH, "utf8"); } catch { return ""; } })();
+const dbHasAuto = db.prepare("SELECT 1 FROM zemer_playlist WHERE id LIKE 'auto-%' LIMIT 1").get();
+const changed = nextJson !== prevJson || (autoBlocks.length && !dbHasAuto);
+
+for (const b of autoBlocks) console.log(`  ${b.id} — "${b.title}"  ${b.videoIds.length} track(s)`);
+console.log(`auto-playlists: ${autoBlocks.length} auto list(s)${DRY ? "  [DRY]" : ""}${changed ? "" : "  [unchanged — no write]"}`);
+
+if (DRY || !changed) process.exit(0);
+
+// Build the SAME union loadZemerPlaylists() would (auto-* first, then curated with the auto-* namespace
+// reserved) — but in memory, so we can APPLY FIRST and only commit the file on success. If applyZemerPlaylists
+// throws (e.g. a bad hand-curated entry), the DB transaction rolls back AND the auto file is left unchanged, so
+// the next run retries instead of the change-gate silently skipping forever on a file/DB mismatch.
+const curated = (() => { try { return JSON.parse(fs.readFileSync(ZEMER_PLAYLISTS_PATH, "utf8")).playlists || []; } catch { return []; } })()
+  .filter((p) => !String(p?.id || "").startsWith("auto-"));
+const r = applyZemerPlaylists(db, { playlists: [...autoBlocks, ...curated] }, { dry: false });
+
+const tmp = `${ZEMER_PLAYLISTS_AUTO_PATH}.tmp-${process.pid}`;
+fs.writeFileSync(tmp, nextJson);
+fs.renameSync(tmp, ZEMER_PLAYLISTS_AUTO_PATH);
+
+console.log(`applied: ${r.playlists} playlist(s), ${r.items} item(s) → corpus.db (API reloads on its next tick)`);
+if (r.missing.length) console.warn(`⚠ ${r.missing.length} id(s) not in the corpus yet (they'll serve once harvested).`);

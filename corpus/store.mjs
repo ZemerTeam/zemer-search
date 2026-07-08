@@ -411,9 +411,17 @@ export function removeCommunityPlaylist(db, id) {
 // album's new tracks appear without a re-apply. Only tracks present in the corpus are ever served (JOIN),
 // so an id that isn't harvested yet is silently pending until it lands — never an error at serve time.
 export const ZEMER_PLAYLISTS_PATH = process.env.ZEMER_PLAYLISTS || path.resolve(HERE, "../data/zemer-playlists.json");
+// The DATA-DRIVEN auto playlists (Top 50 / Trending / Favorites) live in a SEPARATE, gitignored file so
+// the hand-curated source-of-truth file stays pristine + committed (deploy = `git pull` never conflicts).
+// harvester/auto-playlists.mjs regenerates it on a timer; loadZemerPlaylists() MERGES it in (auto first).
+export const ZEMER_PLAYLISTS_AUTO_PATH = process.env.ZEMER_PLAYLISTS_AUTO || path.resolve(HERE, "../data/zemer-playlists-auto.json");
+const readPls = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")).playlists || []; } catch { return []; } };
 export function loadZemerPlaylists() {
-  try { return { playlists: JSON.parse(fs.readFileSync(ZEMER_PLAYLISTS_PATH, "utf8")).playlists || [] }; }
-  catch { return { playlists: [] }; } // no/invalid file → empty (endpoint serves [])
+  // auto-* blocks first (flagship prominence), then curated. The `auto-` id namespace is RESERVED for the
+  // generator: any `auto-*` id in the hand-curated file is dropped so it can never collide with a generated
+  // block and make applyZemerPlaylists throw a duplicate-id on every run (freezing both apply jobs).
+  const curated = readPls(ZEMER_PLAYLISTS_PATH).filter((p) => !String(p?.id || "").startsWith("auto-"));
+  return { playlists: [...readPls(ZEMER_PLAYLISTS_AUTO_PATH), ...curated] };
 }
 
 // Replace the zemer_playlist tables with the curated doc (one transaction — the JSON is the source of

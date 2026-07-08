@@ -108,6 +108,18 @@ sudo cp deploy/zemer-playlists.service deploy/zemer-playlists-weekly.timer /etc/
 sudo systemctl daemon-reload && sudo systemctl enable --now zemer-playlists-weekly.timer         # Sun 05:00, Shabbat-gated
 ```
 
+**Auto (data-driven) playlists** (`harvester/auto-playlists.mjs` + `zemer-autoplaylists.timer`, twice daily,
+Shabbat-gated) regenerate **Top 50 / Trending / Favorites** from the `zemer-stats` telemetry server's `/stats`
+into the gitignored `data/zemer-playlists-auto.json`, then apply the merged (auto + curated) doc — the API
+reloads on its next tick, no restart. The stats read **KEY is a secret**: keep it out of the committed unit —
+put `STATS_KEY=…` in a non-committed, chmod-600 file the unit loads (`EnvironmentFile=-/opt/zemer-search/.env`,
+the same `.env` the repo uses locally). A down/empty `/stats` leaves the existing playlists untouched.
+```bash
+sudo cp deploy/zemer-autoplaylists.service deploy/zemer-autoplaylists.timer /etc/systemd/system/  # edit WorkingDirectory
+echo 'STATS_KEY=…' | sudo tee -a /opt/zemer-search/.env && sudo chmod 600 /opt/zemer-search/.env  # secret, not committed
+sudo systemctl daemon-reload && sudo systemctl enable --now zemer-autoplaylists.timer             # 08:00/20:00, Shabbat-gated
+```
+
 **Whitelist mirror sync** (`harvester/mirror-sync.mjs` + `zemer-mirror-sync.timer`, every 10 min, Shabbat-gated)
 watches the whitelist mirror's version gate (`content.zemer.io/whitelist/version`, which advances only on a
 real content change). On a change it pulls the whitelist + `blockedContentIds` **from the mirror** (zero

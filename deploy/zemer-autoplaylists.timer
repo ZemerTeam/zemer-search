@@ -1,0 +1,14 @@
+[Unit]
+Description=Regenerate zemer-search auto playlists twice daily (Top 50 / Trending / Favorites from telemetry)
+
+[Timer]
+Unit=zemer-autoplaylists.service
+# Twice a day, off-peak and clear of the 03:00 deep refresh + 05:00 discovery (DB-writer contention).
+# A UTC 08:00/20:00 tick never lands in Shabbat; the service's ExecCondition (harness/shabbat.mjs) still
+# gates late-ending Yom Tov. Cheap: one /stats read, a tiny apply, no-op when unchanged.
+OnCalendar=*-*-* 08,20:00:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
