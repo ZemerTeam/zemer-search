@@ -15,6 +15,7 @@ quick orientation + the gotcha list; come here for the deep dives.
 | [testing.md](testing.md) | Every benchmark/test harness, what each measures, current numbers, how to read them. |
 | [deployment.md](deployment.md) | Running on a server, env vars, horizontal scaling, operational notes. |
 | [gotchas.md](gotchas.md) | The bug catalog — every real bug found + the fix + the regression test. Institutional memory. |
+| [future-plans.md](future-plans.md) | **Revisit list** — deliberately-deferred improvements (velocity Trending, live favorites, dup guard, …), why each is deferred, and what unblocks it. Review periodically as the telemetry corpus grows. |
 
 ## One-paragraph summary
 
