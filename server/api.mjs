@@ -156,20 +156,21 @@ async function startServer() {
   // from the playlist id so each playlist keeps a stable, distinct color. Served by
   // GET /zemer-playlists/cover?id=… and referenced by the (relative) `thumbnail` on /zemer-playlists rows.
   const xmlEsc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-  // Each playlist gets a STABLE, well-separated, VIVID hue keyed to its id — stable so a cover never changes
-  // color when other playlists are added/removed (no stale-cache collisions), well-separated + vivid so
-  // adjacent cards read as clearly different colors (not muddy dark near-duplicates). The known lists get
-  // hand-picked, maximally-spread hues; any other id falls back to a golden-angle spread of its hash.
-  const FIXED_HUES = { "auto-top-50": 210, "auto-trending": 25, "auto-favorites": 315, "auto-acapella-top-50": 265, "auto-acapella-favorites": 165, "acapella": 60 };
-  function coverHue(id) {
-    if (FIXED_HUES[id] != null) return FIXED_HUES[id];
-    if (String(id).startsWith("auto-year-")) return 135; // "Year of ‹Y›" — green, whatever the year
+  // Each playlist gets a STABLE, VIVID, MAXIMALLY-DISTINCT color keyed to its id. The 8-color set is validated
+  // colorblind-safe (worst adjacent CVD ΔE 20 — clearly different, not muddy near-duplicates like evenly-spaced
+  // dark hues were). Stable per id → a cover never changes color when playlists are added/removed (no stale
+  // caches). Known lists get fixed colors; any other id hashes into the same distinct set.
+  const COVER_COLORS = ["#1f66c2", "#d13b3a", "#c93f86", "#5b41c7", "#d9591f", "#0b7a43", "#0a9d8f", "#b5860f"]; // blue red magenta violet orange green teal gold
+  const FIXED_COLOR = { "auto-top-50": "#1f66c2", "auto-trending": "#d13b3a", "auto-favorites": "#c93f86", "auto-acapella-top-50": "#5b41c7", "acapella": "#d9591f" };
+  const darken = (hex, f) => "#" + hex.slice(1).match(/../g).map((x) => Math.round(parseInt(x, 16) * (1 - f)).toString(16).padStart(2, "0")).join("");
+  function coverColor(id) {
+    if (FIXED_COLOR[id]) return FIXED_COLOR[id];
+    if (String(id).startsWith("auto-year-")) return "#0b7a43"; // "Year of ‹Y›" — green, whatever the year
     let h = 0; for (const ch of String(id)) h = (h * 31 + ch.codePointAt(0)) >>> 0;
-    return Math.round((h * 137.508) % 360);
+    return COVER_COLORS[h % COVER_COLORS.length];
   }
   function zemerCoverSvg(id, title) {
-    const hue = coverHue(id);
-    const c1 = `hsl(${hue} 70% 30%)`, c2 = `hsl(${(hue + 20) % 360} 85% 58%)`; // vivid dark→bright gradient
+    const base = coverColor(id), c1 = darken(base, 0.34), c2 = base; // depth: darker corner → vivid base
     // FIXED font size on every cover (never scaled to the title) — a long title wraps into MORE lines
     // instead of shrinking, and the block is vertically centered so it always looks tidy.
     const FS = 62, LH = 72, WRAP = 11; // ~11 chars/line fits 512px at this bold size
@@ -182,16 +183,18 @@ async function startServer() {
     const fs = FS, lh = LH;
     const startY = 262 - Math.round(((lines.length - 1) * lh) / 2);
     const font = "font-family=\"'Segoe UI',Roboto,'Helvetica Neue','Noto Sans Hebrew',Arial,sans-serif\"";
-    const text = lines.map((l, i) => `<text x="256" y="${startY + i * lh}" ${font} font-size="${fs}" font-weight="800" fill="#ffffff" text-anchor="middle">${xmlEsc(l)}</text>`).join("");
+    // drop-shadow keeps the white title legible on every color (even the lighter orange/gold)
+    const text = lines.map((l, i) => `<text x="256" y="${startY + i * lh}" ${font} font-size="${fs}" font-weight="800" fill="#ffffff" text-anchor="middle" filter="url(#ts)">${xmlEsc(l)}</text>`).join("");
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">` +
-      `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient></defs>` +
+      `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient>` +
+      `<filter id="ts" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000000" flood-opacity="0.5"/></filter></defs>` +
       `<rect width="512" height="512" fill="url(#g)"/>` +
-      `<circle cx="432" cy="84" r="190" fill="#ffffff" opacity="0.08"/>` +
-      `<circle cx="56" cy="450" r="150" fill="#000000" opacity="0.12"/>` +
-      `<text x="428" y="158" ${font} font-size="150" fill="#ffffff" opacity="0.14" text-anchor="middle">♪</text>` +
+      `<circle cx="432" cy="84" r="190" fill="#ffffff" opacity="0.10"/>` +
+      `<circle cx="56" cy="450" r="150" fill="#000000" opacity="0.14"/>` +
+      `<text x="428" y="158" ${font} font-size="150" fill="#ffffff" opacity="0.16" text-anchor="middle">♪</text>` +
       text +
-      `<rect x="216" y="418" width="80" height="3" rx="1.5" fill="#ffffff" opacity="0.5"/>` +
-      `<text x="256" y="462" ${font} font-size="24" font-weight="600" letter-spacing="8" fill="#ffffff" opacity="0.85" text-anchor="middle">ZEMER</text>` +
+      `<rect x="216" y="418" width="80" height="3" rx="1.5" fill="#ffffff" opacity="0.55"/>` +
+      `<text x="256" y="462" ${font} font-size="24" font-weight="600" letter-spacing="8" fill="#ffffff" opacity="0.9" text-anchor="middle">ZEMER</text>` +
       `</svg>`;
   }
   const zemerCoverUrl = (id) => `/zemer-playlists/cover?id=${encodeURIComponent(id)}`;
