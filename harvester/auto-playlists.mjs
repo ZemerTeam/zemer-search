@@ -78,14 +78,13 @@ function inThreeWeeks(d = new Date()) {
 const seasonEnv = (process.env.ACAPELLA_SEASON || "auto").toLowerCase();
 const mourning = seasonEnv === "on" ? true : seasonEnv === "off" ? false : inThreeWeeks();
 
-// The audio-verified acapella set = the curated `acapella` playlist's tracks (videoIds + expanded albums).
-// Read from the SOURCE-OF-TRUTH curated file (not the DB), so it's correct even before this run's apply.
-function acapellaSet(db) {
+// The acapella set = ONLY the songs HAND-LISTED in the curated `acapella` playlist's `videoIds`. We do NOT
+// expand its `albumIds`: album-expansion pulls in every track of those albums (unvetted — not each one
+// hand-picked as acapella), which polluted the list with non-acapella songs. Only the curator's explicit
+// song picks qualify. Read from the SOURCE-OF-TRUTH curated file so it's correct even before this run's apply.
+function acapellaSet() {
   let ac; try { ac = (JSON.parse(fs.readFileSync(ZEMER_PLAYLISTS_PATH, "utf8")).playlists || []).find((p) => p?.id === "acapella"); } catch { ac = null; }
-  if (!ac) return null;
-  const set = new Set(ac.videoIds || []);
-  for (const aid of ac.albumIds || []) for (const r of db.prepare("SELECT videoId FROM album_track WHERE albumId=?").all(aid)) set.add(r.videoId);
-  return set;
+  return ac ? new Set(ac.videoIds || []) : null;
 }
 
 async function fetchStats(days) {
@@ -165,7 +164,7 @@ const favIds = favRanked.slice(0, FAV_N).map((x) => x.v);
 
 // ── acapella season: ADD acapella-only popularity lists on top (same ranking, restricted to the acapella
 // set). Nothing is removed — the regular lists stay below, and these disappear on their own after Tisha b'Av.
-const acap = mourning ? acapellaSet(db) : null;
+const acap = mourning ? acapellaSet() : null;
 const acBlocks = [];
 if (acap && acap.size) {
   const acTop = loved.filter((x) => acap.has(x.v)).slice(0, TOP_N).map((x) => x.v);

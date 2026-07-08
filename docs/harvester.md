@@ -260,7 +260,9 @@ endpoint change; content filters (female/blocked/kidzone/video) are applied down
     `YEAR_PLAYLIST=0` disables) — no annual hand-edit. (This replaces the former hand-curated `year-2026`.)
   - **Acapella season (The Three Weeks)** — during the mourning period **17 Tammuz → 9 Av (Tisha b'Av)**, when
     observant Jews listen to acapella only, the generator **ADDS** `auto-acapella-top-50` / `auto-acapella-favorites`
-    (the same popularity ranking, restricted to the audio-verified **acapella** curated set) and places them
+    (the same popularity ranking, restricted to **only the songs hand-listed in the curated `acapella`
+    playlist's `videoIds`** — album ids are NOT expanded, since that would pull in unvetted, possibly
+    non-acapella album tracks) and places them
     **first** so the app surfaces them at the top — **nothing is removed**, the regular lists stay below, and the
     added lists disappear on their own after Tisha b'Av. The window is computed from the **Hebrew calendar**
     (`Intl` `en-u-ca-hebrew`, offline), so it **recurs correctly every year** despite the shifting Gregorian dates
