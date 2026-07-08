@@ -125,12 +125,18 @@ const favIds = [...new Set([...favDev.keys(), ...dlDev.keys()])].filter((v) => i
   .filter((x) => (favDev.get(x.v) || 0) > 0) // must have at least one real favorite; downloads alone are too noisy to seed
   .sort((a, b) => b.score - a.score).slice(0, FAV_N).map((x) => x.v);
 
-// ── the auto blocks (empty lists are dropped — the serve layer would hide them anyway) ────────────────
+// ── the auto blocks (empty videoId lists are dropped — the serve layer would hide them anyway) ────────
 const autoBlocks = [
   { id: "auto-top-50", title: "Top 50", videoIds: top50 },
   { id: "auto-trending", title: "Trending", videoIds: trendingIds },
   { id: "auto-favorites", title: "Favorites", videoIds: favIds },
 ].filter((b) => b.videoIds.length);
+
+// "Year of <Y>" — a DYNAMIC year rule (no telemetry: the store computes everything released this year at
+// read time, newest first, growing with each harvest). Emitted here so it's part of the auto-managed set on
+// the same schedule and AUTO-ROLLS to the current UTC year — nobody edits it annually. YEAR pins it; YEAR_PLAYLIST=0 disables.
+const YEAR = num(process.env.YEAR, new Date().getUTCFullYear());
+if (process.env.YEAR_PLAYLIST !== "0") autoBlocks.push({ id: `auto-year-${YEAR}`, title: `Year of ${YEAR}`, year: YEAR });
 
 // The auto file holds ONLY the auto-* blocks; the hand-curated file is never touched here. The loader
 // (loadZemerPlaylists) merges the two, so the apply below writes the full union — curated stays pristine
@@ -144,7 +150,7 @@ const prevJson = (() => { try { return fs.readFileSync(ZEMER_PLAYLISTS_AUTO_PATH
 const dbHasAuto = db.prepare("SELECT 1 FROM zemer_playlist WHERE id LIKE 'auto-%' LIMIT 1").get();
 const changed = nextJson !== prevJson || (autoBlocks.length && !dbHasAuto);
 
-for (const b of autoBlocks) console.log(`  ${b.id} — "${b.title}"  ${b.videoIds.length} track(s)`);
+for (const b of autoBlocks) console.log(`  ${b.id} — "${b.title}"  ${b.year ? `dynamic (year ${b.year})` : `${b.videoIds.length} track(s)`}`);
 console.log(`auto-playlists: ${autoBlocks.length} auto list(s)${DRY ? "  [DRY]" : ""}${changed ? "" : "  [unchanged — no write]"}`);
 
 if (DRY || !changed) process.exit(0);

@@ -249,6 +249,10 @@ endpoint change; content filters (female/blocked/kidzone/video) are applied down
   - **Trending** = short-window (`TRENDING_DAYS=7`) live plays only, skip-penalized, precision-floored
     (`devices≥3`, `skipRate<0.5`). Backfill is frozen history → excluded here by design.
   - **Favorites** = favorite-primary, download-corroborated (an item needs ≥1 real favorite to seed).
+  - **Year of ‹Y›** (`auto-year-<Y>`) = a **dynamic year rule** (no telemetry): the store computes everything
+    released this year at read time, newest first, growing with each harvest. It's emitted here so it lives in
+    the auto-managed set on the same schedule and **auto-rolls** to the current UTC year (`YEAR` pins it,
+    `YEAR_PLAYLIST=0` disables) — no annual hand-edit. (This replaces the former hand-curated `year-2026`.)
 - **Self-calibrating, no re-tuning.** Backfill grows as more users update to the tracking build (deduped
   server-side), and live grows forever; because weighting keys off each signal's *reach*, whichever has more
   evidence earns more weight automatically. Regenerating on the timer folds new data in for free.
@@ -262,7 +266,7 @@ DRY=1 STATS_URL=… STATS_KEY=… node harvester/auto-playlists.mjs   # print wh
 ```
 
 Runs twice daily via `deploy/zemer-autoplaylists.timer` (Shabbat-gated). Knobs: `TOP_N=50`, `TRENDING_N=25`,
-`TRENDING_DAYS=7`, `FAV_N=30`.
+`TRENDING_DAYS=7`, `FAV_N=30`, `YEAR` (pin the year playlist), `YEAR_PLAYLIST=0` (disable it).
 
 ## Release dating (New Releases accuracy)
 
