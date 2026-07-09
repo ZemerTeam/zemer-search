@@ -1,3 +1,13 @@
+// zemer-search — search engine and more for the Zemer app
+// https://github.com/ZemerTeam/zemer-search
+// Zemer app: https://github.com/ZemerTeam/zemer-app
+// Copyright (C) 2026 alltechdev
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version. See the LICENSE file for details.
+
 // Date RELEASES precisely — what makes New Releases accurate. Browse pages carry only a year; the real
 // release date lives in the /player microformat. For each album lacking a date but with a sample track
 // (we already store album_track), fetch ONE /player on that sample and store its uploadDate on the album.

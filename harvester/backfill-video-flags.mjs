@@ -1,3 +1,13 @@
+// zemer-search — search engine and more for the Zemer app
+// https://github.com/ZemerTeam/zemer-search
+// Zemer app: https://github.com/ZemerTeam/zemer-app
+// Copyright (C) 2026 alltechdev
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version. See the LICENSE file for details.
+
 // One-time backfill for cross-listed video/song flags. A `videoId` that's listed as a VIDEO on ANY artist
 // page IS a video — but the corpus may have stored it as a song, because the same id is cross-listed
 // (a music video on one artist's page, an audio song on another's) and a videoId lives once, first-harvest

@@ -1,3 +1,13 @@
+// zemer-search — search engine and more for the Zemer app
+// https://github.com/ZemerTeam/zemer-search
+// Zemer app: https://github.com/ZemerTeam/zemer-app
+// Copyright (C) 2026 alltechdev
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version. See the LICENSE file for details.
+
 // Comprehensive bug-hunt — maximum input variation, random diverse entities (NOT hand-picked).
 // Probes: (1) crashes on weird input, (2) recall — searching a random entity's FULL name must find it,
 // with extra focus on names containing special chars (' ׳ ״ & ( ) - . digits), (3) false positives,

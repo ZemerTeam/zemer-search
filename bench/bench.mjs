@@ -1,3 +1,13 @@
+// zemer-search — search engine and more for the Zemer app
+// https://github.com/ZemerTeam/zemer-search
+// Zemer app: https://github.com/ZemerTeam/zemer-app
+// Copyright (C) 2026 alltechdev
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version. See the LICENSE file for details.
+
 // Offline benchmark (ZERO network) — proves the Hebrew-aware fuzzy index beats the app's current
 // search over the SAME whitelisted corpus. Baseline = the app's real behavior: DatabaseDao.searchSongs
 // does `title LIKE '%query%'` on the raw title (case-insensitive), then whitelist-filters. We replicate

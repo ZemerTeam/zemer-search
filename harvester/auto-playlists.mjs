@@ -1,3 +1,13 @@
+// zemer-search — search engine and more for the Zemer app
+// https://github.com/ZemerTeam/zemer-search
+// Zemer app: https://github.com/ZemerTeam/zemer-app
+// Copyright (C) 2026 alltechdev
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version. See the LICENSE file for details.
+
 // Auto-generate the DATA-DRIVEN Zemer playlists from anonymous usage telemetry (zemer-stats).
 //
 //   Top 50   (auto-top-50)   — the audience's most-loved songs (a blend of ALL signals, below)

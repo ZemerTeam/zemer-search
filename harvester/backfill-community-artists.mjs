@@ -1,3 +1,13 @@
+// zemer-search — search engine and more for the Zemer app
+// https://github.com/ZemerTeam/zemer-search
+// Zemer app: https://github.com/ZemerTeam/zemer-app
+// Copyright (C) 2026 alltechdev
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version. See the LICENSE file for details.
+
 // One-time backfill for community_playlist_track.artistId. A community-playlist member whose TRACK isn't
 // harvested (e.g. it lives on the artist's regular channel — issue #108) has no corpus row, so the content
 // filter couldn't tell its gender and an all-female playlist with one such member wrongly "failed open"

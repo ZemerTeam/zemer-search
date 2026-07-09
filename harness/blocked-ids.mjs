@@ -1,3 +1,13 @@
+// zemer-search — search engine and more for the Zemer app
+// https://github.com/ZemerTeam/zemer-search
+// Zemer app: https://github.com/ZemerTeam/zemer-app
+// Copyright (C) 2026 alltechdev
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version. See the LICENSE file for details.
+
 // Pull the conditional id-override list (the world-readable Firestore `blockedContentIds` collection the app
 // honors — see zemer-app docs/whitelist/README.md "Conditional id overrides") into
 // zemer-search/data/blocked-ids.json as {global:[...ids], female:[...ids]}. Mirrors the app's BlockedIdsCache:

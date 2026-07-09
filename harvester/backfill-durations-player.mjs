@@ -1,3 +1,13 @@
+// zemer-search — search engine and more for the Zemer app
+// https://github.com/ZemerTeam/zemer-search
+// Zemer app: https://github.com/ZemerTeam/zemer-app
+// Copyright (C) 2026 alltechdev
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version. See the LICENSE file for details.
+
 // Fill remaining track durations from already-cached /player responses (videoDetails.lengthSeconds).
 // The browse-page backfill (backfill-track-meta.mjs) covers ~97% — what it misses are mostly tracks on no
 // album page (videos/standalone), and the dating pass (releases.mjs) already fetched THEIR /player. So this

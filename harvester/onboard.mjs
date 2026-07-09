@@ -1,3 +1,13 @@
+// zemer-search — search engine and more for the Zemer app
+// https://github.com/ZemerTeam/zemer-search
+// Zemer app: https://github.com/ZemerTeam/zemer-app
+// Copyright (C) 2026 alltechdev
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version. See the LICENSE file for details.
+
 // Onboard NEW whitelisted artists — those in data/whitelist.json but not yet in corpus.db. Existing
 // artists are skipped entirely (their new releases are handled by refresh.mjs). Full per-artist harvest
 // (forever-cache). IP-safe (paced, cached, aborts on the first anti-bot block → exits 75). Cheap when

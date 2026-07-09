@@ -1,3 +1,13 @@
+// zemer-search — search engine and more for the Zemer app
+// https://github.com/ZemerTeam/zemer-search
+// Zemer app: https://github.com/ZemerTeam/zemer-app
+// Copyright (C) 2026 alltechdev
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version. See the LICENSE file for details.
+
 // Precision audit — runs a battery of diverse real queries and flags any returned result that has NO
 // genuine textual connection to the query (i.e. a likely false positive): no result token prefixes,
 // is-prefixed-by, typo-matches, or skeleton-matches a query token. Goal: zero suspicious results.

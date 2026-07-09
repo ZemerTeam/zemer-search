@@ -1,3 +1,13 @@
+// zemer-search — search engine and more for the Zemer app
+// https://github.com/ZemerTeam/zemer-search
+// Zemer app: https://github.com/ZemerTeam/zemer-app
+// Copyright (C) 2026 alltechdev
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version. See the LICENSE file for details.
+
 // Incremental maintenance: re-harvest the artists already in corpus.db — ALL artist rows, including any
 // with 0 tracks, so a transiently-failed first harvest recovers instead of being stranded. Re-fetches
 // landing + shelf pages with a TTL (MAX_AGE_H, default 20h) so NEW releases are picked up, while

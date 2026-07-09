@@ -1,3 +1,13 @@
+// zemer-search — search engine and more for the Zemer app
+// https://github.com/ZemerTeam/zemer-search
+// Zemer app: https://github.com/ZemerTeam/zemer-app
+// Copyright (C) 2026 alltechdev
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version. See the LICENSE file for details.
+
 // Polite, cached HTTP layer for all YouTube calls. Protects the source IP:
 //   - Disk cache keyed by (method+url+body): a response is fetched AT MOST ONCE, ever. Re-runs, resumes,
 //     and dev iterations are served entirely from cache → zero repeat traffic. Cache HITS are unlimited

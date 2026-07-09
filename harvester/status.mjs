@@ -1,3 +1,13 @@
+// zemer-search — search engine and more for the Zemer app
+// https://github.com/ZemerTeam/zemer-search
+// Zemer app: https://github.com/ZemerTeam/zemer-app
+// Copyright (C) 2026 alltechdev
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version. See the LICENSE file for details.
+
 // Maintenance progress channel. The harvest/onboard/refresh/prune steps write their live progress to
 // data/.maintain-status.json (atomic), and the API surfaces it on /health so the web UI can show
 // "refreshing 316 / 1604" without the steps and the server sharing memory. Best-effort: any write error

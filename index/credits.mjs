@@ -1,3 +1,13 @@
+// zemer-search — search engine and more for the Zemer app
+// https://github.com/ZemerTeam/zemer-search
+// Zemer app: https://github.com/ZemerTeam/zemer-app
+// Copyright (C) 2026 alltechdev
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version. See the LICENSE file for details.
+
 // "Featuring" female detection — closes the gap where a male-primary track FEATURES a female artist
 // (the credit is in the TITLE, e.g. "Shiru (Remix) (feat. Franciska)", or a secondary artist credit).
 // The primary-artist `isFemale` flag is checked elsewhere; this widens the set of names considered to

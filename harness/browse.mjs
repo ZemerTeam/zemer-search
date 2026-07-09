@@ -1,3 +1,13 @@
+// zemer-search — search engine and more for the Zemer app
+// https://github.com/ZemerTeam/zemer-search
+// Zemer app: https://github.com/ZemerTeam/zemer-app
+// Copyright (C) 2026 alltechdev
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version. See the LICENSE file for details.
+
 // Browse layer for the harvester — POST /youtubei/v1/browse (unauthenticated — no cookie, no
 // visitorData; same as search) + faithful ports of the artist-page navigation in YouTube.kt artist()/artistItems()/
 // artistItemsContinuation() and pages/ArtistPage.kt. We harvest an artist's OWN page, so every track's

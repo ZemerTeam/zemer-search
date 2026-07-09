@@ -1,3 +1,13 @@
+// zemer-search — search engine and more for the Zemer app
+// https://github.com/ZemerTeam/zemer-search
+// Zemer app: https://github.com/ZemerTeam/zemer-app
+// Copyright (C) 2026 alltechdev
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version. See the LICENSE file for details.
+
 // The search API (primary path) + a tiny live web UI — SQLite corpus + the proven in-memory matcher.
 // Built to scale to thousands of concurrent users:
 //   • multi-core cluster   — WORKERS=N forks N worker processes (Node is single-threaded); the OS load-

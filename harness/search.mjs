@@ -1,3 +1,13 @@
+// zemer-search — search engine and more for the Zemer app
+// https://github.com/ZemerTeam/zemer-search
+// Zemer app: https://github.com/ZemerTeam/zemer-app
+// Copyright (C) 2026 alltechdev
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version. See the LICENSE file for details.
+
 // IP-safe search layer used for DISCOVERY (community-playlist harvesting). The app's faithful search port
 // lives in lib.mjs (a raw `fetch`, byte-for-byte with the Kotlin, for the parity self-test); THIS module
 // is the harvester's search and routes through net.mjs — the same gzip disk cache + rate-paced limiter +

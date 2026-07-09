@@ -1,3 +1,13 @@
+// zemer-search — search engine and more for the Zemer app
+// https://github.com/ZemerTeam/zemer-search
+// Zemer app: https://github.com/ZemerTeam/zemer-app
+// Copyright (C) 2026 alltechdev
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version. See the LICENSE file for details.
+
 // Concurrent load test against a running API — simulates realistic as-you-type traffic (every growing
 // prefix of popular queries, so the LRU cache gets exercised like real users typing).
 //   node bench/loadtest.mjs [totalRequests] [concurrency]     (API=http://host:port to override)
