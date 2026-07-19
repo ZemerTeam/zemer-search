@@ -285,9 +285,13 @@ endpoint change; content filters (female/blocked/kidzone/video) are applied down
   index reload); only servable (in-corpus) ids are included, so the lists actually fill to N.
 - **Near-dup guard** (`harvester/dedup.mjs`, unit-pinned): the same song RE-UPLOADED under another videoId
   can't occupy two chart slots — every ranked list dedups (before its slice, so the freed slot goes to the
-  next song) on `artistId + variant-marker signature + case/punctuation-normalized title`. Deliberately
-  conservative: cross-artist same-title never collapses (gotcha #9), and **variant markers distinguish** —
-  "Home Again (Acapella)" / "(Live)" / "(Instrumental)" / remix / cover never merge into the original.
+  next song) on `artistId + traits + variant-marker signature + normalized title`. The **traits** carry what
+  the title can't say: `isVideo` (a cross-listed music VIDEO is a different recording than the audio song)
+  and curated-acapella membership (an UNLABELED acapella version has an identical title). The title base is
+  case/punctuation-insensitive with in-word apostrophes/geresh JOINED (gotcha #6 — "L'Chaim" == "LChaim").
+  Deliberately conservative: cross-artist same-title never collapses (gotcha #9), and **variant markers
+  distinguish** — "Home Again (Acapella)" / "(Live)" / "(Instrumental)" / remix / cover never merge into
+  the original.
 - **Rank-history sidecar** (gitignored `data/auto-playlists-history.json`, `AUTO_HISTORY` overrides,
   `HISTORY_DAYS=60` prune): each run appends each list's ordering **plus the raw trending-window play-reach
   rows** (`topPlays7d`, compact keys `v/d/n/s` = videoId/devices/qualified-plays/skipRate) and the entry's
