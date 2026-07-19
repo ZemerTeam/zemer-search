@@ -21,6 +21,29 @@ this list periodically (and whenever the telemetry corpus grows meaningfully).
 | 6 | **Weight/param validation.** The loved-score weights (`backPlay/livePlay/favorite/download`), the shrinkage `PRIOR`, and the trending skip penalty are reasoned, not tuned against outcomes. | Needs enough click/play-through data to measure which weighting best predicts engagement. Revisit alongside #1. | Medium. |
 | 7 | **Spotify-style chart movement (user request, 2026-07)** — per-song ↑/↓/NEW badges on the auto playlists vs a **fixed weekly anchor** (stable all week, "chart published" feel). **The rank-history sidecar is LIVE since 2026-07-19** (orderings recorded twice daily), so history is already accumulating; remaining work: emit `prevRank`/`delta`/`new` per track on `/zemer-playlists` detail (additive) → badges in the web UI. **App shows the badges only after an app-side update** (fields will be waiting in the API; handoff doc on request, never in this repo). | Deferred by choice ("save for later"), not by data — buildable anytime; pairs naturally with #1. | Medium (recorder done; consumer + UI remain). |
 
+## Backfill ↔ live reconciliation roadmap (the long arc behind items #1/#2/#6)
+
+The standing rule never changes: **the raw tables stay segregated forever** (a zemer-stats hard
+invariant) — reconciliation happens only at the scoring layer. What evolves is the *balance*:
+
+- **Now:** backfill is the depth (unbiased by what we surfaced), live is current taste. Blended by
+  shrunk device-reach (`1.0·backfill + 0.6·live·(1−skip)`), total-overlap signals MAX-merged, never
+  summed (device double-counting is unresolvable from aggregates).
+- **The crossover happens on its own:** backfill is **fossilizing naturally** — only ~34% of devices
+  had backfilled as of 2026-07-19 and the share is *falling*, because new installs have little or no
+  local history to upload. Once the pre-tracking fleet has updated, the backfill corpus is effectively
+  frozen, while live reach compounds forever. Because the blend keys on evidence volume, live's weight
+  rises without a manual flip. When engagement data suffices, item #6 replaces the reasoned weights
+  with measured ones.
+- **End state — backfill keeps exactly two jobs:** (1) the **all-time base layer of Top 50** (old plays
+  are real plays; a "recent-era" list, if ever wanted, is built by time-decaying live data — not by
+  deleting backfill), and (2) the **cold-start prior for the future recommender** — reconciled
+  per-device there, under the zemer-stats caveats (snapshot∪live favorites never summed per device;
+  backfilled downloads = weak corroboration; backfill plays are ≥10s-only, so they can never feed
+  skip/negative-signal models).
+- **Never:** summing counts across tables, clamping backfill timestamps into live windows, or letting
+  backfill feed any windowed/live metric.
+
 ## How to revisit
 
 - **Post-Tisha-b'Av (≈2026-07-27+):** do #1 (velocity Trending) + #2 (live favorites) + #7's consumer/UI
