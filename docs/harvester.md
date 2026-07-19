@@ -291,11 +291,14 @@ endpoint change; content filters (female/blocked/kidzone/video) are applied down
 - **Rank-history sidecar** (gitignored `data/auto-playlists-history.json`, `AUTO_HISTORY` overrides,
   `HISTORY_DAYS=60` prune): each run appends each list's ordering **plus the raw trending-window play-reach
   rows** (`topPlays7d`, compact keys `v/d/n/s` = videoId/devices/qualified-plays/skipRate) and the entry's
-  `trendWindowDays` (so a non-default `TRENDING_DAYS` stretch is detectable in the data). Recorded on no-op
-  ticks (published order == current) and **only after a successful apply** otherwise — a failed apply never
-  records an ordering no user saw. Robust by design: a corrupt existing file is **preserved aside**
-  (`.corrupt-<ts>`, never silently wiped), malformed entries are dropped, a `wx` lockfile guards against a
-  concurrent manual run, atomic write, and any failure warns without killing the run. This is the
+  `trendWindowDays` (so a non-default `TRENDING_DAYS` stretch is detectable in the data). The raw reach rows
+  are recorded on **every** run — the reach time series is independent of apply success — while the
+  **orderings** (`lists`) are included only when the apply succeeded or no-op'd (`applied` flag): a failed
+  apply records reach-only, so badges never anchor on an unserved chart AND the velocity baseline has no
+  holes. Robust by design: a corrupt **or wrong-shape** existing file is **preserved aside**
+  (`.corrupt-<ts>`, never silently wiped), malformed entries are dropped, a `wx` lockfile (with an atomic
+  re-race on stale-lock takeover) guards against a concurrent manual run, atomic write, and any failure
+  warns without killing the run. This is the
   accumulating input for the deferred **velocity Trending** and **chart-movement badges**
   ([future-plans](future-plans.md) #1/#7): "reach 7 days ago" is read from here, so no stats-server change
   is needed.

@@ -276,7 +276,7 @@ if (process.env.YEAR_PLAYLIST !== "0") autoBlocks.push({ id: `auto-year-${YEAR}`
 // HISTORY_DAYS; each entry records its trending window so mixed-window data is detectable.
 const HISTORY_PATH = process.env.AUTO_HISTORY || ZEMER_PLAYLISTS_AUTO_PATH.replace(/[^/\\]+$/, "auto-playlists-history.json");
 const HISTORY_DAYS = num(process.env.HISTORY_DAYS, 60);
-function recordHistory() {
+function recordHistory(appliedOk) {
   if (DRY) return;
   const lock = `${HISTORY_PATH}.lock`;
   try {
@@ -285,26 +285,35 @@ function recordHistory() {
       let stale = true;
       try { stale = Date.now() - fs.statSync(lock).mtimeMs > 10 * 60000; } catch { /* vanished → treat as stale */ }
       if (!stale) { console.warn("auto-playlists: history locked by a concurrent run — skipping this append."); return; }
-      fs.writeFileSync(lock, String(process.pid)); // stale lock (crashed run) — take it over
+      // stale lock (crashed run): remove it, then re-race for it ATOMICALLY — if two takers race, exactly
+      // one wins the wx create and the loser skips (a plain overwrite here would let both proceed).
+      try { fs.unlinkSync(lock); } catch { /* already gone */ }
+      try { fs.writeFileSync(lock, String(process.pid), { flag: "wx" }); }
+      catch { console.warn("auto-playlists: lost the stale-lock race to a concurrent run — skipping this append."); return; }
     }
     try {
       let hist = null;
       if (fs.existsSync(HISTORY_PATH)) {
         try { hist = JSON.parse(fs.readFileSync(HISTORY_PATH, "utf8")); }
-        catch { // corrupt ≠ missing: preserve the bytes for recovery, never silently wipe the series
+        catch { hist = undefined; /* unparseable */ }
+        if (!hist || !Array.isArray(hist.runs)) { // corrupt OR wrong-shape ≠ missing: preserve the bytes, never silently wipe
           const aside = `${HISTORY_PATH}.corrupt-${Date.now()}`;
           fs.renameSync(HISTORY_PATH, aside);
-          console.warn(`auto-playlists: history file was corrupt — preserved at ${aside}, starting a fresh series.`);
+          console.warn(`auto-playlists: history file was corrupt/wrong-shape — preserved at ${aside}, starting a fresh series.`);
+          hist = null;
         }
       }
-      if (!hist || !Array.isArray(hist.runs)) hist = { runs: [] };
+      if (!hist) hist = { runs: [] };
       const cutoff = Date.now() - HISTORY_DAYS * 86400000;
       hist.runs = hist.runs.filter((r) => r && typeof r.t === "string" && Date.parse(r.t) >= cutoff);
       hist.runs.push({
         t: new Date().toISOString(),
+        applied: !!appliedOk, // false = the raw reach below is real, but the orderings were NOT served
         trendWindowDays: TRENDING_DAYS, // the window topPlays rows below were measured over
-        lists: Object.fromEntries(autoBlocks.filter((b) => b.videoIds).map((b) => [b.id, b.videoIds])),
+        // lists only when the apply succeeded (or no-op'd): badges must never anchor on an unserved chart.
+        ...(appliedOk ? { lists: Object.fromEntries(autoBlocks.filter((b) => b.videoIds).map((b) => [b.id, b.videoIds])) } : {}),
         // raw trending-window topPlays, compact keys: v=videoId, d=distinct devices, n=qualified plays, s=skipRate
+        // — recorded on EVERY run, applied or not: the reach time series is independent of apply success.
         topPlays7d: rows(trend, "topPlays").map((r) => ({ v: r.videoId, d: r.devices || 0, n: r.n || 0, s: r.skipRate || 0 })),
       });
       const ht = `${HISTORY_PATH}.tmp-${process.pid}`;
@@ -330,19 +339,26 @@ for (const b of autoBlocks) console.log(`  ${b.id} — "${b.title}"  ${b.year ? 
 console.log(`auto-playlists: ${autoBlocks.length} auto list(s)${mourning ? `  [acapella season — ${hebDate(new Date()).month} ${hebDate(new Date()).day}]` : ""}${DRY ? "  [DRY]" : ""}${changed ? "" : "  [unchanged — no write]"}`);
 
 if (DRY) process.exit(0);
-if (!changed) { recordHistory(); process.exit(0); } // no-op: the published ordering == this one — safe to record
+if (!changed) { recordHistory(true); process.exit(0); } // no-op: the published ordering == this one — safe to record
 
 // Apply FIRST, commit the auto file only on success — if applyZemerPlaylists throws (e.g. a bad hand-curated
 // entry), the DB rolls back AND the auto file is left unchanged, so the next run retries (no silent file/DB
 // drift). `curated` comes from loadZemerPlaylists (which already folds in acapella-auto, written above) with
 // its auto-* blocks stripped, then combined with THIS run's freshly-built autoBlocks.
 const curated = loadZemerPlaylists().playlists.filter((p) => !String(p.id || "").startsWith("auto-"));
-const r = applyZemerPlaylists(db, { playlists: [...autoBlocks, ...curated] }, { dry: false });
+let r;
+try { r = applyZemerPlaylists(db, { playlists: [...autoBlocks, ...curated] }, { dry: false }); }
+catch (e) {
+  // The reach TIME SERIES is independent of apply success — record it (without the unserved orderings,
+  // applied:false) so a multi-day apply-failure stretch doesn't punch a hole in the velocity baseline.
+  recordHistory(false);
+  throw e; // then still fail the run loudly (systemd Result=failed; next tick retries)
+}
 
 const tmp = `${ZEMER_PLAYLISTS_AUTO_PATH}.tmp-${process.pid}`;
 fs.writeFileSync(tmp, nextJson);
 fs.renameSync(tmp, ZEMER_PLAYLISTS_AUTO_PATH);
-recordHistory(); // only after a SUCCESSFUL apply — a thrown apply must not record a never-served ordering
+recordHistory(true); // orderings recorded only now — after the apply actually succeeded
 
 console.log(`applied: ${r.playlists} playlist(s), ${r.items} item(s) → corpus.db (API reloads on its next tick)`);
 if (r.missing.length) console.warn(`⚠ ${r.missing.length} id(s) not in the corpus yet (they'll serve once harvested).`);
