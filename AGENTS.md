@@ -60,6 +60,15 @@ node harvester/playlists.mjs                                  # discover COMMUNI
 node harvester/zemer-playlists.mjs                            # apply hand-curated data/zemer-playlists.json → /zemer-playlists (offline; REPLACES wholesale; DRY=1 validates + reports unknown ids)
 STATS_URL=… STATS_KEY=… node harvester/auto-playlists.mjs    # generate DATA-DRIVEN playlists (Top 50 / Trending / Favorites) from zemer-stats /stats → data/zemer-playlists-auto.json (gitignored) + apply merged; fail-safe, no-op when unchanged; DRY=1 previews. Twice daily via zemer-autoplaylists.timer (Shabbat-gated)
 node harvester/releases.mjs                                   # date releases via /player → album.uploadDate + video/standalone track.uploadDate (album audio inherits album date; MIN_YEAR=2025 = recent albums only; TRACKS=0 = albums only; ALBUMS=0 = tracks only); makes New Releases real-date-accurate. /player is datacenter-blocked → run off-datacenter
+# The full DATING LOOP (gotcha #20) — the four steps, in order, every cycle:
+#   1. SYNC the local corpus FROM the VPS first (back up the local copy to data/corpus.db.local-bak-<ts>.gz,
+#      then replace it with a `sqlite3 .backup` snapshot of the VPS corpus.db — the local copy DRIFTS as the
+#      VPS harvests; dating a stale corpus misses everything harvested since, leaving an undated backlog).
+#   2. run harvester/releases.mjs here (residential IP; CONCURRENCY=5 MIN_INTERVAL_MS=200 = maintenance pace).
+#   3. BACK UP the VPS corpus BEFORE shipping (`sqlite3 corpus.db ".backup …"` on the VPS, timestamped) —
+#      never push UPDATEs into the production DB without a same-day restore point.
+#   4. ship the dates in: extract local track/album uploadDate rows → apply on the VPS as idempotent UPDATEs
+#      in one transaction; verify the undated counts drop and /new reflects the new dates on its next reload.
 scripts/maintain.sh shallow|deep                             # orchestrate whitelist+blocked-ids→onboard→prune→refresh (flock; cron/systemd; shallow daily / deep weekly)
 DRY=1 node harvester/mirror-sync.mjs                         # preview: watch content.zemer.io, on a whitelist change onboard new artists + prune + refresh blocked-ids (mirror-sourced, no Firestore); runs live every 10 min via zemer-mirror-sync.timer (Shabbat-gated)
 npm test                                                      # unit tests (index/ + corpus/ + harvester/)
@@ -238,6 +247,10 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
     rows. **`/player` is blocked from datacenter IPs**, so dating runs off-datacenter (residential) and dates
     are shipped into the server `corpus.db` by `UPDATE`; the album/track upserts leave `uploadDate` untouched,
     so shipped dates survive re-harvest. Dating is IP-safe (net.mjs: paced, cached, aborts on block → resume).
+    **Operational loop (see Commands): sync the local corpus FROM the VPS before dating** (the local copy
+    drifts as the VPS harvests — a stale local corpus silently leaves everything harvested since undated),
+    and **back up the VPS corpus BEFORE shipping the UPDATEs** (timestamped `sqlite3 .backup` — never write
+    into the production DB without a same-day restore point).
 
 ## Editing the matcher safely
 

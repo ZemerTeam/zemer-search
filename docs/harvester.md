@@ -342,6 +342,22 @@ shows **only items dated within a window** (default 10 days). Without it, orderi
 `LIMIT`, plus the usual `net.mjs` pacing vars. Standalone **videos** (not in an album) aren't dated yet, so
 they don't appear in the windowed view — closing that would need a `/player` per video.
 
+**The operational dating loop** (dating runs on a residential machine; the VPS can never date — four steps,
+in order, every cycle):
+
+1. **Sync the local corpus FROM the VPS** — back the local copy up (`data/corpus.db.local-bak-<ts>.gz`),
+   snapshot the VPS DB with `sqlite3 corpus.db ".backup …"` (WAL-safe against the live API), and replace the
+   local `corpus.db` (drop the stale `-wal`/`-shm` with the old base). The local copy **drifts** as the VPS
+   harvests — dating a stale corpus silently misses everything harvested since (measured 2026-07-19: a
+   two-week-stale local copy had left **776 tracks / 78 albums** undated on the VPS).
+2. **Date** — `CONCURRENCY=5 MIN_INTERVAL_MS=200 node harvester/releases.mjs` (maintenance pace, IP-safe;
+   every `/player` response is cached, so an interrupted run resumes free).
+3. **Back up the VPS corpus** — a timestamped `sqlite3 .backup` on the VPS **before** shipping. Never write
+   into the production DB without a same-day restore point.
+4. **Ship** — extract the local `track`/`album` `uploadDate` rows and apply them on the VPS as idempotent
+   `UPDATE`s in one transaction (harvest upserts never touch `uploadDate`, so shipped dates persist).
+   Verify: the VPS undated counts drop, and `/new` reflects the dates on its next reload tick.
+
 ## The channel map & issue #108
 
 The whitelist holds YouTube **Music** channel ids. Artists' *uploads* (live videos, older content, music
