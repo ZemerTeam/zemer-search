@@ -289,11 +289,16 @@ endpoint change; content filters (female/blocked/kidzone/video) are applied down
   conservative: cross-artist same-title never collapses (gotcha #9), and **variant markers distinguish** —
   "Home Again (Acapella)" / "(Live)" / "(Instrumental)" / remix / cover never merge into the original.
 - **Rank-history sidecar** (gitignored `data/auto-playlists-history.json`, `AUTO_HISTORY` overrides,
-  `HISTORY_DAYS=60` prune): every run — including no-op ticks — appends each list's ordering **plus the raw
-  7-day play-reach rows** (`topPlays7d`: videoId/devices/qualified/skipRate). Best-effort (a failure warns,
-  never kills the run), atomic write. This is the accumulating input for the deferred **velocity Trending**
-  and **chart-movement badges** ([future-plans](future-plans.md) #1/#7): "reach 7 days ago" is read from
-  here, so no stats-server change is needed.
+  `HISTORY_DAYS=60` prune): each run appends each list's ordering **plus the raw trending-window play-reach
+  rows** (`topPlays7d`, compact keys `v/d/n/s` = videoId/devices/qualified-plays/skipRate) and the entry's
+  `trendWindowDays` (so a non-default `TRENDING_DAYS` stretch is detectable in the data). Recorded on no-op
+  ticks (published order == current) and **only after a successful apply** otherwise — a failed apply never
+  records an ordering no user saw. Robust by design: a corrupt existing file is **preserved aside**
+  (`.corrupt-<ts>`, never silently wiped), malformed entries are dropped, a `wx` lockfile guards against a
+  concurrent manual run, atomic write, and any failure warns without killing the run. This is the
+  accumulating input for the deferred **velocity Trending** and **chart-movement badges**
+  ([future-plans](future-plans.md) #1/#7): "reach 7 days ago" is read from here, so no stats-server change
+  is needed.
 
 ```bash
 STATS_URL=… STATS_KEY=… node harvester/auto-playlists.mjs         # generate + apply (env from .env locally)

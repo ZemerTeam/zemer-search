@@ -17,6 +17,16 @@ test("re-upload collapses: same artist, same title modulo case/punctuation", () 
   assert.equal(dupKey("Bayit Shel Shalom - בית של שלום", "UCa"), dupKey("Bayit Shel Shalom — בית של שלום", "UCa"));
 });
 
+test("in-word apostrophes JOIN (gotcha #6): L'Chaim == LChaim, geresh too", () => {
+  assert.equal(dupKey("L'Chaim", "UCa"), dupKey("LChaim", "UCa"));
+  assert.equal(dupKey("צמא'לה", "UCa"), dupKey("צמא׳לה", "UCa"));
+});
+
+test("traits distinguish what the title can't: video vs audio, unlabeled acapella", () => {
+  assert.notEqual(dupKey("Same Song", "UCa", "v"), dupKey("Same Song", "UCa", "")); // cross-listed music video
+  assert.notEqual(dupKey("Same Song", "UCa", "a"), dupKey("Same Song", "UCa", "")); // curated-acapella, unlabeled title
+});
+
 test("acapella/vocal variant NEVER collapses into the original (Three-Weeks-critical)", () => {
   assert.notEqual(dupKey("Home Again", "UCa"), dupKey("Home Again (Acapella)", "UCa"));
   assert.notEqual(dupKey("ידיעת האמת", "UCa"), dupKey("ידיעת האמת - ווקאלי", "UCa"));

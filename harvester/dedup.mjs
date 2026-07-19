@@ -19,7 +19,9 @@
 //     titles that differ by a real word are trusted to be different content.
 
 // One class per VARIANT dimension: a marker's presence changes the key, so a marked title can never
-// collapse into an unmarked one. (Matching the strict acapella markers used by the release auto-add.)
+// collapse into an unmarked one. (Broader than the auto-add's CLEAR_ACAP on purpose: that one must be
+// STRICT — it admits songs into the acapella set; this one only needs to distinguish — over-matching
+// here is safe, it just prevents a merge.)
 const VARIANT_MARKS = [
   /a[\s-]?c+app?ell?a|\bvocal\b|ווקאל|וואקאל|אקפלה/i, // acapella / vocal-version family
   /\binstrumental\b/i,
@@ -28,12 +30,17 @@ const VARIANT_MARKS = [
   /\bcover\b|קאבר/i,
 ];
 
-// Key: artist + variant-marker signature + punctuation/case-normalized title. Same key ⇒ duplicate.
-export function dupKey(title, artistId) {
+// Key: artist + caller-supplied trait signature + variant-marker signature + normalized title.
+// `traits` carries what the TITLE can't say — isVideo (a song and its cross-listed music VIDEO are
+// different recordings with separately-earned reach) and acapella-set membership (an UNLABELED acapella
+// version has an identical title; only curation knows it's different). Same key ⇒ duplicate.
+// Title base: in-word apostrophes/geresh JOIN (gotcha #6 — "L'Chaim" == "LChaim"), everything else
+// punctuation/case-insensitive.
+export function dupKey(title, artistId, traits = "") {
   const t = String(title || "");
   const marks = VARIANT_MARKS.map((re, i) => (re.test(t) ? i : "")).join("");
-  const base = t.toLowerCase().normalize("NFKC").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
-  return `${artistId || ""}|${marks}|${base}`;
+  const base = t.toLowerCase().normalize("NFKC").replace(/['’‘`׳"״]/g, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  return `${artistId || ""}|${traits}|${marks}|${base}`;
 }
 
 // Keep the FIRST (highest-ranked) entry per key; order preserved. `keyOf` maps an entry to its dupKey.

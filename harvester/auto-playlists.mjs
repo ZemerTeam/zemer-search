@@ -107,6 +107,8 @@ function acapellaSet() {
 // Recurring auto-add: recent releases whose TITLE clearly says acapella / vocal-version get appended to the
 // gitignored acapella-auto list (folded into the curated acapella playlist by loadZemerPlaylists). ONLY clear
 // labels — a STRICT marker, so nothing ambiguous is ever added; a rolling window keeps it to NEW releases.
+// (Deliberately STRICTER than dedup.mjs's acapella VARIANT class: this ADMITS songs into the acapella set,
+// where a false positive pollutes; that one only DISTINGUISHES variants, where over-matching is harmless.)
 const CLEAR_ACAP = /a[\s-]?c+app?ell?a|\bvocal\s+version\b|\(\s*vocal\s*\)|ווקאל|וואקאל|אקפלה/i;
 function scanAcapellaReleases(db) {
   const since = new Date(Date.now() - num(process.env.ACAPELLA_SCAN_DAYS, 60) * 86400000).toISOString().slice(0, 10);
@@ -160,12 +162,20 @@ const inCorpus = new Set(db.prepare("SELECT videoId FROM track").all().map((r) =
 
 // Near-dup guard (see dedup.mjs): the same song re-uploaded under another videoId must not take two chart
 // slots. Applied to every ranked list BEFORE its slice, so a dropped duplicate frees the slot for the next
-// song. Keyed by artist + variant markers + normalized title; an id not in the corpus keys to itself (kept).
-const dupMeta = db.prepare("SELECT title, artistId FROM track WHERE videoId=?");
+// song. Keyed by artist + traits + variant markers + normalized title; the traits distinguish what the
+// title can't — isVideo (a cross-listed music VIDEO is a different recording than the audio song) and
+// curated-acapella membership (an UNLABELED acapella version has an identical title). An id not in the
+// corpus keys to itself (kept).
+const dupMeta = db.prepare("SELECT title, artistId, isVideo FROM track WHERE videoId=?");
+const acapForKey = acapellaSet() || new Set();
 const dupKeyCache = new Map();
 const keyOf = (x) => {
   const v = x.v;
-  if (!dupKeyCache.has(v)) { const r = dupMeta.get(v); dupKeyCache.set(v, r ? dupKey(r.title, r.artistId) : v); }
+  if (!dupKeyCache.has(v)) {
+    const r = dupMeta.get(v);
+    const traits = r ? `${r.isVideo ? "v" : ""}${acapForKey.has(v) ? "a" : ""}` : "";
+    dupKeyCache.set(v, r ? dupKey(r.title, r.artistId, traits) : v);
+  }
   return dupKeyCache.get(v);
 };
 
@@ -256,27 +266,51 @@ const YEAR = num(process.env.YEAR, new Date().getUTCFullYear());
 if (process.env.YEAR_PLAYLIST !== "0") autoBlocks.push({ id: `auto-year-${YEAR}`, title: `Year of ${YEAR}`, year: YEAR });
 
 // ── rank-history recorder (best-effort — must NEVER fail the run) ─────────────────────────────────────
-// Every run appends each list's ordering PLUS the raw 7-day play-reach rows to a gitignored sidecar. This
-// is the accumulating groundwork for the deferred velocity-Trending and chart-movement work (see
+// Appends each list's ordering PLUS the raw trending-window play-reach rows to a gitignored sidecar —
+// the accumulating groundwork for the deferred velocity-Trending and chart-movement work (see
 // docs/future-plans.md #1/#7): "reach 7 days ago" will simply be read from here — no stats-server change
-// needed. Runs on no-op ticks too (a regular time series is the point). Pruned to HISTORY_DAYS.
+// needed. Called on no-op ticks (published order == current) AND after a successful apply — never before,
+// so a failed apply can't record an ordering no user ever saw. Robustness: a CORRUPT existing file is
+// preserved aside (never silently wiped), malformed entries are dropped instead of poisoning the filter,
+// and a `wx` lockfile makes the read-modify-write safe against an overlapping manual run. Pruned to
+// HISTORY_DAYS; each entry records its trending window so mixed-window data is detectable.
 const HISTORY_PATH = process.env.AUTO_HISTORY || ZEMER_PLAYLISTS_AUTO_PATH.replace(/[^/\\]+$/, "auto-playlists-history.json");
 const HISTORY_DAYS = num(process.env.HISTORY_DAYS, 60);
-if (!DRY) {
+function recordHistory() {
+  if (DRY) return;
+  const lock = `${HISTORY_PATH}.lock`;
   try {
-    let hist; try { hist = JSON.parse(fs.readFileSync(HISTORY_PATH, "utf8")); } catch { hist = null; }
-    if (!hist || !Array.isArray(hist.runs)) hist = { runs: [] };
-    const cutoff = Date.now() - HISTORY_DAYS * 86400000;
-    hist.runs = hist.runs.filter((r) => Date.parse(r.t) >= cutoff);
-    hist.runs.push({
-      t: new Date().toISOString(),
-      lists: Object.fromEntries(autoBlocks.filter((b) => b.videoIds).map((b) => [b.id, b.videoIds])),
-      // raw 7d topPlays (v=videoId, d=distinct devices, n=qualified plays, s=skipRate) — velocity's input
-      topPlays7d: rows(trend, "topPlays").map((r) => ({ v: r.videoId, d: r.devices || 0, n: r.n || 0, s: r.skipRate || 0 })),
-    });
-    const ht = `${HISTORY_PATH}.tmp-${process.pid}`;
-    fs.writeFileSync(ht, JSON.stringify(hist) + "\n");
-    fs.renameSync(ht, HISTORY_PATH);
+    try { fs.writeFileSync(lock, String(process.pid), { flag: "wx" }); }
+    catch {
+      let stale = true;
+      try { stale = Date.now() - fs.statSync(lock).mtimeMs > 10 * 60000; } catch { /* vanished → treat as stale */ }
+      if (!stale) { console.warn("auto-playlists: history locked by a concurrent run — skipping this append."); return; }
+      fs.writeFileSync(lock, String(process.pid)); // stale lock (crashed run) — take it over
+    }
+    try {
+      let hist = null;
+      if (fs.existsSync(HISTORY_PATH)) {
+        try { hist = JSON.parse(fs.readFileSync(HISTORY_PATH, "utf8")); }
+        catch { // corrupt ≠ missing: preserve the bytes for recovery, never silently wipe the series
+          const aside = `${HISTORY_PATH}.corrupt-${Date.now()}`;
+          fs.renameSync(HISTORY_PATH, aside);
+          console.warn(`auto-playlists: history file was corrupt — preserved at ${aside}, starting a fresh series.`);
+        }
+      }
+      if (!hist || !Array.isArray(hist.runs)) hist = { runs: [] };
+      const cutoff = Date.now() - HISTORY_DAYS * 86400000;
+      hist.runs = hist.runs.filter((r) => r && typeof r.t === "string" && Date.parse(r.t) >= cutoff);
+      hist.runs.push({
+        t: new Date().toISOString(),
+        trendWindowDays: TRENDING_DAYS, // the window topPlays rows below were measured over
+        lists: Object.fromEntries(autoBlocks.filter((b) => b.videoIds).map((b) => [b.id, b.videoIds])),
+        // raw trending-window topPlays, compact keys: v=videoId, d=distinct devices, n=qualified plays, s=skipRate
+        topPlays7d: rows(trend, "topPlays").map((r) => ({ v: r.videoId, d: r.devices || 0, n: r.n || 0, s: r.skipRate || 0 })),
+      });
+      const ht = `${HISTORY_PATH}.tmp-${process.pid}`;
+      fs.writeFileSync(ht, JSON.stringify(hist) + "\n");
+      fs.renameSync(ht, HISTORY_PATH);
+    } finally { try { fs.unlinkSync(lock); } catch { /* best-effort */ } }
   } catch (e) { console.warn(`auto-playlists: history append failed (${e.message}) — continuing.`); }
 }
 
@@ -295,7 +329,8 @@ const changed = nextJson !== prevJson || (autoBlocks.length && !dbHasAuto) || ac
 for (const b of autoBlocks) console.log(`  ${b.id} — "${b.title}"  ${b.year ? `dynamic (year ${b.year})` : `${b.videoIds.length} track(s)`}`);
 console.log(`auto-playlists: ${autoBlocks.length} auto list(s)${mourning ? `  [acapella season — ${hebDate(new Date()).month} ${hebDate(new Date()).day}]` : ""}${DRY ? "  [DRY]" : ""}${changed ? "" : "  [unchanged — no write]"}`);
 
-if (DRY || !changed) process.exit(0);
+if (DRY) process.exit(0);
+if (!changed) { recordHistory(); process.exit(0); } // no-op: the published ordering == this one — safe to record
 
 // Apply FIRST, commit the auto file only on success — if applyZemerPlaylists throws (e.g. a bad hand-curated
 // entry), the DB rolls back AND the auto file is left unchanged, so the next run retries (no silent file/DB
@@ -307,6 +342,7 @@ const r = applyZemerPlaylists(db, { playlists: [...autoBlocks, ...curated] }, { 
 const tmp = `${ZEMER_PLAYLISTS_AUTO_PATH}.tmp-${process.pid}`;
 fs.writeFileSync(tmp, nextJson);
 fs.renameSync(tmp, ZEMER_PLAYLISTS_AUTO_PATH);
+recordHistory(); // only after a SUCCESSFUL apply — a thrown apply must not record a never-served ordering
 
 console.log(`applied: ${r.playlists} playlist(s), ${r.items} item(s) → corpus.db (API reloads on its next tick)`);
 if (r.missing.length) console.warn(`⚠ ${r.missing.length} id(s) not in the corpus yet (they'll serve once harvested).`);
