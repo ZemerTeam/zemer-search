@@ -283,6 +283,17 @@ endpoint change; content filters (female/blocked/kidzone/video) are applied down
 - **"Just works" guarantees.** A down/empty `/stats` **aborts without touching the file or DB** (last-good
   playlists stay live); atomic write (tmp→rename); a **no-op when the generated ids are unchanged** (no needless
   index reload); only servable (in-corpus) ids are included, so the lists actually fill to N.
+- **Near-dup guard** (`harvester/dedup.mjs`, unit-pinned): the same song RE-UPLOADED under another videoId
+  can't occupy two chart slots — every ranked list dedups (before its slice, so the freed slot goes to the
+  next song) on `artistId + variant-marker signature + case/punctuation-normalized title`. Deliberately
+  conservative: cross-artist same-title never collapses (gotcha #9), and **variant markers distinguish** —
+  "Home Again (Acapella)" / "(Live)" / "(Instrumental)" / remix / cover never merge into the original.
+- **Rank-history sidecar** (gitignored `data/auto-playlists-history.json`, `AUTO_HISTORY` overrides,
+  `HISTORY_DAYS=60` prune): every run — including no-op ticks — appends each list's ordering **plus the raw
+  7-day play-reach rows** (`topPlays7d`: videoId/devices/qualified/skipRate). Best-effort (a failure warns,
+  never kills the run), atomic write. This is the accumulating input for the deferred **velocity Trending**
+  and **chart-movement badges** ([future-plans](future-plans.md) #1/#7): "reach 7 days ago" is read from
+  here, so no stats-server change is needed.
 
 ```bash
 STATS_URL=… STATS_KEY=… node harvester/auto-playlists.mjs         # generate + apply (env from .env locally)

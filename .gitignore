@@ -27,6 +27,9 @@ data/zemer-playlists-auto.json
 # maintained by harvester/auto-playlists.mjs; the committed acapella curation stays pristine
 data/acapella-auto.json
 
+# rank-history sidecar (each run's list orderings + 7d play reach; feeds future velocity/chart-movement)
+data/auto-playlists-history.json
+
 # transient maintenance progress status (runtime only — written by the harvest/refresh steps)
 data/.maintain-status.json*
 data/.releases-status.json*

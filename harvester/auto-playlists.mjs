@@ -42,6 +42,7 @@
 //   DRY=1 …                                                          # print what it would write, no write
 import fs from "node:fs";
 import { openCorpus, loadZemerPlaylists, applyZemerPlaylists, ZEMER_PLAYLISTS_PATH, ZEMER_PLAYLISTS_AUTO_PATH, ACAPELLA_AUTO_PATH } from "../corpus/store.mjs";
+import { dupKey, dedupRanked } from "./dedup.mjs";
 
 const num = (v, d) => (Number.isFinite(+v) && +v > 0 ? +v : d); // NaN/blank/≤0 env → default (never slice(0,NaN))
 const DRY = process.env.DRY === "1";
@@ -157,6 +158,17 @@ if (!rows(all, "topBackfilled").length && !rows(all, "topPlays").length)
 const db = openCorpus();
 const inCorpus = new Set(db.prepare("SELECT videoId FROM track").all().map((r) => r.videoId));
 
+// Near-dup guard (see dedup.mjs): the same song re-uploaded under another videoId must not take two chart
+// slots. Applied to every ranked list BEFORE its slice, so a dropped duplicate frees the slot for the next
+// song. Keyed by artist + variant markers + normalized title; an id not in the corpus keys to itself (kept).
+const dupMeta = db.prepare("SELECT title, artistId FROM track WHERE videoId=?");
+const dupKeyCache = new Map();
+const keyOf = (x) => {
+  const v = x.v;
+  if (!dupKeyCache.has(v)) { const r = dupMeta.get(v); dupKeyCache.set(v, r ? dupKey(r.title, r.artistId) : v); }
+  return dupKeyCache.get(v);
+};
+
 // recurring auto-add of clearly-labeled acapella new releases (before ranking, so they're eligible now)
 const acapellaAdded = scanAcapellaReleases(db);
 if (acapellaAdded.length) console.log(`acapella: +${acapellaAdded.length} clearly-labeled release(s) added to the acapella set`);
@@ -192,7 +204,7 @@ const loved = [...candidates].map((v) => ({
   tie: W.favorite * s(favDev.get(v) || 0) + W.download * s(dlDev.get(v) || 0), // tiebreak only
 })).sort((a, b) => b.play - a.play || b.tie - a.tie);
 
-const top50 = loved.slice(0, TOP_N).map((x) => x.v);
+const top50 = dedupRanked(loved, keyOf).slice(0, TOP_N).map((x) => x.v);
 
 // ── trending = short-window live plays, REACH-PRIMARY, skip a light quality dampener, precision-floored ─
 // A user reading "Trending" expects reach ("lots of people are playing this"), so distinct-device reach is
@@ -201,17 +213,18 @@ const top50 = loved.slice(0, TOP_N).map((x) => x.v);
 // plus the <0.5 floor, so a genuinely skipped track is demoted/removed but a popular one with some skips
 // still leads. (Velocity — reach growth week-over-week — is the truer trending signal, but needs ≥2 weeks
 // of live history; revisit once the data supports it.)
-const trendingIds = rows(trend, "topPlays")
+const trendRanked = rows(trend, "topPlays")
   .filter((r) => inCorpus.has(r.videoId) && (r.devices || 0) >= TREND_MIN_DEVICES && (r.skipRate || 0) < TREND_MAX_SKIP)
   .map((r) => ({ v: r.videoId, score: (r.devices || 0) * (1 - TREND_SKIP_PENALTY * clamp(r.skipRate || 0, 0, 1)) }))
-  .sort((a, b) => b.score - a.score).slice(0, TRENDING_N).map((x) => x.v);
+  .sort((a, b) => b.score - a.score);
+const trendingIds = dedupRanked(trendRanked, keyOf).slice(0, TRENDING_N).map((x) => x.v);
 
 // ── favorites = favorite-primary, download-corroborated ───────────────────────────────────────────────
 const favRanked = [...new Set([...favDev.keys(), ...dlDev.keys()])].filter((v) => inCorpus.has(v))
   .map((v) => ({ v, score: W.favorite * s(favDev.get(v) || 0) + W.download * s(dlDev.get(v) || 0) }))
   .filter((x) => (favDev.get(x.v) || 0) > 0) // must have at least one real favorite; downloads alone are too noisy to seed
   .sort((a, b) => b.score - a.score);
-const favIds = favRanked.slice(0, FAV_N).map((x) => x.v);
+const favIds = dedupRanked(favRanked, keyOf).slice(0, FAV_N).map((x) => x.v);
 
 // ── acapella season: ADD an acapella list on top. Two hard rules: (1) ONLY songs hand-listed in the curated
 // acapella playlist, and (2) ranked by plays FROM THE THREE WEEKS ONLY (the `season` window — NO all-time
@@ -220,10 +233,11 @@ const favIds = favRanked.slice(0, FAV_N).map((x) => x.v);
 const acap = mourning ? acapellaSet() : null;
 const acBlocks = [];
 if (acap && acap.size && season) {
-  const acTop = rows(season, "topPlays")
+  const acRanked = rows(season, "topPlays")
     .filter((r) => acap.has(r.videoId) && inCorpus.has(r.videoId) && (r.devices || 0) >= 1)
     .map((r) => ({ v: r.videoId, score: (r.devices || 0) * (1 - TREND_SKIP_PENALTY * clamp(r.skipRate || 0, 0, 1)) }))
-    .sort((a, b) => b.score - a.score).slice(0, TOP_N).map((x) => x.v);
+    .sort((a, b) => b.score - a.score);
+  const acTop = dedupRanked(acRanked, keyOf).slice(0, TOP_N).map((x) => x.v);
   if (acTop.length) acBlocks.push({ id: "auto-acapella-top-50", title: "Acapella Top 50", videoIds: acTop });
 }
 
@@ -240,6 +254,31 @@ const autoBlocks = [
 // the same schedule and AUTO-ROLLS to the current UTC year — nobody edits it annually. YEAR pins it; YEAR_PLAYLIST=0 disables.
 const YEAR = num(process.env.YEAR, new Date().getUTCFullYear());
 if (process.env.YEAR_PLAYLIST !== "0") autoBlocks.push({ id: `auto-year-${YEAR}`, title: `Year of ${YEAR}`, year: YEAR });
+
+// ── rank-history recorder (best-effort — must NEVER fail the run) ─────────────────────────────────────
+// Every run appends each list's ordering PLUS the raw 7-day play-reach rows to a gitignored sidecar. This
+// is the accumulating groundwork for the deferred velocity-Trending and chart-movement work (see
+// docs/future-plans.md #1/#7): "reach 7 days ago" will simply be read from here — no stats-server change
+// needed. Runs on no-op ticks too (a regular time series is the point). Pruned to HISTORY_DAYS.
+const HISTORY_PATH = process.env.AUTO_HISTORY || ZEMER_PLAYLISTS_AUTO_PATH.replace(/[^/\\]+$/, "auto-playlists-history.json");
+const HISTORY_DAYS = num(process.env.HISTORY_DAYS, 60);
+if (!DRY) {
+  try {
+    let hist; try { hist = JSON.parse(fs.readFileSync(HISTORY_PATH, "utf8")); } catch { hist = null; }
+    if (!hist || !Array.isArray(hist.runs)) hist = { runs: [] };
+    const cutoff = Date.now() - HISTORY_DAYS * 86400000;
+    hist.runs = hist.runs.filter((r) => Date.parse(r.t) >= cutoff);
+    hist.runs.push({
+      t: new Date().toISOString(),
+      lists: Object.fromEntries(autoBlocks.filter((b) => b.videoIds).map((b) => [b.id, b.videoIds])),
+      // raw 7d topPlays (v=videoId, d=distinct devices, n=qualified plays, s=skipRate) — velocity's input
+      topPlays7d: rows(trend, "topPlays").map((r) => ({ v: r.videoId, d: r.devices || 0, n: r.n || 0, s: r.skipRate || 0 })),
+    });
+    const ht = `${HISTORY_PATH}.tmp-${process.pid}`;
+    fs.writeFileSync(ht, JSON.stringify(hist) + "\n");
+    fs.renameSync(ht, HISTORY_PATH);
+  } catch (e) { console.warn(`auto-playlists: history append failed (${e.message}) — continuing.`); }
+}
 
 // The auto file holds ONLY the auto-* blocks; the hand-curated file is never touched here. The loader
 // (loadZemerPlaylists) merges the two, so the apply below writes the full union — curated stays pristine
