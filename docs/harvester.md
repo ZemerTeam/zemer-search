@@ -266,7 +266,12 @@ endpoint change; content filters (female/blocked/kidzone/video) are applied down
     non-acapella album tracks), and (2) ranked by **plays FROM the Three Weeks only** (a `/stats` window sized
     to the days elapsed since 17 Tammuz — **no all-time backfill, no favorites/downloads**), reach-primary with
     a light skip dampener like Trending. It's placed **first** so the app surfaces it at the top — **nothing is
-    removed**, the regular lists stay below, and it disappears on its own after Tisha b'Av.
+    removed** mid-season, the regular lists stay below, and it disappears on its own after Tisha b'Av —
+    as does the **curated Acapella playlist itself**: it carries `"season": "three-weeks"` in
+    `data/zemer-playlists.json`, and `loadZemerPlaylists` serves season-marked entries only while the
+    window (shared gate: `corpus/season.mjs`) is open. **Retired, never deleted** — the curation (and the
+    year-round auto-add scan below, which keeps appending new acapella releases) waits ready for next year.
+    Unknown season names fail OPEN, so a typo can never vanish a curated playlist.
     A **recurring auto-add** runs every generation: recent releases whose TITLE clearly says acapella —
     a STRICT marker (`acapella` / `a cappella` / `vocal version` / `(vocal)` / Hebrew `ווקאלי`/`אקפלה`), so
     nothing ambiguous is ever added — are appended to the gitignored `data/acapella-auto.json` (rolling

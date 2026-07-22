@@ -16,6 +16,7 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { seasonActive } from "./season.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // Env-configurable so it deploys to a server unchanged (CORPUS_DB=/var/lib/zemer-search/corpus.db).
@@ -436,7 +437,12 @@ export function loadZemerPlaylists() {
   // auto-* blocks first (flagship prominence), then curated. The `auto-` id namespace is RESERVED for the
   // generator: any `auto-*` id in the hand-curated file is dropped so it can never collide with a generated
   // block and make applyZemerPlaylists throw a duplicate-id on every run (freezing both apply jobs).
-  const curated = readPls(ZEMER_PLAYLISTS_PATH).filter((p) => !String(p?.id || "").startsWith("auto-"));
+  // A curated entry may carry `"season": "three-weeks"` (e.g. the Acapella playlist): it is served only
+  // while that Hebrew-calendar window is open — RETIRED after Tisha b'Av, never deleted, and it returns by
+  // itself next year. Unknown season names fail OPEN (a typo must never vanish a curated playlist).
+  const curated = readPls(ZEMER_PLAYLISTS_PATH)
+    .filter((p) => !String(p?.id || "").startsWith("auto-"))
+    .filter((p) => !p?.season || seasonActive(p.season));
   const extra = readAcapellaAuto();
   if (extra.length) { // union auto-discovered acapella into the curated acapella playlist (dedup, order preserved)
     const ac = curated.find((p) => p.id === "acapella");

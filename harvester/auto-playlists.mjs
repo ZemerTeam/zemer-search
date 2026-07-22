@@ -43,6 +43,7 @@
 import fs from "node:fs";
 import { openCorpus, loadZemerPlaylists, applyZemerPlaylists, ZEMER_PLAYLISTS_PATH, ZEMER_PLAYLISTS_AUTO_PATH, ACAPELLA_AUTO_PATH } from "../corpus/store.mjs";
 import { dupKey, dedupRanked } from "./dedup.mjs";
+import { hebDate, inThreeWeeks, seasonActive } from "../corpus/season.mjs";
 
 const num = (v, d) => (Number.isFinite(+v) && +v > 0 ? +v : d); // NaN/blank/≤0 env → default (never slice(0,NaN))
 const DRY = process.env.DRY === "1";
@@ -71,23 +72,11 @@ if (!STATS_URL || !STATS_KEY) die("STATS_URL and STATS_KEY must be set (see .env
 
 // ── Acapella season (The Three Weeks) ─────────────────────────────────────────────────────────────────
 // During the mourning period from 17 Tammuz through 9 Av (Tisha b'Av) observant Jews listen to acapella
-// only. We ADD acapella-popularity lists on top of the normal ones (nothing is removed). The window is
-// computed from the HEBREW calendar (Intl, offline), so it recurs correctly every year on its own — the
-// Gregorian dates drift yearly but 17 Tammuz–9 Av don't. Day granularity (civil midnight in Brooklyn; the
-// Hebrew day rolls at sunset, so the boundary can be off by an evening — fine for a day-based gate).
+// only. We ADD acapella-popularity lists on top of the normal ones (nothing is removed). The window logic
+// lives in corpus/season.mjs (shared with loadZemerPlaylists, which uses the SAME gate to seasonally
+// retire curated entries marked `"season": "three-weeks"` — e.g. the browsable Acapella playlist).
 // ACAPELLA_SEASON=on|off forces the state (testing / rabbinic override); NINE_DAYS=1 narrows to 1–9 Av.
-function hebDate(d) {
-  const p = new Intl.DateTimeFormat("en-u-ca-hebrew", { month: "long", day: "numeric", timeZone: "America/New_York" }).formatToParts(d);
-  return { month: p.find((x) => x.type === "month")?.value || "", day: +(p.find((x) => x.type === "day")?.value) };
-}
-function inThreeWeeks(d = new Date()) {
-  const { month, day } = hebDate(d);
-  const isTammuz = /^tam+uz$/i.test(month), isAv = month === "Av"; // ICU spells it "Tamuz"; match defensively
-  if (process.env.NINE_DAYS === "1") return isAv && day <= 9;
-  return (isTammuz && day >= 17) || (isAv && day <= 9);
-}
-const seasonEnv = (process.env.ACAPELLA_SEASON || "auto").toLowerCase();
-const mourning = seasonEnv === "on" ? true : seasonEnv === "off" ? false : inThreeWeeks();
+const mourning = seasonActive("three-weeks");
 // How many days (incl. today) we're into the current Three Weeks — the /stats window for the acapella lists,
 // so they rank by plays FROM the Three Weeks only (no all-time backfill). Grows 1→~22 across the period.
 function threeWeeksDays() {

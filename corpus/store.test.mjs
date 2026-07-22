@@ -596,3 +596,34 @@ test("zemer playlists: re-apply REPLACES wholesale; missing ids reported; dry va
   assert.throws(() => applyZemerPlaylists(db, { playlists: [{ id: "x" }] }), /id \+ title/, "id+title required");
   assert.throws(() => applyZemerPlaylists(db, { playlists: [{ id: "x", title: "X" }, { id: "x", title: "X2" }] }), /duplicate/, "duplicate ids rejected");
 });
+
+test("seasonal curated playlists retire off-season, return in-season, never deleted", async () => {
+  const os = await import("node:os"); const path = await import("node:path"); const fs = await import("node:fs");
+  const { seasonActive } = await import("./season.mjs");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "zemer-season-"));
+  const curated = path.join(dir, "curated.json");
+  fs.writeFileSync(curated, JSON.stringify({ playlists: [
+    { id: "acapella", title: "Acapella", season: "three-weeks", videoIds: ["vid00000001"] },
+    { id: "evergreen", title: "Evergreen", videoIds: ["vid00000001"] },
+    { id: "typo", title: "Typo", season: "no-such-season", videoIds: ["vid00000001"] },
+  ] }));
+  const prevPath = process.env.ZEMER_PLAYLISTS, prevSeason = process.env.ACAPELLA_SEASON;
+  process.env.ZEMER_PLAYLISTS = curated;
+  try {
+    // the loader module caches its path at import time — read through a fresh import each way
+    process.env.ACAPELLA_SEASON = "off"; // gate forced closed (off-season)
+    assert.equal(seasonActive("three-weeks"), false);
+    const store = await import(`./store.mjs?season-test=${Date.now()}`); // fresh module, fresh path
+    const off = store.loadZemerPlaylists().playlists.map((p) => p.id);
+    assert.ok(!off.includes("acapella"), "seasonal entry served off-season");
+    assert.ok(off.includes("evergreen"), "non-seasonal entry must always serve");
+    assert.ok(off.includes("typo"), "unknown season name must FAIL OPEN, never vanish a playlist");
+    process.env.ACAPELLA_SEASON = "on"; // gate forced open (in-season)
+    const on = store.loadZemerPlaylists().playlists.map((p) => p.id);
+    assert.ok(on.includes("acapella"), "seasonal entry must return in-season — retired, not deleted");
+  } finally {
+    if (prevPath === undefined) delete process.env.ZEMER_PLAYLISTS; else process.env.ZEMER_PLAYLISTS = prevPath;
+    if (prevSeason === undefined) delete process.env.ACAPELLA_SEASON; else process.env.ACAPELLA_SEASON = prevSeason;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
