@@ -93,6 +93,11 @@ as-you-type).
 Self-contained HTML/CSS/JS that **mirrors the app's search screen** (Material 3, seed `#ED5564`, the
 exact dark surfaces/typography from `zemer-app`'s `Theme.kt`/`Dimensions.kt`):
 
+The page itself is served with `Cache-Control: no-cache` + a content **ETag**: the whole UI is inline in
+one HTML response, so without an explicit revalidation directive a browser's heuristic cache can keep
+serving a pre-deploy copy and a shipped UI change looks like it never deployed. Revalidation is a cheap
+**304**, not a re-download.
+
 - A pill **search bar** + horizontal **filter-chip row**: All · Artists · Albums · Songs · Singles & EPs
   · Videos · Playlists · **Community** · **New Releases** (last). The category chips filter the displayed
   results **client-side from the already-fetched** search data (no refetch on chip change). **Playlists**

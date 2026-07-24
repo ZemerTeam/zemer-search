@@ -23,6 +23,7 @@ import fs from "node:fs";
 import path from "node:path";
 import cluster from "node:cluster";
 import os from "node:os";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, BLOCKED_IDS_PATH, AUTO_HISTORY_PATH } from "../corpus/store.mjs";
 import { pickAnchor, applyBadges, chartWeek } from "./chart-badges.mjs";
@@ -47,6 +48,8 @@ const HISTORY_PATH = AUTO_HISTORY_PATH;
 const WORKERS = process.env.WORKERS === "auto" ? os.availableParallelism() : Number(process.env.WORKERS || 1);
 const CORS = { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json; charset=utf-8" };
 const UI = fs.readFileSync(path.join(HERE, "ui.html"));
+// content hash of the page — lets a revalidation answer 304 instead of re-sending the whole UI
+const UI_ETAG = `"${crypto.createHash("sha1").update(UI).digest("hex").slice(0, 16)}"`;
 
 // Per-request content filters (the app forwards the user's Firebase settings as these query params).
 // Semantics are DEFAULT-OPEN: an absent param = no filtering (so the web demo + other callers get the full
@@ -251,7 +254,14 @@ async function startServer() {
   const server = http.createServer(async (req, res) => {
     try {
       const u = new URL(req.url, "http://localhost");
-      if (u.pathname === "/" || u.pathname === "/ui.html") { res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }); return res.end(UI); }
+      // no-cache = "store it, but ALWAYS revalidate": the page carries the whole UI inline, so without
+      // this a browser's heuristic cache can keep serving a pre-deploy copy (a shipped UI change then
+      // looks like it never deployed). ETag makes the revalidation a cheap 304, not a re-download.
+      if (u.pathname === "/" || u.pathname === "/ui.html") {
+        if (req.headers["if-none-match"] === UI_ETAG) { res.writeHead(304, { ETag: UI_ETAG, "Cache-Control": "no-cache" }); return res.end(); }
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache", ETag: UI_ETAG });
+        return res.end(UI);
+      }
       if (u.pathname === "/health") return send(res, 200, { ok: true, ...stats(liveDb), indexed: indexedCount, indexedAt, worker: wIndex, whitelistTotal, maintenance: maintenance() });
       if (u.pathname === "/reload" && req.method === "POST") return send(res, 200, { ok: true, tracks: reload(true) });
 
