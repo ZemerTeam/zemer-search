@@ -253,14 +253,31 @@ endpoint change; content filters (female/blocked/kidzone/video) are applied down
     thinner + exposure-biased). **Favorites/downloads ONLY break ties** (secondary sort) between songs with the
     SAME play score — so the genuinely most-played songs always lead and a low-play/high-favorite song can't
     leapfrog them (an earlier blended score let a 6-play song beat a 17-play one; fixed). Favorites also have
-    their own dedicated list. Signals with total overlap (live vs backfill favorites/downloads) → **MAX, not sum**.
-  - **Trending** = short-window (`TRENDING_DAYS=7`) live plays only, **reach-primary**: sorted by raw
-    distinct-device reach (what a user means by "trending" — lots of people playing it now), with skip a
-    HALF-weight dampener (`reach·(1 − 0.5·skipRate)`) plus the `skipRate<0.5`/`devices≥3` floor — so a
-    genuinely skipped track is demoted/removed but a popular one with some skips still leads (unlike the
-    loved-score's saturated reach, which would let a small high-finish-rate audience beat a much larger one).
-    Backfill is frozen history → excluded here by design. (Velocity — reach growth week-over-week — is the
-    truer trending signal; revisit once there's ≥2 weeks of live history.)
+    their own dedicated list. **Favorite/download reach = MAX(backfill snapshot, live actions)** (since
+    2026-07-24 — the stats server emits per-device counts on live `topActions`, so live favorites fold in on
+    the same device-reach axis): signals with total, un-dedupable overlap are combined by **MAX, never sum**
+    (a row from an older stats server has no `devices` field → 0 → backfill-only, the old behavior).
+  - **Trending** = short-window (`TRENDING_DAYS=7`) live plays only, two modes (`harvester/trending.mjs`,
+    unit-pinned; the run logs which engaged):
+    **VELOCITY** (the default once data allows — shipped 2026-07-24): primary sort = reach GROWTH
+    week-over-week — current-window distinct devices minus the same song's devices in the rank-history
+    sidecar snapshot nearest T−7d (`pickBaseline`: same `trendWindowDays` only, ≤48h miss tolerance),
+    floored at 0; a new-to-chart song's full reach IS its growth. "Trending" = accelerating, not merely
+    big — a perennial #1 with flat reach yields to a genuinely surging song; ties (incl. the all-flat
+    steady state) fall back to reach order. **Self-activating seasonal guard** (`windowCleanOfSeason`):
+    velocity engages only when BOTH compared windows lie fully outside The Three Weeks — the acapella
+    season skews both sides of a cross-season growth comparison — so it suspends for the season plus the
+    following two windows every year (Hebrew-calendar-recurring, no hardcoded dates) and re-engages alone.
+    **REACH** (the standing fallback + the velocity tiebreak): raw distinct-device reach (what a user means
+    by "trending" — lots of people playing it now), with skip a HALF-weight dampener
+    (`reach·(1 − 0.5·skipRate)`) plus the `skipRate<0.5`/`devices≥3` floor — a genuinely skipped track is
+    demoted/removed but a popular one with some skips still leads (unlike the loved-score's saturated
+    reach, which would let a small high-finish-rate audience beat a much larger one). Backfill is frozen
+    history → excluded here by design. **Exposure dampener** (future-plans #3, DORMANT until app builds
+    ship impression events): both modes multiply in `exposureMult` — a song the app broadly SURFACED
+    (per-device impression reach from `/stats topImpressions`) is docked up to 35% (saturating,
+    `EXPO_PRIOR=10`), so it must out-play its exposure to trend; no impression data → multiplier 1,
+    byte-identical ranking.
   - **Favorites** = favorite-primary, download-corroborated (an item needs ≥1 real favorite to seed).
   - **Year of ‹Y›** (`auto-year-<Y>`) = a **dynamic year rule** (no telemetry): the store computes everything
     released this year at read time, newest first, growing with each harvest. It's emitted here so it lives in
@@ -315,9 +332,10 @@ endpoint change; content filters (female/blocked/kidzone/video) are applied down
   (`.corrupt-<ts>`, never silently wiped), malformed entries are dropped, a `wx` lockfile (with an atomic
   re-race on stale-lock takeover) guards against a concurrent manual run, atomic write, and any failure
   warns without killing the run. This is the
-  accumulating input for the deferred **velocity Trending** and **chart-movement badges**
-  ([future-plans](future-plans.md) #1/#7): "reach 7 days ago" is read from here, so no stats-server change
-  is needed.
+  accumulating input for **velocity Trending** and the **chart-movement badges** — both consuming it live
+  since 2026-07-24 ([future-plans](future-plans.md) #1/#7): the generator reads "reach 7 days ago" from here
+  (`pickBaseline`), and the API anchors the ↑/↓/NEW badges on the last completed week's first applied
+  ordering (`server/chart-badges.mjs`).
 
 ```bash
 STATS_URL=… STATS_KEY=… node harvester/auto-playlists.mjs         # generate + apply (env from .env locally)

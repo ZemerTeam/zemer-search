@@ -13,13 +13,13 @@ this list periodically (and whenever the telemetry corpus grows meaningfully).
 
 | # | Improvement | Why deferred / what unblocks it | Effort |
 |---|-------------|--------------------------------|--------|
-| 1 | **Velocity-based Trending** — rank by reach *growth* week-over-week (acceleration), the truest "trending" signal, instead of recent-window reach. | Needs **≥2 weeks of live history** AND post-Tisha-b'Av windows (the Three Weeks skews both sides of the comparison). **Groundwork shipped 2026-07-19:** the rank-history sidecar snapshots the raw 7-day reach twice daily, so "reach 7 days ago" is read from disk — no stats-server change needed. Revisit ~2026-07-27+. | Medium (generator-only now: compare current `topPlays` vs the sidecar snapshot nearest T−7d). |
-| 2 | **Fold live favorites/downloads into the ranking.** Today Favorites (and the loved-score's favorite/download terms) use the **backfill snapshot only** — live `topActions` was originally excluded because it carried only a raw event count. | **Stats-server prerequisite DONE 2026-07-16**: live `topActions` now emits `COUNT(DISTINCT device)` per row (per-kind capped). Remaining: a few generator lines (MAX with backfill, never sum — the overlap is total) — deferred until **post-Tisha-b'Av** so the first folded-in favorites reflect normal (non-mourning-season) taste. | Small (generator-only now). |
-| 3 | **Exposure-bias ceiling on Trending.** Live plays partly measure *what the app surfaced*, not pure demand (e.g. a freshly-featured album dominates). The reach-primary + skip-dampener formula mitigates it, but can't remove it. | True fix needs **impression logging** (what was *shown*, not just played) from the app — not currently sent, and the app is immutable/out of scope here. Track as a known limit; revisit only if impression events are ever added. | Large (needs app-side event + new signal). |
+| 1 | ~~**Velocity-based Trending**~~ **SHIPPED 2026-07-24** (`harvester/trending.mjs`, unit-pinned): Trending's primary sort is reach growth vs the sidecar snapshot nearest T−7d, with a **self-activating seasonal guard** — velocity engages only when both compared windows are fully clear of The Three Weeks (Hebrew-calendar-recurring), reach mode is the standing fallback. First clean activation ≈2026-08-06 (both windows post-fast); the run logs the active mode. | Done. |
+| 2 | ~~**Fold live favorites/downloads into the ranking.**~~ **SHIPPED 2026-07-24**: favorite/download reach = MAX(backfill snapshot, live `topActions` per-device counts) — never summed (total, un-dedupable overlap). Rows from an older stats server carry no `devices` → backfill-only, the old behavior. | Done. |
+| 3 | **Exposure-bias ceiling on Trending.** Live plays partly measure *what the app surfaced*, not pure demand. | **Server + generator SHIPPED 2026-07-24, DORMANT:** zemer-stats accepts batched `impression` events (`/stats topImpressions` = per-video distinct-device exposure) and Trending multiplies in an exposure dampener (`exposureMult`: up to a 35% dock, saturating) — no impression data → multiplier 1, ranking unchanged. **Remaining: the app must ship impression logging** (handoff doc `zemer-tracking-impression-events-request.md`, 2026-07-24); the dampener engages by itself as data flows. | App-side only. |
 | 4 | ~~**Near-duplicate guard.**~~ **SHIPPED 2026-07-19** (`harvester/dedup.mjs`, unit-pinned): every ranked list dedups on artist + variant-marker signature + normalized title, before its slice. Conservative by design — variant markers (acapella/live/etc.) and cross-artist same-titles never collapse. Zero behavior change at ship (0 dups in live data). | — | Done. |
 | 5 | **Per-genre auto lists** (e.g. "Most played — Upbeat / Kumzitz / Acapella"): same engine, narrower slices. | Product/scope decision, not a correctness gap. Wants a genre/mood tag per track or artist to slice on. | Medium. |
 | 6 | **Weight/param validation.** The loved-score weights (`backPlay/livePlay/favorite/download`), the shrinkage `PRIOR`, and the trending skip penalty are reasoned, not tuned against outcomes. | Needs enough click/play-through data to measure which weighting best predicts engagement. Revisit alongside #1. | Medium. |
-| 7 | **Spotify-style chart movement (user request, 2026-07)** — per-song ↑/↓/NEW badges on the auto playlists vs a **fixed weekly anchor** (stable all week, "chart published" feel). **The rank-history sidecar is LIVE since 2026-07-19** (orderings recorded twice daily), so history is already accumulating; remaining work: emit `prevRank`/`delta`/`new` per track on `/zemer-playlists` detail (additive) → badges in the web UI. **App shows the badges only after an app-side update** (fields will be waiting in the API; handoff doc on request, never in this repo). | Deferred by choice ("save for later"), not by data — buildable anytime; pairs naturally with #1. | Medium (recorder done; consumer + UI remain). |
+| 7 | ~~**Spotify-style chart movement**~~ **SHIPPED 2026-07-24** (`server/chart-badges.mjs`, unit-pinned): `/zemer-playlists?id=auto-*` detail rows carry additive `prevRank`/`delta`/`new` (+ `playlist.anchorDate`), computed on RAW chart ranks (viewer content filters can't fabricate movement) against a fixed weekly anchor — the first applied sidecar ordering of the last completed UTC week, rolling Sundays; young history falls back to the series start. Web UI renders ▲/▼/–/NEW on the new **Zemer Playlists** chip. **App badges still need an app-side update** (fields are waiting in the API; handoff doc on request, never in this repo). | Done (server+web). |
 
 ## Backfill ↔ live reconciliation roadmap (the long arc behind items #1/#2/#6)
 
@@ -46,8 +46,12 @@ invariant) — reconciliation happens only at the scoring layer. What evolves is
 
 ## How to revisit
 
-- **Post-Tisha-b'Av (≈2026-07-27+):** do #1 (velocity Trending) + #2 (live favorites) + #7's consumer/UI
-  together — the next real accuracy jump. #1's and #7's data recorder is already live (2026-07-19), and #2's
-  stats-server prerequisite (per-device counts on live actions) shipped 2026-07-16 — so all three are
-  generator/UI work on data that's already flowing.
-- **Only if the app ever ships impression events:** #3.
+- ~~Post-Tisha-b'Av batch (#1 + #2 + #7)~~ — **shipped together 2026-07-24**. Velocity runs in reach-mode
+  fallback until both compared windows clear the season (first clean activation ≈2026-08-06 — watch the
+  run log flip to "VELOCITY mode").
+- **When the app ships impression events** (handoff doc delivered 2026-07-24): #3's dampener engages by
+  itself — verify with the run log's "exposure dampener active" line, then consider surfacing CTR-per-surface
+  on the tracking dashboard.
+- **Next season's acapella cold-start:** this season's Three-Weeks window (1,598 plays / 97 devices, 2026)
+  is recorded in the stats DB — seed next year's `auto-acapella-top-50` initial order from it if the early
+  window is thin.

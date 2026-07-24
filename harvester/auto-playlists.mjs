@@ -43,6 +43,7 @@
 import fs from "node:fs";
 import { openCorpus, loadZemerPlaylists, applyZemerPlaylists, ZEMER_PLAYLISTS_PATH, ZEMER_PLAYLISTS_AUTO_PATH, ACAPELLA_AUTO_PATH } from "../corpus/store.mjs";
 import { dupKey, dedupRanked } from "./dedup.mjs";
+import { pickBaseline, windowCleanOfSeason, exposureMult } from "./trending.mjs";
 import { hebDate, inThreeWeeks, seasonActive } from "../corpus/season.mjs";
 
 const num = (v, d) => (Number.isFinite(+v) && +v > 0 ? +v : d); // NaN/blank/≤0 env → default (never slice(0,NaN))
@@ -57,6 +58,9 @@ const ALLTIME_DAYS = 3650; // "all the days we have" — the window just spans e
 const PRIOR = 3; // shrinkage: a 3-device song scores 0.5, small-n songs are damped, needs no max-reach
 const TREND_MIN_DEVICES = 3, TREND_MAX_SKIP = 0.5; // trending precision floor
 const TREND_SKIP_PENALTY = 0.5; // skip is a HALF-weight dampener on reach (not a full multiplier)
+// rank-history sidecar (written by recordHistory below; read here as the velocity-Trending baseline)
+const HISTORY_PATH = process.env.AUTO_HISTORY || ZEMER_PLAYLISTS_AUTO_PATH.replace(/[^/\\]+$/, "auto-playlists-history.json");
+const HISTORY_DAYS = num(process.env.HISTORY_DAYS, 60);
 
 // Signal weights for the loved-score blend. Backfill plays lead (deep + unbiased by our surfacing);
 // favorites weigh most per-listener (deliberate intent); live plays are modest + skip-penalized
@@ -176,12 +180,13 @@ if (acapellaAdded.length) console.log(`acapella: +${acapellaAdded.length} clearl
 const bpDev = new Map(), lpDev = new Map(), lpSkip = new Map(), favDev = new Map(), dlDev = new Map();
 for (const r of rows(all, "topBackfilled")) bpDev.set(r.videoId, r.devices || 0);
 for (const r of rows(all, "topPlays")) { lpDev.set(r.videoId, r.devices || 0); lpSkip.set(r.videoId, r.skipRate || 0); }
-// favorites/downloads: use the BACKFILL snapshot, which carries real distinct-DEVICE reach (`r.id` = videoId).
-// Live topActions is intentionally NOT folded in: the stats server emits only a raw event COUNT (`n`, not
-// devices) for it, and mixing a count into a device-reach score would over-rank a song one device saved many
-// times — the exact inflation the device-reach ranking exists to prevent. (Live favorites are negligible today
-// and would need per-device counts from the stats server to fold in correctly.)
-for (const r of rows(all, "topActionsBackfilled")) {
+// favorites/downloads: the BACKFILL snapshot MAX-merged with LIVE actions, both on the same distinct-
+// DEVICE-reach axis (`r.id`/`r.devices`; the stats server emits per-device counts on live topActions since
+// 2026-07-16 — before that only a raw event count existed, which could not be mixed into a reach score).
+// MAX, never sum: the overlap is TOTAL and un-dedupable from aggregates (every favorite since live tracking
+// began also lands in a later install's backfill snapshot — the stats repo's standing warning). A row from
+// an older stats server has no `devices` field → 0 → a no-op (backfill-only, the old behavior).
+for (const src of ["topActionsBackfilled", "topActions"]) for (const r of rows(all, src)) {
   const m = r.kind === "favorite" ? favDev : r.kind === "download" ? dlDev : null;
   if (m) m.set(r.id, Math.max(m.get(r.id) || 0, r.devices || 0));
 }
@@ -205,18 +210,49 @@ const loved = [...candidates].map((v) => ({
 
 const top50 = dedupRanked(loved, keyOf).slice(0, TOP_N).map((x) => x.v);
 
-// ── trending = short-window live plays, REACH-PRIMARY, skip a light quality dampener, precision-floored ─
-// A user reading "Trending" expects reach ("lots of people are playing this"), so distinct-device reach is
-// the primary sort — NOT the shrunk/saturated reach used for the loved-score (which would let a strong
-// finish-rate on a small audience beat a much larger one). Skip is a HALF-weight penalty (docks up to 50%)
-// plus the <0.5 floor, so a genuinely skipped track is demoted/removed but a popular one with some skips
-// still leads. (Velocity — reach growth week-over-week — is the truer trending signal, but needs ≥2 weeks
-// of live history; revisit once the data supports it.)
+// ── trending = short-window live plays, skip a light quality dampener, precision-floored ──────────────
+// Two ranking modes (both device-reach-based, never raw counts):
+//   VELOCITY (the default once data allows — future-plans #1): primary sort = reach GROWTH week-over-week
+//   (current window devices − the same song's devices in the sidecar snapshot nearest T−7d, floored at 0 —
+//   a new-to-chart song's full reach IS its growth). "Trending" = accelerating, not merely big: a perennial
+//   #1 with flat reach yields to a genuinely surging song. Engages ONLY when a comparable baseline exists
+//   (same window, within tolerance) AND both compared windows are fully clear of The Three Weeks
+//   (windowCleanOfSeason — the SELF-ACTIVATING seasonal guard, Hebrew-calendar-recurring: the acapella
+//   season skews both sides of a cross-season growth comparison, so velocity suspends for the season plus
+//   the following two windows every year, and re-engages on its own).
+//   REACH (the standing fallback + the velocity tiebreak): distinct-device reach — "lots of people are
+//   playing this" — NOT the shrunk/saturated reach of the loved-score (which would let a strong finish-rate
+//   on a small audience beat a much larger one). Skip is a HALF-weight penalty (docks up to 50%) plus the
+//   <0.5 floor, so a genuinely skipped track is demoted/removed but a popular one with some skips leads.
+// EXPOSURE dampener (future-plans #3): both modes multiply in exposureMult — a song the app broadly
+// SURFACED (per-device impression reach from /stats topImpressions) must out-play its exposure to trend.
+// DORMANT (multiplier 1, byte-identical ranking) until app builds ship impression events.
+const expDev = new Map();
+for (const r of rows(trend, "topImpressions")) expDev.set(r.videoId, r.devices || 0);
+const mult = expDev.size ? (v) => exposureMult(expDev.get(v) || 0) : () => 1;
+
+let velocityBase = null;
+if (windowCleanOfSeason(Date.now(), TRENDING_DAYS, inThreeWeeks)) {
+  let hist = null;
+  try { hist = JSON.parse(fs.readFileSync(HISTORY_PATH, "utf8")); } catch { /* no/corrupt sidecar → reach mode */ }
+  const cand = pickBaseline(hist?.runs, Date.now() - 7 * 86400000, TRENDING_DAYS);
+  if (cand && windowCleanOfSeason(Date.parse(cand.t), cand.trendWindowDays, inThreeWeeks)) velocityBase = cand;
+}
+const prevDev = new Map((velocityBase?.topPlays7d || []).map((r) => [r.v, r.d || 0]));
+const dampSkip = (r) => 1 - TREND_SKIP_PENALTY * clamp(r.skipRate || 0, 0, 1);
+const reachScore = (r) => (r.devices || 0) * dampSkip(r) * mult(r.videoId);
 const trendRanked = rows(trend, "topPlays")
   .filter((r) => inCorpus.has(r.videoId) && (r.devices || 0) >= TREND_MIN_DEVICES && (r.skipRate || 0) < TREND_MAX_SKIP)
-  .map((r) => ({ v: r.videoId, score: (r.devices || 0) * (1 - TREND_SKIP_PENALTY * clamp(r.skipRate || 0, 0, 1)) }))
-  .sort((a, b) => b.score - a.score);
+  .map((r) => ({
+    v: r.videoId,
+    score: velocityBase
+      ? Math.max(0, (r.devices || 0) - (prevDev.get(r.videoId) || 0)) * dampSkip(r) * mult(r.videoId)
+      : reachScore(r),
+    tie: reachScore(r), // velocity ties (incl. the flat steady-state where every Δ=0) fall back to reach order
+  }))
+  .sort((a, b) => b.score - a.score || b.tie - a.tie);
 const trendingIds = dedupRanked(trendRanked, keyOf).slice(0, TRENDING_N).map((x) => x.v);
+console.log(`trending: ${velocityBase ? `VELOCITY mode (baseline ${velocityBase.t})` : "reach mode (no clean T−7d baseline)"}${expDev.size ? `, exposure dampener active (${expDev.size} exposed ids)` : ""}`);
 
 // ── favorites = favorite-primary, download-corroborated ───────────────────────────────────────────────
 const favRanked = [...new Set([...favDev.keys(), ...dlDev.keys()])].filter((v) => inCorpus.has(v))
@@ -263,8 +299,7 @@ if (process.env.YEAR_PLAYLIST !== "0") autoBlocks.push({ id: `auto-year-${YEAR}`
 // preserved aside (never silently wiped), malformed entries are dropped instead of poisoning the filter,
 // and a `wx` lockfile makes the read-modify-write safe against an overlapping manual run. Pruned to
 // HISTORY_DAYS; each entry records its trending window so mixed-window data is detectable.
-const HISTORY_PATH = process.env.AUTO_HISTORY || ZEMER_PLAYLISTS_AUTO_PATH.replace(/[^/\\]+$/, "auto-playlists-history.json");
-const HISTORY_DAYS = num(process.env.HISTORY_DAYS, 60);
+// (HISTORY_PATH/HISTORY_DAYS are defined up top — the velocity baseline reads the same sidecar.)
 function recordHistory(appliedOk) {
   if (DRY) return;
   const lock = `${HISTORY_PATH}.lock`;

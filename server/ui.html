@@ -101,6 +101,10 @@ the Free Software Foundation, either version 3 of the License, or
   .more:hover { background:var(--surfaceContainerHigh); color:var(--onSurface); }
   .item .dur { flex:none; font-size:12px; color:var(--onSurfaceVariant); font-variant-numeric:tabular-nums;
     padding:0 2px 0 8px; white-space:nowrap; }
+  /* chart-movement badge (auto zemer playlists): ▲ climbed / ▼ fell / – flat / NEW entered this week */
+  .cb { display:inline-block; margin-right:8px; font-size:11px; font-weight:700; letter-spacing:.02em; vertical-align:1px; }
+  .cb.up { color:#81c784; } .cb.down { color:#e57373; } .cb.flat { color:var(--onSurfaceVariant); }
+  .cb.new { color:var(--primary); border:1px solid var(--primary); border-radius:6px; padding:0 4px; font-size:10px; }
   .tno { display:inline-block; min-width:1.5em; margin-right:8px; text-align:right; color:var(--onSurfaceVariant);
     font-size:12px; font-variant-numeric:tabular-nums; }
   .empty { color:var(--onSurfaceVariant); padding:48px 14px; text-align:center; font-size:14px; }
@@ -161,7 +165,7 @@ const CHECK = '<svg class="ck" viewBox="0 0 24 24"><path d="M9 16.2 4.8 12l-1.4 
 // category chips (app order, albums-first per your earlier note) + which entity each maps to
 const CATS = [
   ['all','All'], ['artists','Artists'], ['albums','Albums'], ['songs','Songs'],
-  ['singles','Singles & EPs'], ['videos','Videos'], ['playlists','Playlists'], ['community','Community'], ['new','New Releases'],
+  ['singles','Singles & EPs'], ['videos','Videos'], ['playlists','Playlists'], ['community','Community'], ['zemer','Zemer Playlists'], ['new','New Releases'],
 ];
 let sel = 'all', lastData = null, newData = null, newSel = 'all', communityData = null, newSource = null;
 
@@ -237,7 +241,16 @@ function renderChips() {
     `<div class="chip ${k===sel?'sel':''}" onclick="pick('${k}')">${k===sel?CHECK:''}${label}</div>`).join('');
 }
 const hasQuery = () => $('#q').value.trim().length >= 3;
-function pick(k) { sel = k; renderChips(); if (k === 'new') loadNew(); else if (k === 'community' && !hasQuery()) loadCommunity(); else render(); }
+function pick(k) { sel = k; renderChips(); if (k === 'new') loadNew(); else if (k === 'community' && !hasQuery()) loadCommunity(); else if (k === 'zemer') loadZemer(); else render(); }
+
+// Zemer Playlists chip — browse the curated + auto lists (no search; same shape as the app's section).
+let zemerData = null;
+async function loadZemer() {
+  closeDetail();
+  try { const d = await (await fetch('/zemer-playlists')).json(); zemerData = d.playlists || []; } catch { zemerData = []; }
+  $('#meta').textContent = `${zemerData.length} Zemer playlists`;
+  if (sel === 'zemer') render();
+}
 
 // Community chip "show all without a search" — browse every community playlist (best-populated first).
 async function loadCommunity() {
@@ -249,7 +262,7 @@ async function loadCommunity() {
 
 // ---- rows (app-style) ----
 function rowSong(t) {
-  const num = t.trackNumber ? `<span class="tno">${t.trackNumber}</span>` : '';
+  const num = t.trackNumber ? `<span class="tno">${t.trackNumber}</span>` : ''; // (zemer detail rows use rowZemerTrack)
   const plays = t.playCount!=null ? ' · ' + fmtPlays(t.playCount) : '';
   const rel = t.releaseDate ? ' · ' + fmtDate(t.releaseDate) : '';
   return row(`https://music.youtube.com/watch?v=${t.videoId}`, yt(t.videoId), false,
@@ -266,6 +279,27 @@ function rowAlbum(a) {
 }
 function rowArtist(a) { return row(`openArtist('${a.id}')`, a.thumbnail, true, esc(a.name), 'Artist', 'open'); }
 function rowPlaylist(p) { const sub = (p.artist||'Playlist') + (p.source==='community' ? (p.whitelisted!=null?` · community · ${p.whitelisted} tracks`:' · community') : ''); return row(`openPlaylist('${p.id}')`, p.thumbnail, false, esc(p.title), esc(sub), 'open'); }
+function rowZemer(p) {
+  const bits = ['Zemer playlist'];
+  if (p.trackCount) bits.push(p.trackCount + (p.trackCount==1?' song':' songs'));
+  if (p.totalDurationSec) bits.push(fmtRuntime(p.totalDurationSec));
+  return row(`openZemer('${p.id}')`, p.thumbnail, false, esc(p.title), bits.join(' · '), 'open');
+}
+// chart-movement badge (auto playlists only — prevRank/delta/new from the weekly anchor, see /zemer-playlists)
+function chartBadge(t) {
+  if (t.new) return `<span class="cb new">NEW</span>`;
+  if (t.delta > 0) return `<span class="cb up">▲${t.delta}</span>`;
+  if (t.delta < 0) return `<span class="cb down">▼${-t.delta}</span>`;
+  if (t.prevRank != null) return `<span class="cb flat">–</span>`;
+  return '';
+}
+// zemer-detail track row: chart position + movement badge, then the standard song row content
+function rowZemerTrack(t, i) {
+  const plays = t.playCount!=null ? ' · ' + fmtPlays(t.playCount) : '';
+  return row(`https://music.youtube.com/watch?v=${t.videoId}`, yt(t.videoId), false,
+    `<span class="tno">${i+1}</span>` + chartBadge(t) + esc(t.title), esc(t.artist||'') + plays, 'song',
+    fmtDur(t.durationSec));
+}
 const RENDER = { songs:rowSong, videos:rowSong, albums:rowAlbum, singles:rowAlbum, artists:rowArtist, playlists:rowPlaylist, community:rowPlaylist };
 
 function row(action, img, round, title, sub, kind, meta) {
@@ -300,6 +334,13 @@ function render() {
     if (newSel === 'all') html += nonEmpty.map(([k]) => cat(k)).join('');
     else html += (c[newSel]||[]).length ? (c[newSel]||[]).map(NEWRENDER[newSel]).join('') : `<div class="empty">None.</div>`;
     $('#results').innerHTML = html;
+    return;
+  }
+  if (sel === 'zemer') {
+    closeDetail();
+    const items = zemerData || [];
+    $('#results').innerHTML = items.length ? items.map(rowZemer).join('')
+      : `<div class="empty">No Zemer playlists yet — run <code>node harvester/zemer-playlists.mjs</code>.</div>`;
     return;
   }
   // Community chip with no active query → browse ALL community playlists (no search needed).
@@ -337,11 +378,12 @@ let timer, inflight;
 async function go() {
   closeDetail();
   const q = $('#q').value.trim();
-  if (q && sel === 'new') { sel = 'all'; renderChips(); } // typing leaves the New Releases browse view
+  if (q && (sel === 'new' || sel === 'zemer')) { sel = 'all'; renderChips(); } // typing leaves the browse-only views
   // Require ≥3 characters before searching — 1–2 char queries are too broad to be accurate.
   if (q.length < 3) {
     lastData = null;
     if (sel === 'community') return loadCommunity(); // empty box on the Community chip → show all
+    if (sel === 'zemer') return loadZemer();         // empty box on the Zemer chip → show all
     $('#results').innerHTML = q ? '<div class="empty">Keep typing — at least 3 characters.</div>' : '';
     $('#meta').textContent = ''; return;
   }
@@ -398,6 +440,16 @@ async function openAlbum(id) {
   const a = d.album;
   const sub = [a.artist, a.year, ALBUMTYPE[a.type], a.trackCount?a.trackCount+(a.trackCount==1?' song':' songs'):'', fmtRuntime(a.totalDurationSec)].filter(Boolean).join(' · ');
   pushView({ title:a.title, sub, thumb:a.thumbnail, sections:[{ key:'tracks', label:'Tracks', items:d.tracks, render:rowSong }] });
+}
+async function openZemer(id) {
+  const d = await (await fetch('/zemer-playlists?id='+encodeURIComponent(id))).json(); if (d.error) return;
+  const p = d.playlist;
+  const bits = [p.trackCount?p.trackCount+(p.trackCount==1?' song':' songs'):'', fmtRuntime(p.totalDurationSec)].filter(Boolean);
+  if (p.anchorDate) bits.push('movement since '+p.anchorDate);
+  pushView({ title:p.title, sub:bits.join(' · '), thumb:p.thumbnail, sections:[
+    { key:'tracks', label:'Tracks', items:(d.tracks||[]), render:rowZemerTrack },
+    { key:'albums', label:'Albums', items:d.albums||[], render:rowAlbum },
+  ] });
 }
 async function openPlaylist(id) {
   const d = await (await fetch('/playlist?id='+encodeURIComponent(id))).json();

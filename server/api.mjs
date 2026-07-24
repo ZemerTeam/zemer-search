@@ -24,7 +24,8 @@ import path from "node:path";
 import cluster from "node:cluster";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, BLOCKED_IDS_PATH } from "../corpus/store.mjs";
+import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, BLOCKED_IDS_PATH, ZEMER_PLAYLISTS_AUTO_PATH } from "../corpus/store.mjs";
+import { pickAnchor, applyBadges } from "./chart-badges.mjs";
 import { buildCategories, searchCategories } from "../index/categories.mjs";
 import { buildFemaleMatcher, collectFemaleVideoIds } from "../index/credits.mjs";
 import { loadDefaultSynonyms } from "../index/synonyms.mjs";
@@ -209,6 +210,22 @@ async function startServer() {
   }
   const zemerCoverUrl = (id) => `/zemer-playlists/cover?id=${encodeURIComponent(id)}`;
 
+  // Weekly chart anchor for the auto playlists' movement badges — read from the rank-history sidecar
+  // (written by harvester/auto-playlists.mjs; same path derivation). mtime-cached: the file changes at
+  // most twice a day, the anchor itself rolls weekly. Missing/corrupt sidecar → null → no badges.
+  const HISTORY_PATH = process.env.AUTO_HISTORY || ZEMER_PLAYLISTS_AUTO_PATH.replace(/[^/\\]+$/, "auto-playlists-history.json");
+  let anchorCache = { mtime: -1, v: null };
+  const chartAnchor = () => {
+    try {
+      const mtime = fs.statSync(HISTORY_PATH).mtimeMs;
+      if (mtime !== anchorCache.mtime) {
+        const runs = JSON.parse(fs.readFileSync(HISTORY_PATH, "utf8"))?.runs;
+        anchorCache = { mtime, v: pickAnchor(runs) };
+      }
+    } catch { anchorCache = { mtime: -1, v: null }; } // no sidecar (fresh box) — badges simply absent
+    return anchorCache.v;
+  };
+
   const send = (res, code, obj) => { const body = JSON.stringify(obj); res.writeHead(code, CORS); res.end(body); return body; };
   const cacheSet = (key, body) => { cache.set(key, body); if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value); };
   const CACHEABLE = new Set(["/search", "/artist", "/album", "/playlist", "/community", "/zemer-playlists"]); // /new self-caches via the feed TTL
@@ -308,6 +325,17 @@ async function startServer() {
         if (id) {
           const d = !dropId(id) && zemerPlaylistDetail(liveDb, id, cf, dropId);
           if (d) d.playlist.thumbnail = zemerCoverUrl(d.playlist.id); // generated text cover, never album art
+          if (d && id.startsWith("auto-")) {
+            // chart-movement badges (additive prevRank/delta/new per track — see server/chart-badges.mjs):
+            // current chart vs the fixed weekly anchor from the rank-history sidecar. Raw stored order on
+            // both sides, so a viewer's content filters never fabricate movement. No sidecar → no fields.
+            const anchor = chartAnchor();
+            if (anchor?.lists?.[id]) {
+              const raw = liveDb.prepare("SELECT refId FROM zemer_playlist_item WHERE playlistId=? AND kind='track' ORDER BY pos").all(id).map((r) => r.refId);
+              applyBadges(d.tracks, raw, anchor.lists[id]);
+              d.playlist.anchorDate = anchor.t.slice(0, 10); // "movement since" — for UI labeling
+            }
+          }
           return d ? cacheSet(req.url, send(res, 200, d)) : send(res, 404, { error: "playlist not found" });
         }
         const playlists = zemerPlaylistList(liveDb, cf, dropId).filter((p) => !dropId(p.id))

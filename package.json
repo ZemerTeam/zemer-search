@@ -18,7 +18,7 @@
     "playlists": "node harvester/playlists.mjs",
     "releases": "node harvester/releases.mjs",
     "maintain": "bash scripts/maintain.sh",
-    "test": "node --test index/ corpus/ harvester/",
+    "test": "node --test index/ corpus/ harvester/ server/",
     "bench": "node bench/bench.mjs",
     "relevance": "node bench/relevance.mjs",
     "category-relevance": "node bench/category-relevance.mjs",
@@ -30,7 +30,7 @@
     "build-subset": "node index/build-subset.mjs",
     "api": "node server/api.mjs",
     "deep-test": "node bench/deep-test.mjs",
-    "verify": "node --test index/ corpus/ harvester/ && node bench/audit.mjs && node bench/fuzz.mjs && node bench/deep-test.mjs"
+    "verify": "node --test index/ corpus/ harvester/ server/ && node bench/audit.mjs && node bench/fuzz.mjs && node bench/deep-test.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",
