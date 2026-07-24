@@ -69,20 +69,52 @@ test("exposureMult is ADOPTION-INVARIANT — the same share docks the same at an
   assert.equal(exposureMult(10, 20), exposureMult(500, 1000), "same share, same multiplier");
 });
 
+const SURFACES = [{ surface: "home:quick-picks", devices: 90 }, { surface: "home:new-releases", devices: 70 },
+                  { surface: "search", devices: 60 }, { surface: "artist:UC123", devices: 40 }];
+const REQ = ["home:", "search", "artist:"];
+const ok = { enabled: true, impressionDevices: 100, playDevices: 120, requiredSurfaces: REQ, surfaces: SURFACES };
+
 test("exposureGate: never auto-engages — explicit enable AND coverage, with a reason", () => {
-  const base = { impressionDevices: 100, playDevices: 120 };
-  assert.equal(exposureGate({ ...base, enabled: false }).on, false, "off unless explicitly enabled");
-  assert.match(exposureGate({ ...base, enabled: false }).reason, /EXPOSURE_DAMPENER=on/);
-  assert.equal(exposureGate({ ...base, enabled: true }).on, true, "83% coverage clears the 60% bar");
+  assert.equal(exposureGate({ ...ok, enabled: false }).on, false, "off unless explicitly enabled");
+  assert.match(exposureGate({ ...ok, enabled: false }).reason, /EXPOSURE_DAMPENER=on/);
+  assert.equal(exposureGate(ok).on, true, "83% coverage + all declared surfaces reporting");
   // partial rollout: plenty of devices, but most of the playing population isn't instrumented yet
-  const thin = exposureGate({ enabled: true, impressionDevices: 30, playDevices: 200 });
+  const thin = exposureGate({ ...ok, impressionDevices: 30, playDevices: 200 });
   assert.equal(thin.on, false, "15% coverage must not dampen");
   assert.match(thin.reason, /coverage 15%/);
   // tiny sample, even at 100% coverage
-  const tiny = exposureGate({ enabled: true, impressionDevices: 5, playDevices: 5 });
+  const tiny = exposureGate({ ...ok, impressionDevices: 5, playDevices: 5,
+                              surfaces: SURFACES.map((r) => ({ ...r, devices: 5 })) });
   assert.equal(tiny.on, false, "5 devices is not a population");
-  assert.match(tiny.reason, /need 20/);
-  assert.equal(exposureGate({ enabled: true, impressionDevices: 0, playDevices: 0 }).on, false, "no data, no divide-by-zero");
+  assert.equal(exposureGate({ ...ok, impressionDevices: 0, playDevices: 0, surfaces: [] }).on, false, "no data, no divide-by-zero");
+});
+
+test("exposureGate: DEVICE coverage alone can't open it — every DECLARED surface must be reporting", () => {
+  // the C.1 hole: home ships first, device coverage sails past 60% because every device visits home,
+  // while artist pages are still emitting nothing — songs exposed there would be docked ~0%.
+  const homeOnly = exposureGate({ ...ok, surfaces: [{ surface: "home:quick-picks", devices: 100 }] });
+  assert.equal(homeOnly.on, false, "high device coverage must NOT open the gate on partial instrumentation");
+  assert.deepEqual(homeOnly.missingSurfaces, ["search", "artist:"]);
+  assert.match(homeOnly.reason, /not reporting yet/);
+  // a declared surface present but with trivial volume is still 'not reporting'
+  const trickle = exposureGate({ ...ok, surfaces: [...SURFACES.slice(0, 3), { surface: "artist:UC1", devices: 2 }] });
+  assert.equal(trickle.on, false, "2 devices on a surface is not instrumentation");
+  assert.deepEqual(trickle.missingSurfaces, ["artist:"]);
+});
+
+test("exposureGate: no declared list = closed (a missing config can't silently reopen the hole)", () => {
+  const undeclared = exposureGate({ ...ok, requiredSurfaces: [] });
+  assert.equal(undeclared.on, false);
+  assert.match(undeclared.reason, /EXPOSURE_REQUIRED_SURFACES/);
+});
+
+test("exposureGate: a trailing ':' requirement is a PREFIX (per-section home rows all count)", () => {
+  const perRow = exposureGate({ ...ok, requiredSurfaces: ["home:", "search", "artist:"],
+    surfaces: [{ surface: "home:forgotten-favorites", devices: 55 }, { surface: "search", devices: 60 },
+               { surface: "artist:UCabc", devices: 30 }] });
+  assert.equal(perRow.on, true, "home:<section> satisfies the 'home:' requirement");
+  const exact = exposureGate({ ...ok, requiredSurfaces: ["search"], surfaces: [{ surface: "searching", devices: 99 }] });
+  assert.equal(exact.on, false, "a non-':' requirement must match exactly, not by prefix");
 });
 
 test("baselineReach: absent song floors at the snapshot minimum when the top-N cap was hit", () => {

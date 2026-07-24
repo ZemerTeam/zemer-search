@@ -238,8 +238,14 @@ const gate = exposureGate({
   enabled: process.env.EXPOSURE_DAMPENER === "on",
   impressionDevices: imprDevices,
   playDevices: trend?.window?.playDevices || 0,
+  // The surfaces the SHIPPED app version instruments, declared by the app side (comma-separated; a
+  // trailing ":" is a prefix, e.g. "home:" covers every per-section home row). Every one must actually
+  // be reporting before exposure may touch ranking — see exposureGate.
+  requiredSurfaces: (process.env.EXPOSURE_REQUIRED_SURFACES || "").split(",").map((x) => x.trim()).filter(Boolean),
+  surfaces: rows(trend, "impressionSurfaces"),
   minCoverage: Number(process.env.EXPOSURE_MIN_COVERAGE) || EXPOSURE_DEFAULTS.minCoverage,
   minDevices: Number(process.env.EXPOSURE_MIN_DEVICES) || EXPOSURE_DEFAULTS.minDevices,
+  minSurfaceDevices: Number(process.env.EXPOSURE_MIN_SURFACE_DEVICES) || EXPOSURE_DEFAULTS.minSurfaceDevices,
 });
 // cappedLookup, not a raw map: topImpressions is a LIMIT-200 list, so an absent id means "at most the
 // smallest listed exposure", never "unexposed" — else the songs just below the cutoff would be the only

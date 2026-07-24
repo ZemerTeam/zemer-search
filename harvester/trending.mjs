@@ -95,16 +95,43 @@ export function exposureMult(exposedDevices, impressionDevices, w = EXPO_W) {
 // review: an EXPLICIT enable (a permanent kill switch — never auto-engage on partial instrumentation,
 // which would penalise whichever surfaces happen to be wired first), and a minimum coverage of the
 // playing population (so a half-rolled-out client can't skew the chart). Returns a reason, for the log.
-export const EXPOSURE_DEFAULTS = { minCoverage: 0.6, minDevices: 20 };
+export const EXPOSURE_DEFAULTS = { minCoverage: 0.6, minDevices: 20, minSurfaceDevices: 10 };
+
+// Does a declared requirement match an observed surface slug? A requirement ending in ":" is a PREFIX
+// (so "home:" covers home:quick-picks, home:new-releases, … — the app names home rows per section);
+// anything else must match exactly.
+const surfaceMatches = (req, seen) => (req.endsWith(":") ? seen.startsWith(req) : seen === req);
+
 export function exposureGate({ enabled, impressionDevices = 0, playDevices = 0,
+                               requiredSurfaces = [], surfaces = [],
                                minCoverage = EXPOSURE_DEFAULTS.minCoverage,
-                               minDevices = EXPOSURE_DEFAULTS.minDevices } = {}) {
+                               minDevices = EXPOSURE_DEFAULTS.minDevices,
+                               minSurfaceDevices = EXPOSURE_DEFAULTS.minSurfaceDevices } = {}) {
   const coverage = playDevices > 0 ? impressionDevices / playDevices : 0;
   const pct = (x) => `${Math.round(x * 100)}%`;
-  if (!enabled) return { on: false, coverage, reason: "disabled (set EXPOSURE_DAMPENER=on to enable)" };
+  const no = (reason) => ({ on: false, coverage, missingSurfaces: [], reason });
+
+  if (!enabled) return no("disabled (set EXPOSURE_DAMPENER=on to enable)");
+
+  // DEVICE coverage answers rollout skew. It does NOT answer partial-SURFACE coverage: every updated
+  // device visits home, so device coverage sails past the bar while artist/mood/chart screens are still
+  // emitting nothing — and songs exposed mainly there would be docked ~0% while home-surfaced songs take
+  // the full dock. So the app DECLARES which surfaces its shipped version instruments, and every one of
+  // them must actually be present in the stream before exposure may touch ranking.
+  if (!requiredSurfaces.length)
+    return no("no declared surface list (set EXPOSURE_REQUIRED_SURFACES to the surfaces the app instruments)");
+  const seen = new Map();
+  for (const r of surfaces) if (r && r.surface) seen.set(r.surface, r.devices || 0);
+  const missing = requiredSurfaces.filter((req) =>
+    ![...seen].some(([slug, devices]) => surfaceMatches(req, slug) && devices >= minSurfaceDevices));
+  if (missing.length)
+    return { on: false, coverage, missingSurfaces: missing,
+             reason: `surface(s) not reporting yet (need ≥${minSurfaceDevices} devices each): ${missing.join(", ")}` };
+
   if (impressionDevices < minDevices)
-    return { on: false, coverage, reason: `only ${impressionDevices} impression-reporting device(s), need ${minDevices}` };
+    return no(`only ${impressionDevices} impression-reporting device(s), need ${minDevices}`);
   if (coverage < minCoverage)
-    return { on: false, coverage, reason: `coverage ${pct(coverage)} of playing devices, need ${pct(minCoverage)}` };
-  return { on: true, coverage, reason: `coverage ${pct(coverage)}, ${impressionDevices} instrumented device(s)` };
+    return no(`coverage ${pct(coverage)} of playing devices, need ${pct(minCoverage)}`);
+  return { on: true, coverage, missingSurfaces: [],
+           reason: `coverage ${pct(coverage)}, ${impressionDevices} instrumented device(s), all ${requiredSurfaces.length} declared surface(s) reporting` };
 }

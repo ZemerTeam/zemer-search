@@ -282,10 +282,15 @@ endpoint change; content filters (female/blocked/kidzone/video) are applied down
     `1 − 0.35·(exposedDevices / impressionDevices)`, so it must out-play its exposure to trend. The share
     is relative to the impression-REPORTING population, never an absolute device count: impressions come
     only from updated clients while plays come from all of them, so an absolute prior would deepen the
-    dock for weeks purely as adoption climbed. It **never auto-engages** — `exposureGate` requires an
-    explicit `EXPOSURE_DAMPENER=on` (a permanent kill switch) **and** `impressionDevices/playDevices ≥
-    EXPOSURE_MIN_COVERAGE` (default 0.6) over `EXPOSURE_MIN_DEVICES` (default 20) devices; otherwise the
-    multiplier is 1 and ranking is byte-identical. Partial instrumentation is worse than none — it would
+    dock for weeks purely as adoption climbed. It **never auto-engages** — `exposureGate` requires all
+    three of: an explicit `EXPOSURE_DAMPENER=on` (a permanent kill switch); every surface the shipped app
+    declares in `EXPOSURE_REQUIRED_SURFACES` actually reporting ≥`EXPOSURE_MIN_SURFACE_DEVICES` (default
+    10) devices (a trailing `:` is a prefix, so `home:` covers per-section rows) — **device coverage alone
+    is not enough**, since every updated device visits home while artist/mood screens may still emit
+    nothing, which would dock the instrumented surfaces and spare the rest; and
+    `impressionDevices/playDevices ≥ EXPOSURE_MIN_COVERAGE` (default 0.6) over `EXPOSURE_MIN_DEVICES`
+    (default 20) devices. An unset surface list keeps the gate CLOSED, so a missing config can't silently
+    reopen the hole. Otherwise the multiplier is 1 and ranking is byte-identical. Partial instrumentation is worse than none — it would
     dock whichever surfaces got wired first and leave the rest untouched. The run log always states which
     way it went and why.
   - **Favorites** = favorite-primary, download-corroborated (an item needs ≥1 real favorite to seed).
