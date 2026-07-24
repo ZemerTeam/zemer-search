@@ -101,11 +101,15 @@ the Free Software Foundation, either version 3 of the License, or
   .more:hover { background:var(--surfaceContainerHigh); color:var(--onSurface); }
   .item .dur { flex:none; font-size:12px; color:var(--onSurfaceVariant); font-variant-numeric:tabular-nums;
     padding:0 2px 0 8px; white-space:nowrap; }
-  /* chart-movement badge (auto zemer playlists): ▲ climbed / ▼ fell / – flat / NEW entered this week */
-  .cb { display:inline-block; margin-right:8px; font-size:11px; font-weight:700; letter-spacing:.02em; vertical-align:1px; }
-  .cb.up { color:#81c784; } .cb.down { color:#e57373; } .cb.flat { color:var(--onSurfaceVariant); }
-  .cb.new { color:var(--primary); border:1px solid var(--primary); border-radius:6px; padding:0 4px; font-size:10px; }
-  .cb.re { color:var(--onSurfaceVariant); border:1px solid var(--onSurfaceVariant); border-radius:6px; padding:0 4px; font-size:10px; }
+  /* chart position + movement (auto zemer playlists): the rank in its own column, a bare triangle above
+     for a climb and below for a fall, nothing when the song holds its place. */
+  .rankcell { flex:none; width:30px; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    line-height:1; gap:1px; margin-left:2px; }
+  .rankcell .rno { font-size:15px; font-weight:500; font-variant-numeric:tabular-nums; color:var(--onSurface); }
+  .mvi { font-size:8px; line-height:1; font-style:normal; }
+  .mvi.up { color:#81c784; } .mvi.down { color:#e57373; }
+  .cbt { font-size:8px; font-weight:700; letter-spacing:.04em; }
+  .cbt.new { color:var(--primary); } .cbt.re { color:var(--onSurfaceVariant); }
   .tno { display:inline-block; min-width:1.5em; margin-right:8px; text-align:right; color:var(--onSurfaceVariant);
     font-size:12px; font-variant-numeric:tabular-nums; }
   .empty { color:var(--onSurfaceVariant); padding:48px 14px; text-align:center; font-size:14px; }
@@ -264,12 +268,12 @@ async function loadCommunity() {
 // ---- rows (app-style) ----
 // ONE song row for every list — `prefix` is the only thing that varies (album track number, or a Zemer
 // chart position + movement badge). Keep new song-row fields here so no list silently renders less.
-function songRow(t, prefix) {
+function songRow(t, prefix, lead) {
   const plays = t.playCount!=null ? ' · ' + fmtPlays(t.playCount) : '';
   const rel = t.releaseDate ? ' · ' + fmtDate(t.releaseDate) : '';
   return row(`https://music.youtube.com/watch?v=${t.videoId}`, yt(t.videoId), false,
     (prefix||'') + esc(t.title) + (t.explicit?'<span class="e">E</span>':''), esc(t.artist||'') + plays + rel, 'song',
-    fmtDur(t.durationSec));
+    fmtDur(t.durationSec), lead);
 }
 // NOTE: rendered via .map(), which passes (item, index) — so callers must not rely on a positional 2nd arg.
 function rowSong(t) { return songRow(t, t.trackNumber ? `<span class="tno">${t.trackNumber}</span>` : ''); }
@@ -290,22 +294,36 @@ function rowZemer(p) {
   return row(`openZemer('${p.id}')`, p.thumbnail, false, esc(p.title), bits.join(' · '), 'open');
 }
 // chart-movement badge (auto playlists only — prevRank/delta/new from the weekly anchor, see /zemer-playlists)
-function chartBadge(t) {
-  if (t.new) return `<span class="cb new">NEW</span>`;
-  if (t.reentry) return `<span class="cb re">RE</span>`; // charted before, fell off, now back
-  if (t.delta > 0) return `<span class="cb up">▲${t.delta}</span>`;
-  if (t.delta < 0) return `<span class="cb down">▼${-t.delta}</span>`;
-  if (t.prevRank != null) return `<span class="cb flat">–</span>`;
-  return '';
+// Chart cell: the position in its own left column with a bare direction triangle ABOVE it for a climb
+// and BELOW it for a fall — the shape of the movement, not its magnitude. Deliberately no number and
+// nothing at all when a song holds its place: on a 50-row list a magnitude on every row is noise, and a
+// dash on every unchanged row is noise squared. The exact delta stays in the API (and in the tracking
+// dashboard's table, which is an analyst view) and in the accessible label below.
+function chartCell(rank, t) {
+  const up = t.delta > 0, down = t.delta < 0;
+  const tag = t.new ? '<span class="cbt new">NEW</span>' : t.reentry ? '<span class="cbt re">RE</span>' : '';
+  return `<span class="rankcell" title="${esc(chartLabel(rank, t))}" aria-label="${esc(chartLabel(rank, t))}">
+    ${up ? '<i class="mvi up">▲</i>' : ''}<span class="rno">${rank}</span>${down ? '<i class="mvi down">▼</i>' : ''}${tag}
+  </span>`;
+}
+// One spoken/hover string — the glyphs differ mainly by colour, so meaning must not depend on them.
+function chartLabel(rank, t) {
+  if (t.new) return `New entry at number ${rank}`;
+  if (t.reentry) return `Re-entry at number ${rank}`;
+  if (t.delta > 0) return `Up ${t.delta}, now number ${rank}`;
+  if (t.delta < 0) return `Down ${-t.delta}, now number ${rank}`;
+  if (t.prevRank != null) return `No change, number ${rank}`;
+  return `Number ${rank}`;
 }
 // zemer-detail track row = the standard song row with a chart position + movement badge prefixed
-function rowZemerTrack(t, i) { return songRow(t, `<span class="tno">${i+1}</span>` + chartBadge(t)); }
+function rowZemerTrack(t, i) { return songRow(t, '', chartCell(i + 1, t)); }
 const RENDER = { songs:rowSong, videos:rowSong, albums:rowAlbum, singles:rowAlbum, artists:rowArtist, playlists:rowPlaylist, community:rowPlaylist };
 
-function row(action, img, round, title, sub, kind, meta) {
+function row(action, img, round, title, sub, kind, meta, lead) {
   // Songs don't link out to YouTube Music — playback is in the app; show the "get the app" dialog instead.
   const tap = kind === 'song' ? 'listen()' : action;
   return `<div class="item" onclick="${tap}">
+    ${lead||''}
     <img class="thumb ${round?'round':''}" loading="lazy" src="${img||''}" onerror="this.style.visibility='hidden'">
     <div class="text"><div class="title">${title}</div><div class="sub">${sub}</div></div>
     ${meta?`<div class="dur">${meta}</div>`:''}
