@@ -44,6 +44,21 @@ invariant) — reconciliation happens only at the scoring layer. What evolves is
 - **Never:** summing counts across tables, clamping backfill timestamps into live windows, or letting
   backfill feed any windowed/live metric.
 
+## Queued — what happens next, and what triggers it
+
+Nothing here needs a decision today; each line names the **trigger** that makes it actionable, so this
+table is the thing to re-read whenever one of those fires.
+
+| What | Waiting on | Who acts |
+|------|-----------|----------|
+| **Velocity Trending activates** | Both compared windows clear of The Three Weeks — **≈2026-08-06**. Self-activating: nothing to deploy. **Verify:** the `zemer-autoplaylists` run log flips from `reach mode` to `VELOCITY mode`. | Nobody — confirm only |
+| **Exposure dampener activates (#3)** | The **app** shipping impression logging (handoff doc `zemer-tracking-impression-events-request.md`, delivered 2026-07-24). Server + generator are deployed dormant. **Verify:** the run log gains `exposure dampener active (N exposed ids)`. | App side |
+| **Chart badges in the app (#7)** | An app-side update rendering `prevRank`/`delta`/`new`, already served by `/zemer-playlists?id=auto-*`. The web UI and the tracking dashboard's **Chart movement** card (self-gating, shipped 2026-07-24) already show them. | App side |
+| **CTR per surface** | Impression data flowing (same trigger as #3). Then "shown to N devices, played by M" becomes computable per surface — a tracking-dashboard card. | Us, after #3 |
+| **Weight validation (#6)** | Enough click/play-through data to measure which weighting predicts engagement. Pairs naturally with velocity now being live. | Us |
+| **Per-genre auto lists (#5)** | A product decision + a genre/mood tag per track or artist to slice on. | You |
+| **Next season's acapella cold-start** | Next year's 17 Tammuz. This season's window (1,598 plays / 97 devices, 2026) sits in the stats DB — seed the initial order from it if the early-season window is thin. | Us, next year |
+
 ## How to revisit
 
 - ~~Post-Tisha-b'Av batch (#1 + #2 + #7)~~ — **shipped together 2026-07-24**. Velocity runs in reach-mode
