@@ -70,14 +70,41 @@ export function baselineReach(snapshotRows, cap = STATS_TOP_LIMIT) {
   return cappedLookup((Array.isArray(snapshotRows) ? snapshotRows : []).map((r) => [r?.v, r?.d || 0]), cap);
 }
 
-// Exposure dampener: 1 (no data) down to 1−EXPO_W (saturating with exposed-device reach). NOTE the
-// caller must feed it a cappedLookup over topImpressions, NOT a raw map: `topImpressions` is also a
-// LIMIT-200 list, and treating a below-cutoff song as zero exposure would leave it undocked while the
-// song one rank above it takes the full dock — a score cliff that systematically favors the unlisted.
-// EXPO_PRIOR is deliberately larger than the ranking PRIOR: a song shown to a handful of devices is
-// barely docked; only broad surfacing (home rows shown fleet-wide) approaches the full dock.
-export const EXPO_W = 0.35, EXPO_PRIOR = 10;
-export function exposureMult(exposedDevices, w = EXPO_W, prior = EXPO_PRIOR) {
-  const d = exposedDevices > 0 ? exposedDevices : 0;
-  return 1 - w * (d / (d + prior));
+// ── Exposure dampener ─────────────────────────────────────────────────────────────────────────────────
+// Dock a song by the SHARE of the instrumented audience that was shown it: 1 (shown to nobody) down to
+// 1−EXPO_W (shown to every device that reports impressions).
+//
+// The share is deliberately RELATIVE to the impression-reporting population, not an absolute device count
+// against a fixed prior. With an absolute prior the docking depth drifts upward for weeks purely as app
+// adoption climbs — impressions come only from updated clients while plays come from ALL of them — so
+// Trending would visibly churn with no change in underlying demand (the app-side rollout-skew objection,
+// 2026-07-24). A share is adoption-invariant: "half the instrumented devices saw this" means the same
+// thing at 20% adoption and at 100%.
+//
+// Feed `exposedDevices` from a cappedLookup over topImpressions, NOT a raw map: it is a LIMIT-200 list,
+// and treating a below-cutoff song as zero exposure would leave it undocked while the song one rank above
+// takes the full dock — a score cliff that systematically favors the unlisted.
+export const EXPO_W = 0.35;
+export function exposureMult(exposedDevices, impressionDevices, w = EXPO_W) {
+  if (!(impressionDevices > 0)) return 1;                       // nothing instrumented → no dampening
+  const share = Math.min(1, Math.max(0, (exposedDevices || 0) / impressionDevices));
+  return 1 - w * share;
+}
+
+// Whether exposure may influence ranking AT ALL. Two independent conditions, both from the app-side
+// review: an EXPLICIT enable (a permanent kill switch — never auto-engage on partial instrumentation,
+// which would penalise whichever surfaces happen to be wired first), and a minimum coverage of the
+// playing population (so a half-rolled-out client can't skew the chart). Returns a reason, for the log.
+export const EXPOSURE_DEFAULTS = { minCoverage: 0.6, minDevices: 20 };
+export function exposureGate({ enabled, impressionDevices = 0, playDevices = 0,
+                               minCoverage = EXPOSURE_DEFAULTS.minCoverage,
+                               minDevices = EXPOSURE_DEFAULTS.minDevices } = {}) {
+  const coverage = playDevices > 0 ? impressionDevices / playDevices : 0;
+  const pct = (x) => `${Math.round(x * 100)}%`;
+  if (!enabled) return { on: false, coverage, reason: "disabled (set EXPOSURE_DAMPENER=on to enable)" };
+  if (impressionDevices < minDevices)
+    return { on: false, coverage, reason: `only ${impressionDevices} impression-reporting device(s), need ${minDevices}` };
+  if (coverage < minCoverage)
+    return { on: false, coverage, reason: `coverage ${pct(coverage)} of playing devices, need ${pct(minCoverage)}` };
+  return { on: true, coverage, reason: `coverage ${pct(coverage)}, ${impressionDevices} instrumented device(s)` };
 }

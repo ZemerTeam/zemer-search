@@ -277,11 +277,17 @@ endpoint change; content filters (female/blocked/kidzone/video) are applied down
     (`reach·(1 − 0.5·skipRate)`) plus the `skipRate<0.5`/`devices≥3` floor — a genuinely skipped track is
     demoted/removed but a popular one with some skips still leads (unlike the loved-score's saturated
     reach, which would let a small high-finish-rate audience beat a much larger one). Backfill is frozen
-    history → excluded here by design. **Exposure dampener** (future-plans #3, DORMANT until app builds
-    ship impression events): both modes multiply in `exposureMult` — a song the app broadly SURFACED
-    (per-device impression reach from `/stats topImpressions`) is docked up to 35% (saturating,
-    `EXPO_PRIOR=10`), so it must out-play its exposure to trend; no impression data → multiplier 1,
-    byte-identical ranking.
+    history → excluded here by design. **Exposure dampener** (future-plans #3, OFF by default): a song the app
+    broadly SURFACED is docked by the **share of the instrumented audience that saw it** —
+    `1 − 0.35·(exposedDevices / impressionDevices)`, so it must out-play its exposure to trend. The share
+    is relative to the impression-REPORTING population, never an absolute device count: impressions come
+    only from updated clients while plays come from all of them, so an absolute prior would deepen the
+    dock for weeks purely as adoption climbed. It **never auto-engages** — `exposureGate` requires an
+    explicit `EXPOSURE_DAMPENER=on` (a permanent kill switch) **and** `impressionDevices/playDevices ≥
+    EXPOSURE_MIN_COVERAGE` (default 0.6) over `EXPOSURE_MIN_DEVICES` (default 20) devices; otherwise the
+    multiplier is 1 and ranking is byte-identical. Partial instrumentation is worse than none — it would
+    dock whichever surfaces got wired first and leave the rest untouched. The run log always states which
+    way it went and why.
   - **Favorites** = favorite-primary, download-corroborated (an item needs ≥1 real favorite to seed).
   - **Year of ‹Y›** (`auto-year-<Y>`) = a **dynamic year rule** (no telemetry): the store computes everything
     released this year at read time, newest first, growing with each harvest. It's emitted here so it lives in

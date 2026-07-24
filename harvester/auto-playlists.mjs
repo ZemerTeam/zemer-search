@@ -43,7 +43,7 @@
 import fs from "node:fs";
 import { openCorpus, loadZemerPlaylists, applyZemerPlaylists, ZEMER_PLAYLISTS_PATH, ZEMER_PLAYLISTS_AUTO_PATH, ACAPELLA_AUTO_PATH, AUTO_HISTORY_PATH } from "../corpus/store.mjs";
 import { dupKey, dedupRanked } from "./dedup.mjs";
-import { pickBaseline, windowCleanOfSeason, exposureMult, baselineReach, cappedLookup } from "./trending.mjs";
+import { pickBaseline, windowCleanOfSeason, exposureMult, exposureGate, EXPOSURE_DEFAULTS, baselineReach, cappedLookup } from "./trending.mjs";
 import { hebDate, inThreeWeeks, seasonActive } from "../corpus/season.mjs";
 
 const num = (v, d) => (Number.isFinite(+v) && +v > 0 ? +v : d); // NaN/blank/≤0 env → default (never slice(0,NaN))
@@ -228,12 +228,24 @@ const top50 = dedupRanked(loved, keyOf).slice(0, TOP_N).map((x) => x.v);
 // EXPOSURE dampener (future-plans #3): both modes multiply in exposureMult — a song the app broadly
 // SURFACED (per-device impression reach from /stats topImpressions) must out-play its exposure to trend.
 // DORMANT (multiplier 1, byte-identical ranking) until app builds ship impression events.
+// Exposure gating: NEVER auto-engage. Requires an explicit EXPOSURE_DAMPENER=on (a permanent kill
+// switch) AND enough of the playing population to actually report impressions — partial instrumentation
+// would dock the surfaces that happen to be wired first and leave the rest untouched, which is worse
+// than not correcting at all. Thresholds are tunable; see trending.mjs exposureGate.
 const expRows = rows(trend, "topImpressions");
+const imprDevices = trend?.window?.impressionDevices || 0;
+const gate = exposureGate({
+  enabled: process.env.EXPOSURE_DAMPENER === "on",
+  impressionDevices: imprDevices,
+  playDevices: trend?.window?.playDevices || 0,
+  minCoverage: Number(process.env.EXPOSURE_MIN_COVERAGE) || EXPOSURE_DEFAULTS.minCoverage,
+  minDevices: Number(process.env.EXPOSURE_MIN_DEVICES) || EXPOSURE_DEFAULTS.minDevices,
+});
 // cappedLookup, not a raw map: topImpressions is a LIMIT-200 list, so an absent id means "at most the
 // smallest listed exposure", never "unexposed" — else the songs just below the cutoff would be the only
 // undocked ones on the chart (the stats server's contract: absent = no data, NOT zero exposure).
-const expReach = expRows.length ? cappedLookup(expRows.map((r) => [r.videoId, r.devices || 0])) : null;
-const mult = expReach ? (v) => exposureMult(expReach(v)) : () => 1;
+const expReach = gate.on && expRows.length ? cappedLookup(expRows.map((r) => [r.videoId, r.devices || 0])) : null;
+const mult = expReach ? (v) => exposureMult(expReach(v), imprDevices) : () => 1;
 
 // the SAME gate every other seasonal path uses (seasonActive honors ACAPELLA_SEASON=on|off; the bare
 // inThreeWeeks predicate would ignore a forced season and engage velocity on exactly the skewed data
@@ -263,7 +275,7 @@ const trendRanked = rows(trend, "topPlays")
   }))
   .sort((a, b) => b.score - a.score || b.tie - a.tie);
 const trendingIds = dedupRanked(trendRanked, keyOf).slice(0, TRENDING_N).map((x) => x.v);
-console.log(`trending: ${velocityBase ? `VELOCITY mode (baseline ${velocityBase.t})` : `reach mode (no clean baseline one ${TRENDING_DAYS}d window back)`}${expRows.length ? `, exposure dampener active (${expRows.length} exposed ids)` : ""}`);
+console.log(`trending: ${velocityBase ? `VELOCITY mode (baseline ${velocityBase.t})` : `reach mode (no clean baseline one ${TRENDING_DAYS}d window back)`}${expReach ? `, exposure dampener ON — ${gate.reason}` : `, exposure dampener off — ${gate.reason}`}`);
 
 // ── favorites = favorite-primary, download-corroborated ───────────────────────────────────────────────
 const favRanked = [...new Set([...favDev.keys(), ...dlDev.keys()])].filter((v) => inCorpus.has(v))

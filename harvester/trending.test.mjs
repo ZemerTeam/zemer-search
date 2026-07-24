@@ -11,7 +11,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { seasonActive } from "../corpus/season.mjs";
-import { pickBaseline, windowCleanOfSeason, exposureMult, baselineReach, cappedLookup } from "./trending.mjs";
+import { pickBaseline, windowCleanOfSeason, exposureMult, exposureGate, baselineReach, cappedLookup } from "./trending.mjs";
 
 const D = 86400000;
 const T0 = Date.UTC(2026, 7, 10); // an arbitrary fixed "now" (no season dependence in these tests)
@@ -54,13 +54,35 @@ test("windowCleanOfSeason: clean only when NO day of the window is in season", (
   assert.equal(windowCleanOfSeason(seasonStart - 1 * D, 7, inSeason), true, "fully before the season is clean");
 });
 
-test("exposureMult: 1 with no data, saturating dock with reach, never below 1−EXPO_W", () => {
-  assert.equal(exposureMult(0), 1, "no exposure data = no dampening (dormant)");
-  assert.equal(exposureMult(-5), 1, "garbage negative = no dampening");
-  const few = exposureMult(3), many = exposureMult(1000);
-  assert.ok(few > 0.9, `3 exposed devices barely docks (got ${few})`);
-  assert.ok(many < few, "more exposure docks more");
-  assert.ok(many > 1 - 0.35 - 1e-9 && many >= 0.65, "dock saturates at EXPO_W");
+test("exposureMult: docks by SHARE of the instrumented audience, bounded by EXPO_W", () => {
+  assert.equal(exposureMult(0, 0), 1, "nothing instrumented = no dampening");
+  assert.equal(exposureMult(50, 0), 1, "no denominator = no dampening, never a divide-by-zero");
+  assert.equal(exposureMult(0, 100), 1, "shown to nobody = untouched");
+  assert.ok(Math.abs(exposureMult(50, 100) - 0.825) < 1e-9, "half the audience = half the max dock");
+  assert.ok(Math.abs(exposureMult(100, 100) - 0.65) < 1e-9, "shown to everyone = the full 35% dock");
+  assert.ok(Math.abs(exposureMult(500, 100) - 0.65) < 1e-9, "share clamps at 1 (dedup gaps can't over-dock)");
+  assert.equal(exposureMult(-5, 100), 1, "garbage negative = no dampening");
+});
+
+test("exposureMult is ADOPTION-INVARIANT — the same share docks the same at any fleet size", () => {
+  // the rollout-skew failure the absolute-prior version had: docking depth must not move with adoption
+  assert.equal(exposureMult(10, 20), exposureMult(500, 1000), "same share, same multiplier");
+});
+
+test("exposureGate: never auto-engages — explicit enable AND coverage, with a reason", () => {
+  const base = { impressionDevices: 100, playDevices: 120 };
+  assert.equal(exposureGate({ ...base, enabled: false }).on, false, "off unless explicitly enabled");
+  assert.match(exposureGate({ ...base, enabled: false }).reason, /EXPOSURE_DAMPENER=on/);
+  assert.equal(exposureGate({ ...base, enabled: true }).on, true, "83% coverage clears the 60% bar");
+  // partial rollout: plenty of devices, but most of the playing population isn't instrumented yet
+  const thin = exposureGate({ enabled: true, impressionDevices: 30, playDevices: 200 });
+  assert.equal(thin.on, false, "15% coverage must not dampen");
+  assert.match(thin.reason, /coverage 15%/);
+  // tiny sample, even at 100% coverage
+  const tiny = exposureGate({ enabled: true, impressionDevices: 5, playDevices: 5 });
+  assert.equal(tiny.on, false, "5 devices is not a population");
+  assert.match(tiny.reason, /need 20/);
+  assert.equal(exposureGate({ enabled: true, impressionDevices: 0, playDevices: 0 }).on, false, "no data, no divide-by-zero");
 });
 
 test("baselineReach: absent song floors at the snapshot minimum when the top-N cap was hit", () => {
@@ -84,7 +106,7 @@ test("cappedLookup: same cap semantics for ANY top-N list (topImpressions gets t
   assert.equal(l("id0"), 200);
   assert.equal(l("unlisted"), 1, "below-cutoff exposure is floored, not treated as unexposed");
   // the cliff this prevents: an unlisted song must not score better than the last listed one
-  assert.ok(exposureMult(l("unlisted")) <= exposureMult(l("id199")) + 1e-12);
+  assert.ok(exposureMult(l("unlisted"), 500) <= exposureMult(l("id199"), 500) + 1e-12);
   const short = cappedLookup([["a", 5]]);
   assert.equal(short("b"), 0, "an uncapped list is complete — absence really is zero");
   assert.equal(cappedLookup(null)("x"), 0);
