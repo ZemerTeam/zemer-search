@@ -1,0 +1,14 @@
+[Unit]
+Description=Date new releases daily via the residential proxy (releases.mjs -> real uploadDate)
+
+[Timer]
+Unit=zemer-dating.service
+# Daily, ~1.5h after the 03:03 shallow refresh so freshly-harvested items get dated the same night
+# (and the maintenance flock is long released). The service's ExecConditions still gate Shabbat/Yom Tov
+# and skip gracefully when the residential proxy host is unreachable.
+OnCalendar=*-*-* 04:30:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,33 @@
+[Unit]
+Description=zemer-search release dating via residential proxy (/player -> uploadDate)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# --- EDIT WorkingDirectory for your deployment (match the API's) ---
+WorkingDirectory=/opt/zemer-search
+# /player is blocked from datacenter IPs, so this unit routes through a residential forward proxy
+# (net.mjs PROXY_URL). The proxy address is deployment-private — keep it OUT of this committed unit and
+# OUT of the shared .env (other units must keep the direct path). Put it in a dedicated non-committed,
+# chmod-600 file loaded ONLY here:
+#     /opt/zemer-search/dating.env   →   PROXY_URL=http://<residential-proxy-host>:<port>
+# ("-" = a missing file is not an error: with no PROXY_URL set the probe below fails -> graceful skip)
+EnvironmentFile=-/opt/zemer-search/dating.env
+# Maintenance pace through the proxy (paced, cached, breaker-guarded — same knobs the dash job forces).
+Environment=CONCURRENCY=2
+Environment=MIN_INTERVAL_MS=500
+Nice=10
+IOSchedulingClass=idle
+# Shabbat handled IN CODE: skips any tick from 20 min before candle lighting until havdalah (Brooklyn zmanim).
+ExecCondition=/usr/bin/env node harness/shabbat.mjs
+# GRACEFUL skip (not failure) when the residential proxy host is asleep / off the tailnet: a 3s TCP probe
+# of the PROXY_URL host:port. ExecCondition exit 1 marks the run "condition failed" — the backlog simply
+# waits for the next tick.
+# ($$ = escape systemd's own ${...} expansion so bash receives the real variables)
+ExecCondition=/usr/bin/bash -c '[[ "$$PROXY_URL" =~ ^http://([^:/]+):([0-9]+) ]] && timeout 3 bash -c "</dev/tcp/$${BASH_REMATCH[1]}/$${BASH_REMATCH[2]}" 2>/dev/null || exit 1'
+# Serialize with the other corpus writers: skip politely (exit 0) if the maintenance flock is held —
+# same lock file as scripts/maintain.sh (ZEMER_LOCK); releases.mjs UPDATEs album/track uploadDate.
+ExecStart=/usr/bin/bash -c 'exec 9>"$${ZEMER_LOCK:-/tmp/zemer-maintain.lock}"; flock -n 9 || { echo "maintenance lock held - skipping this dating run"; exit 0; }; exec node harvester/releases.mjs'
+# A normal daily run dates a handful of new items (minutes); a large backlog at ~2 req/s can take a while.
+TimeoutStartSec=4h

@@ -346,7 +346,13 @@ client, which returns the exact date for uploads WEB_REMIX can't see (LOGIN_REQU
 with no WEB_REMIX microformat) — this is what lifts album/track date coverage to near-total. Knobs: `TRACKS=0` = albums only, `ALBUMS=0` =
 tracks only, `MIN_YEAR` gates albums (tracks run only at `MIN_YEAR=0`). **`/player` is blocked from datacenter
 IPs**, so this runs off-datacenter (a residential host) and the dates are shipped into the server `corpus.db`
-(the album/track upserts leave `uploadDate` untouched, so shipped dates survive re-harvest).
+(the album/track upserts leave `uploadDate` untouched, so shipped dates survive re-harvest) — **or directly on
+the server through a residential forward proxy** (`PROXY_URL` in `net.mjs`, e.g. a home CONNECT proxy over the
+tailnet): the production VPS runs `releases.mjs` **daily via `deploy/zemer-dating.timer`** (04:30 UTC, after
+the shallow refresh; Shabbat-gated; serialized on the maintenance flock; proxy address in a non-committed
+chmod-600 `dating.env` loaded only by that unit). It **fails gracefully**: a 3s TCP `ExecCondition` probe of
+the proxy host turns an asleep/off-tailnet home machine into a clean "condition unmet" skip — the undated
+backlog simply waits for the next night.
 
 This is what makes New Releases truthful: `recentAlbums`/`recentTracks` order by the real date, and `/new`
 shows **only items dated within a window** (default 10 days). Without it, ordering fell back to `harvestedAt`
@@ -354,8 +360,8 @@ shows **only items dated within a window** (default 10 days). Without it, orderi
 `LIMIT`, plus the usual `net.mjs` pacing vars. Standalone **videos** (not in an album) aren't dated yet, so
 they don't appear in the windowed view — closing that would need a `/player` per video.
 
-**The operational dating loop** (dating runs on a residential machine; the VPS can never date — four steps,
-in order, every cycle):
+**The operational dating loop** (the manual/fallback path — four steps, in order, every cycle; day-to-day
+dating is now handled by `zemer-dating.timer` above, so this loop matters when the proxy path is down):
 
 1. **Sync the local corpus FROM the VPS** — back the local copy up (`data/corpus.db.local-bak-<ts>.gz`),
    snapshot the VPS DB with `sqlite3 corpus.db ".backup …"` (WAL-safe against the live API), and replace the

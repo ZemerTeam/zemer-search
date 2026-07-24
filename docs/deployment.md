@@ -120,6 +120,22 @@ echo 'STATS_KEY=…' | sudo tee -a /opt/zemer-search/.env && sudo chmod 600 /opt
 sudo systemctl daemon-reload && sudo systemctl enable --now zemer-autoplaylists.timer             # 08:00/20:00, Shabbat-gated
 ```
 
+**Release dating** (`harvester/releases.mjs` + `zemer-dating.timer`, daily 04:30 UTC, Shabbat-gated) dates
+new releases via `/player` — which is **blocked from datacenter IPs**, so the unit routes through a
+**residential forward proxy** (`net.mjs` `PROXY_URL`, e.g. a home CONNECT proxy over the tailnet). The proxy
+address is deployment-private: keep it out of the committed unit AND out of the shared `.env` (every other
+unit must keep the direct path) — put it in a dedicated non-committed, chmod-600 `dating.env` that only this
+unit loads. The unit **fails gracefully**: a 3s TCP probe `ExecCondition` turns an unreachable proxy host
+(home machine asleep / off the tailnet) into a clean "condition unmet" skip — the backlog waits for the next
+night — and the run skips politely (exit 0) if the maintenance flock is held. Runs at maintenance pace
+through the proxy (`CONCURRENCY=2`, `MIN_INTERVAL_MS=500`); a normal night dates a handful of items.
+```bash
+sudo cp deploy/zemer-dating.service deploy/zemer-dating.timer /etc/systemd/system/   # edit WorkingDirectory
+echo 'PROXY_URL=http://<residential-proxy-host>:<port>' | sudo tee /opt/zemer-search/dating.env
+sudo chmod 600 /opt/zemer-search/dating.env                                          # private, not committed
+sudo systemctl daemon-reload && sudo systemctl enable --now zemer-dating.timer       # 04:30 UTC daily
+```
+
 **Whitelist mirror sync** (`harvester/mirror-sync.mjs` + `zemer-mirror-sync.timer`, every 10 min, Shabbat-gated)
 watches the whitelist mirror's version gate (`content.zemer.io/whitelist/version`, which advances only on a
 real content change). On a change it pulls the whitelist + `blockedContentIds` **from the mirror** (zero
