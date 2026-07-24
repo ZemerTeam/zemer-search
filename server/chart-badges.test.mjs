@@ -10,7 +10,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pickAnchor, applyBadges, chartedBefore, LEGACY_FORMULA } from "./chart-badges.mjs";
+import { pickAnchor, applyBadges, applyRanks, chartedBefore, LEGACY_FORMULA } from "./chart-badges.mjs";
 
 const D = 86400000;
 // Wed 2026-08-12 12:00 UTC → current week starts Sun Aug 9; last completed week starts Sun Aug 2.
@@ -135,4 +135,19 @@ test("legacy entries (no per-playlist formulas) still resolve, so the upgrade bl
   const legacy = run(SUN - 7 * D + 8 * 3600000);                       // neither formula nor formulas
   const alsoLegacy = run(NOW - 3600000);
   assert.equal(pickAnchor([legacy, alsoLegacy], NOW, "auto-top-50"), legacy);
+});
+
+test("applyRanks: the CHART position, not the row index — a filtered list shows gaps", () => {
+  // raw chart a,b,c,d,e; the viewer's filters removed b and d server-side
+  const tracks = [{ videoId: "a" }, { videoId: "c" }, { videoId: "e" }];
+  applyRanks(tracks, ["a", "b", "c", "d", "e"]);
+  assert.deepEqual(tracks.map((t) => t.rank), [1, 3, 5], "positions are the chart's, so the list has gaps");
+  // and the rank agrees with the delta, which is the whole point
+  applyBadges(tracks, ["a", "b", "c", "d", "e"], ["c", "b", "a", "d", "e"]);
+  const c = tracks.find((t) => t.videoId === "c");
+  assert.equal(c.rank, 3); assert.equal(c.prevRank, 1); assert.equal(c.delta, -2, "1 → 3 is down 2, consistent with rank 3");
+  // a row that isn't on the chart at all gets no rank rather than a wrong one
+  const off = [{ videoId: "zzz" }];
+  applyRanks(off, ["a"]);
+  assert.equal(off[0].rank, undefined);
 });

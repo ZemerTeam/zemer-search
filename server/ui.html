@@ -316,7 +316,9 @@ function chartLabel(rank, t) {
   return `Number ${rank}`;
 }
 // zemer-detail track row = the standard song row with a chart position + movement badge prefixed
-function rowZemerTrack(t, i) { return songRow(t, '', chartCell(i + 1, t)); }
+// `t.rank` is the position on the RAW chart; the row index is only a fallback for a list that isn't a
+// ranked chart. Using the index on a filtered list would contradict the delta ("up 5, now number 12").
+function rowZemerTrack(t, i) { return songRow(t, '', t.rank != null ? chartCell(t.rank, t) : chartCell(i + 1, t)); }
 const RENDER = { songs:rowSong, videos:rowSong, albums:rowAlbum, singles:rowAlbum, artists:rowArtist, playlists:rowPlaylist, community:rowPlaylist };
 
 function row(action, img, round, title, sub, kind, meta, lead) {

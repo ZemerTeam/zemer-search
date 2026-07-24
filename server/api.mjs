@@ -26,7 +26,7 @@ import os from "node:os";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, BLOCKED_IDS_PATH, AUTO_HISTORY_PATH } from "../corpus/store.mjs";
-import { pickAnchor, applyBadges, chartedBefore, formulaOf, chartWeek } from "./chart-badges.mjs";
+import { pickAnchor, applyBadges, applyRanks, chartedBefore, formulaOf, chartWeek } from "./chart-badges.mjs";
 import { buildCategories, searchCategories } from "../index/categories.mjs";
 import { buildFemaleMatcher, collectFemaleVideoIds } from "../index/credits.mjs";
 import { loadDefaultSynonyms } from "../index/synonyms.mjs";
@@ -361,12 +361,14 @@ async function startServer() {
           const d = !dropId(id) && zemerPlaylistDetail(liveDb, id, cf, dropId);
           if (d) d.playlist.thumbnail = zemerCoverUrl(d.playlist.id); // generated text cover, never album art
           if (d && id.startsWith("auto-")) {
-            // chart-movement badges (additive prevRank/delta/new per track — see server/chart-badges.mjs):
-            // current chart vs the fixed weekly anchor from the rank-history sidecar. Raw stored order on
-            // both sides, so a viewer's content filters never fabricate movement. No sidecar → no fields.
+            // `rank` = the position on the RAW stored chart, emitted whenever an ordering exists (a
+            // filtered response's row index is NOT the chart position). Then the chart-movement badges
+            // (additive prevRank/delta/new/reentry) against the fixed weekly anchor from the rank-history
+            // sidecar — raw order on both sides, so filters never fabricate movement. No sidecar → no badges.
+            const raw = liveDb.prepare("SELECT refId FROM zemer_playlist_item WHERE playlistId=? AND kind='track' ORDER BY pos").all(id).map((r) => r.refId);
+            if (raw.length) applyRanks(d.tracks, raw);
             const anchor = chartAnchor(id);
-            if (anchor?.lists?.[id]) {
-              const raw = liveDb.prepare("SELECT refId FROM zemer_playlist_item WHERE playlistId=? AND kind='track' ORDER BY pos").all(id).map((r) => r.refId);
+            if (raw.length && anchor?.lists?.[id]) {
               // everCharted separates a first-ever entry (`new`) from a song returning (`reentry`)
               applyBadges(d.tracks, raw, anchor.lists[id],
                 chartedBefore(anchorCache.runs, id, Date.parse(anchor.t), formulaOf(anchor, id)));

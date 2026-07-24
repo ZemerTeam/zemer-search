@@ -98,6 +98,19 @@ export function chartedBefore(runs, playlistId, anchorMs, formula) {
   return seen;
 }
 
+// Stamp each row with its 1-based position on the RAW chart. Separate from the movement badges because
+// it is knowable whenever the chart has a stored ordering, anchor or not — and because the row's index in
+// a response is NOT the chart position: content filters remove rows server-side, so a filtered viewer's
+// 3rd row can be the chart's 7th. Displaying the index next to a delta measured on the raw chart produces
+// "up 5, now number 12", which is self-contradictory. A filtered list therefore shows GAPS (1, 2, 4, 7) —
+// a chart position is not a line number, and the gaps are the filter being visible rather than hidden.
+export function applyRanks(tracks, curOrder) {
+  if (!Array.isArray(tracks) || !Array.isArray(curOrder)) return tracks;
+  const cur = new Map(curOrder.map((v, i) => [v, i + 1]));
+  for (const t of tracks) { const r = cur.get(t.videoId); if (r) t.rank = r; }
+  return tracks;
+}
+
 // Annotate `tracks` (the detail rows, possibly content-filtered) with prevRank/delta/new/reentry for ONE
 // playlist. `curOrder`/`prevOrder` = the RAW videoId orderings (current stored chart / anchor chart).
 // delta > 0 = climbed. `everCharted` (optional, from chartedBefore) splits an absent-from-anchor song into
