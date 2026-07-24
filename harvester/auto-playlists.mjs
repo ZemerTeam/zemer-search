@@ -54,6 +54,14 @@ const STATS_KEY = process.env.STATS_KEY || "";
 const TOP_N = num(process.env.TOP_N, 50);
 const TRENDING_N = num(process.env.TRENDING_N, 25);
 const TRENDING_DAYS = num(process.env.TRENDING_DAYS, 7);
+// Exposure is measured over a DELIBERATELY LONGER window than the ranking window. Exposure and rank feed
+// each other — a song ranks high, so we show it at the top of a chart, so it accrues exposure from that
+// placement, so it is docked harder, so it ranks lower, so it is shown less… That loop is negative
+// (self-stabilising, and exactly the correction the dampener exists to make), but if exposure tracked the
+// same 7-day window as the ranking it could OSCILLATE with a period near the weekly badge anchor: a song
+// near the docking threshold would show ▲6 one week and ▼6 the next with no change in real demand. A
+// slow-moving exposure estimate damps that: rank can move week to week while exposure barely does.
+const EXPOSURE_DAYS = num(process.env.EXPOSURE_DAYS, 28);
 const FAV_N = num(process.env.FAV_N, 30);
 const ALLTIME_DAYS = 3650; // "all the days we have" — the window just spans everything since launch
 const PRIOR = 3; // shrinkage: a 3-device song scores 0.5, small-n songs are damped, needs no max-reach
@@ -233,17 +241,25 @@ const top50 = dedupRanked(loved, keyOf).slice(0, TOP_N).map((x) => x.v);
 // switch) AND enough of the playing population to actually report impressions — partial instrumentation
 // would dock the surfaces that happen to be wired first and leave the rest untouched, which is worse
 // than not correcting at all. Thresholds are tunable; see trending.mjs exposureGate.
-const expRows = rows(trend, "topImpressions");
-const imprDevices = trend?.window?.impressionDevices || 0;
+// Exposure comes from its OWN longer window (see EXPOSURE_DAYS) — fetched only when the dampener is
+// enabled, since it is dormant otherwise. A failure here disables dampening for this run rather than
+// aborting: exposure is a refinement, and losing it must never cost the playlists a regeneration.
+let expWin = null;
+if (process.env.EXPOSURE_DAMPENER === "on") {
+  try { expWin = await fetchStats(EXPOSURE_DAYS); }
+  catch (e) { console.warn(`auto-playlists: exposure window fetch failed (${e.message}) — dampener off this run.`); }
+}
+const expRows = rows(expWin, "topImpressions");
+const imprDevices = expWin?.window?.impressionDevices || 0;
 const gate = exposureGate({
-  enabled: process.env.EXPOSURE_DAMPENER === "on",
+  enabled: process.env.EXPOSURE_DAMPENER === "on" && !!expWin,
   impressionDevices: imprDevices,
-  playDevices: trend?.window?.playDevices || 0,
+  playDevices: expWin?.window?.playDevices || 0, // same window as the numerator — a coherent share
   // The surfaces the SHIPPED app version instruments, declared by the app side (comma-separated; a
   // trailing ":" is a prefix, e.g. "home:" covers every per-section home row). Every one must actually
   // be reporting before exposure may touch ranking — see exposureGate.
   requiredSurfaces: (process.env.EXPOSURE_REQUIRED_SURFACES || "").split(",").map((x) => x.trim()).filter(Boolean),
-  surfaces: rows(trend, "impressionSurfaces"),
+  surfaces: rows(expWin, "impressionSurfaces"),
   minCoverage: Number(process.env.EXPOSURE_MIN_COVERAGE) || EXPOSURE_DEFAULTS.minCoverage,
   minDevices: Number(process.env.EXPOSURE_MIN_DEVICES) || EXPOSURE_DEFAULTS.minDevices,
   minSurfaceDevices: Number(process.env.EXPOSURE_MIN_SURFACE_DEVICES) || EXPOSURE_DEFAULTS.minSurfaceDevices,
@@ -285,7 +301,7 @@ const trendingIds = dedupRanked(trendRanked, keyOf).slice(0, TRENDING_N).map((x)
 // Signature of the ranking formula behind THIS run — recorded with the ordering so the chart-movement
 // badges never compare across a formula change (they reset instead). See server/chart-badges.mjs.
 const RANK_FORMULA = `${velocityBase ? "velocity" : "reach"}${expReach ? "+exposure" : ""}`;
-console.log(`trending: ${velocityBase ? `VELOCITY mode (baseline ${velocityBase.t})` : `reach mode (no clean baseline one ${TRENDING_DAYS}d window back)`}${expReach ? `, exposure dampener ON — ${gate.reason}` : `, exposure dampener off — ${gate.reason}`}`);
+console.log(`trending: ${velocityBase ? `VELOCITY mode (baseline ${velocityBase.t})` : `reach mode (no clean baseline one ${TRENDING_DAYS}d window back)`}${expReach ? `, exposure dampener ON (${EXPOSURE_DAYS}d exposure window) — ${gate.reason}` : `, exposure dampener off — ${gate.reason}`}`);
 
 // ── favorites = favorite-primary, download-corroborated ───────────────────────────────────────────────
 const favRanked = [...new Set([...favDev.keys(), ...dlDev.keys()])].filter((v) => inCorpus.has(v))

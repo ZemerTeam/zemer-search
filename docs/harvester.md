@@ -290,7 +290,14 @@ endpoint change; content filters (female/blocked/kidzone/video) are applied down
     nothing, which would dock the instrumented surfaces and spare the rest; and
     `impressionDevices/playDevices ≥ EXPOSURE_MIN_COVERAGE` (default 0.6) over `EXPOSURE_MIN_DEVICES`
     (default 20) devices. An unset surface list keeps the gate CLOSED, so a missing config can't silently
-    reopen the hole. Otherwise the multiplier is 1 and ranking is byte-identical. Partial instrumentation is worse than none — it would
+    reopen the hole. Otherwise the multiplier is 1 and ranking is byte-identical.
+    Exposure is measured over its **own longer window** (`EXPOSURE_DAYS`, default 28 — fetched only when
+    the dampener is enabled, and a failure there disables dampening for the run rather than aborting it):
+    exposure and rank feed each other (rank high → shown on a chart → more exposure → docked harder →
+    rank lower → shown less …), which is the intended *negative* feedback, but on a matched 7-day window
+    it could oscillate with a period near the weekly badge anchor — a song showing ▲6 one week and ▼6 the
+    next with no change in real demand. A slow exposure estimate lets rank move while exposure barely
+    does. The gate's coverage and surface checks read the same window, so the share stays coherent. Partial instrumentation is worse than none — it would
     dock whichever surfaces got wired first and leave the rest untouched. The run log always states which
     way it went and why.
   - **Favorites** = favorite-primary, download-corroborated (an item needs ≥1 real favorite to seed).
