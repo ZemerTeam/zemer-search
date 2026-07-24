@@ -48,6 +48,10 @@ import { hebDate, inThreeWeeks, seasonActive } from "../corpus/season.mjs";
 import { LEGACY_FORMULA } from "../server/chart-badges.mjs";
 
 const num = (v, d) => (Number.isFinite(+v) && +v > 0 ? +v : d); // NaN/blank/≤0 env → default (never slice(0,NaN))
+// Same, but 0 is a MEANINGFUL value (e.g. "require no coverage at all" during a staged rollout). Only
+// blank/NaN/negative fall back — `Number(x) || d` would silently swallow a deliberate 0 AND let a
+// negative through, which for a threshold means the check can never fire.
+const num0 = (v, d) => (Number.isFinite(+v) && +v >= 0 && String(v).trim() !== "" ? +v : d);
 const DRY = process.env.DRY === "1";
 const STATS_URL = (process.env.STATS_URL || "").replace(/\/+$/, "");
 const STATS_KEY = process.env.STATS_KEY || "";
@@ -252,7 +256,9 @@ if (process.env.EXPOSURE_DAMPENER === "on") {
 const expRows = rows(expWin, "topImpressions");
 const imprDevices = expWin?.window?.impressionDevices || 0;
 const gate = exposureGate({
-  enabled: process.env.EXPOSURE_DAMPENER === "on" && !!expWin,
+  enabled: process.env.EXPOSURE_DAMPENER === "on",
+  // a fetch failure is NOT "the flag isn't set" — saying so sends the operator debugging the deployment
+  unavailable: process.env.EXPOSURE_DAMPENER === "on" && !expWin ? `exposure window (${EXPOSURE_DAYS}d) unavailable this run` : null,
   impressionDevices: imprDevices,
   playDevices: expWin?.window?.playDevices || 0, // same window as the numerator — a coherent share
   // The surfaces the SHIPPED app version instruments, declared by the app side (comma-separated; a
@@ -260,9 +266,9 @@ const gate = exposureGate({
   // be reporting before exposure may touch ranking — see exposureGate.
   requiredSurfaces: (process.env.EXPOSURE_REQUIRED_SURFACES || "").split(",").map((x) => x.trim()).filter(Boolean),
   surfaces: rows(expWin, "impressionSurfaces"),
-  minCoverage: Number(process.env.EXPOSURE_MIN_COVERAGE) || EXPOSURE_DEFAULTS.minCoverage,
-  minDevices: Number(process.env.EXPOSURE_MIN_DEVICES) || EXPOSURE_DEFAULTS.minDevices,
-  minSurfaceDevices: Number(process.env.EXPOSURE_MIN_SURFACE_DEVICES) || EXPOSURE_DEFAULTS.minSurfaceDevices,
+  minCoverage: num0(process.env.EXPOSURE_MIN_COVERAGE, EXPOSURE_DEFAULTS.minCoverage),
+  minDevices: num0(process.env.EXPOSURE_MIN_DEVICES, EXPOSURE_DEFAULTS.minDevices),
+  minSurfaceDevices: num0(process.env.EXPOSURE_MIN_SURFACE_DEVICES, EXPOSURE_DEFAULTS.minSurfaceDevices),
 });
 // cappedLookup, not a raw map: topImpressions is a LIMIT-200 list, so an absent id means "at most the
 // smallest listed exposure", never "unexposed" — else the songs just below the cutoff would be the only
@@ -300,7 +306,16 @@ const trendRanked = rows(trend, "topPlays")
 const trendingIds = dedupRanked(trendRanked, keyOf).slice(0, TRENDING_N).map((x) => x.v);
 // Signature of the ranking formula behind THIS run — recorded with the ordering so the chart-movement
 // badges never compare across a formula change (they reset instead). See server/chart-badges.mjs.
-const RANK_FORMULA = `${velocityBase ? "velocity" : "reach"}${expReach ? "+exposure" : ""}`;
+// One signature PER LIST, covering the knobs that determine that list's ORDER (not its length, and not
+// the acapella window's day count, which grows by design). Trending's mode never touches the others.
+const LOVED_SIG = `loved|b${W.backPlay},l${W.livePlay},f${W.favorite},d${W.download}|prior${PRIOR}`;
+const RANK_FORMULAS = {
+  "auto-top-50": LOVED_SIG,
+  "auto-favorites": `fav|f${W.favorite},d${W.download}|prior${PRIOR}`,
+  "auto-trending": `trend|${velocityBase ? "velocity" : "reach"}|${expReach ? `expo${EXPOSURE_DAYS}` : "noexpo"}`
+    + `|win${TRENDING_DAYS}|skip${TREND_SKIP_PENALTY}/${TREND_MAX_SKIP}|min${TREND_MIN_DEVICES}`,
+  "auto-acapella-top-50": `acap|skip${TREND_SKIP_PENALTY}|min1`,
+};
 console.log(`trending: ${velocityBase ? `VELOCITY mode (baseline ${velocityBase.t})` : `reach mode (no clean baseline one ${TRENDING_DAYS}d window back)`}${expReach ? `, exposure dampener ON (${EXPOSURE_DAYS}d exposure window) — ${gate.reason}` : `, exposure dampener off — ${gate.reason}`}`);
 
 // ── favorites = favorite-primary, download-corroborated ───────────────────────────────────────────────
@@ -381,13 +396,19 @@ function recordHistory(appliedOk) {
       hist.runs = hist.runs.filter((r) => r && typeof r.t === "string" && Date.parse(r.t) >= cutoff);
       // Stamp pre-existing entries with the formula that actually produced them: everything recorded
       // before this field existed used reach-primary ranking with no exposure dampening.
-      for (const r of hist.runs) if (r && typeof r.formula !== "string") r.formula = LEGACY_FORMULA;
+      // Stamp older entries with THIS run's signatures. Valid because the stamp happens at a moment when
+      // the ranking configuration hasn't changed — the same reasoning as the original legacy stamp below —
+      // and it avoids a badge blackout purely from introducing the field.
+      for (const r of hist.runs) {
+        if (r && typeof r.formula !== "string") r.formula = LEGACY_FORMULA;
+        if (r && !r.formulas) r.formulas = RANK_FORMULAS;
+      }
       hist.runs.push({
         t: new Date().toISOString(),
         applied: !!appliedOk, // false = the raw reach below is real, but the orderings were NOT served
         // The ranking formula behind this ordering. Movement badges may only compare like with like —
         // a formula change resets the baseline instead of rendering as a screenful of fake surges.
-        formula: RANK_FORMULA,
+        formulas: RANK_FORMULAS,
         trendWindowDays: TRENDING_DAYS, // the window topPlays rows below were measured over
         // lists only when the apply succeeded (or no-op'd): badges must never anchor on an unserved chart.
         ...(appliedOk ? { lists: Object.fromEntries(autoBlocks.filter((b) => b.videoIds).map((b) => [b.id, b.videoIds])) } : {}),

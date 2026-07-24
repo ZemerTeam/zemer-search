@@ -26,7 +26,7 @@ import os from "node:os";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, BLOCKED_IDS_PATH, AUTO_HISTORY_PATH } from "../corpus/store.mjs";
-import { pickAnchor, applyBadges, chartedBefore, chartWeek } from "./chart-badges.mjs";
+import { pickAnchor, applyBadges, chartedBefore, formulaOf, chartWeek } from "./chart-badges.mjs";
 import { buildCategories, searchCategories } from "../index/categories.mjs";
 import { buildFemaleMatcher, collectFemaleVideoIds } from "../index/credits.mjs";
 import { loadDefaultSynonyms } from "../index/synonyms.mjs";
@@ -109,26 +109,33 @@ async function startServer() {
   // would re-run the full index rebuild (~3s of blocking CPU over the whole corpus) and wipe every warm
   // /search entry twice a day for nothing — so instead this evicts ONLY the /zemer-playlists responses,
   // which are the only ones carrying badge data.
-  let anchorCache = { key: "", v: null, runs: null }, lastBadgeSig = null;
+  let anchorCache = { key: "", runs: null }, lastBadgeSig = null;
   function refreshBadges() {
     let hi = 0; try { hi = fs.statSync(HISTORY_PATH).mtimeMs; } catch { /* no sidecar → badges absent */ }
     const bsig = `${hi}:${chartWeek(Date.now())}`;
     if (bsig === lastBadgeSig) return;
     lastBadgeSig = bsig;
-    anchorCache = { key: "", v: null, runs: null };
+    anchorCache = { key: "", runs: null };
     for (const k of cache.keys()) if (k.startsWith("/zemer-playlists")) cache.delete(k);
   }
   // The anchor: the sidecar's last-completed-week ordering. Cached on (mtime, chart week) — the same two
   // inputs as the eviction above, so a hit here can never outlive its cached responses.
-  const chartAnchor = () => {
+  const chartAnchor = (playlistId) => {
     try {
       const key = `${fs.statSync(HISTORY_PATH).mtimeMs}:${chartWeek(Date.now())}`;
       if (key !== anchorCache.key) {
-        const runs = JSON.parse(fs.readFileSync(HISTORY_PATH, "utf8"))?.runs;
-        anchorCache = { key, v: pickAnchor(runs), runs };
+        const parsed = JSON.parse(fs.readFileSync(HISTORY_PATH, "utf8"))?.runs;
+        // Keep ONLY the fields the badges read. Each run also carries a topPlays7d reach snapshot ~4x the
+        // size of its orderings, which the API never touches — retaining the whole 60-day file per worker
+        // would be megabytes of dead heap held until the next sidecar write.
+        const runs = (Array.isArray(parsed) ? parsed : []).map((r) =>
+          (r && typeof r === "object" ? { t: r.t, applied: r.applied, formula: r.formula, formulas: r.formulas, lists: r.lists } : r));
+        anchorCache = { key, runs };
       }
-    } catch { anchorCache = { key: "", v: null, runs: null }; } // no/corrupt sidecar — badges simply absent
-    return anchorCache.v;
+    } catch { anchorCache = { key: "", runs: null }; } // no/corrupt sidecar — badges simply absent
+    // The anchor is chosen PER PLAYLIST: each chart carries its own ranking-formula signature, so one
+    // chart's formula change must not blank another's badges.
+    return pickAnchor(anchorCache.runs, Date.now(), playlistId);
   };
   let cats, indexedCount = 0, indexedAt = 0, whitelistTotal = 0;
   let lastSig = null;
@@ -357,11 +364,12 @@ async function startServer() {
             // chart-movement badges (additive prevRank/delta/new per track — see server/chart-badges.mjs):
             // current chart vs the fixed weekly anchor from the rank-history sidecar. Raw stored order on
             // both sides, so a viewer's content filters never fabricate movement. No sidecar → no fields.
-            const anchor = chartAnchor();
+            const anchor = chartAnchor(id);
             if (anchor?.lists?.[id]) {
               const raw = liveDb.prepare("SELECT refId FROM zemer_playlist_item WHERE playlistId=? AND kind='track' ORDER BY pos").all(id).map((r) => r.refId);
               // everCharted separates a first-ever entry (`new`) from a song returning (`reentry`)
-              applyBadges(d.tracks, raw, anchor.lists[id], chartedBefore(anchorCache.runs, id, Date.parse(anchor.t)));
+              applyBadges(d.tracks, raw, anchor.lists[id],
+                chartedBefore(anchorCache.runs, id, Date.parse(anchor.t), formulaOf(anchor, id)));
               d.playlist.anchorDate = anchor.t.slice(0, 10); // "movement since" — for UI labeling
             }
           }

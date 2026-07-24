@@ -30,8 +30,17 @@
 // A formula change therefore RESETS the baseline — badges simply disappear until a full week of
 // same-formula history exists again. Runs recorded before this field existed were all produced by the
 // original reach-primary, no-exposure formula, hence the legacy default.
+// Signatures are PER PLAYLIST. A global signature would tie every chart to Trending's mode: a single
+// missed run (Shabbat gate, a /stats blip) drops Trending to its reach fallback, and Top 50 / Favorites /
+// Acapella — whose ranking that mode never touches — would lose their badges too, for days. It must also
+// cover the ordering KNOBS, not just the mode, or retuning a weight reshuffles a chart while the signature
+// stays put and the change renders as a page of fake ▲/▼.
 export const LEGACY_FORMULA = "reach";
-const formulaOf = (r) => (r && typeof r.formula === "string" ? r.formula : LEGACY_FORMULA);
+export const formulaOf = (r, playlistId = null) => {
+  if (playlistId && r && r.formulas && typeof r.formulas === "object" && typeof r.formulas[playlistId] === "string")
+    return r.formulas[playlistId];
+  return r && typeof r.formula === "string" ? r.formula : LEGACY_FORMULA; // pre-per-playlist entries
+};
 
 const WEEK = 7 * 86400000;
 const MIN_FALLBACK_ANCHOR_MS = 2 * 86400000; // youngest usable "since the series began" baseline
@@ -46,15 +55,15 @@ const weekStart = chartWeek;
 // → the anchor run ({t, lists, …}) or null. `runs` = the sidecar's runs array (untrusted shape).
 // Only runs produced by the CURRENT formula are eligible (see above) — the current formula being that of
 // the most recent applied run.
-export function pickAnchor(runs, nowMs = Date.now()) {
+export function pickAnchor(runs, nowMs = Date.now(), playlistId = null) {
   const all = (Array.isArray(runs) ? runs : [])
     .filter((r) => r && r.applied && r.lists && typeof r.lists === "object" && typeof r.t === "string")
     .map((r) => ({ r, ms: Date.parse(r.t) }))
     .filter((x) => Number.isFinite(x.ms) && x.ms <= nowMs)
     .sort((a, b) => a.ms - b.ms);
   if (!all.length) return null;
-  const current = formulaOf(all[all.length - 1].r);
-  const valid = all.filter((x) => formulaOf(x.r) === current);
+  const current = formulaOf(all[all.length - 1].r, playlistId);
+  const valid = all.filter((x) => formulaOf(x.r, playlistId) === current);
   if (!valid.length) return null;
   const cur = weekStart(nowMs);
   // last completed week first, then older weeks (bounded by the sidecar's own retention)
@@ -71,16 +80,20 @@ export function pickAnchor(runs, nowMs = Date.now()) {
   return nowMs - oldest.ms >= MIN_FALLBACK_ANCHOR_MS ? oldest.r : null;
 }
 
-// Every videoId that has EVER charted on this playlist strictly before the anchor, under the current
-// formula — the input that separates a first-time entry from a song returning to the chart.
-export function chartedBefore(runs, playlistId, anchorMs) {
+// Every videoId that has EVER charted on this playlist strictly before the anchor, under the SAME formula
+// as the anchor itself — the input that separates a first-time entry from a song returning to the chart.
+// `formula` is passed in (the anchor's own) rather than re-derived: deriving it here from a differently
+// filtered/ordered view of the same array could silently disagree with pickAnchor's choice, which would
+// empty this set and quietly turn every re-entry back into a "new entry".
+export function chartedBefore(runs, playlistId, anchorMs, formula) {
   const seen = new Set();
-  const all = (Array.isArray(runs) ? runs : []).filter((r) => r && r.applied && r.lists);
-  const current = formulaOf(all.length ? all[all.length - 1] : null);
-  for (const r of all) {
+  for (const r of Array.isArray(runs) ? runs : []) {
+    if (!r || !r.applied || !r.lists || typeof r.lists !== "object" || typeof r.t !== "string") continue;
     const t = Date.parse(r.t);
-    if (!Number.isFinite(t) || t >= anchorMs || formulaOf(r) !== current) continue;
-    for (const v of r.lists[playlistId] || []) seen.add(v);
+    if (!Number.isFinite(t) || t >= anchorMs || formulaOf(r, playlistId) !== formula) continue;
+    const list = r.lists[playlistId];
+    if (!Array.isArray(list)) continue; // a hand-edited/truncated sidecar must degrade, never throw a 500
+    for (const v of list) seen.add(v);
   }
   return seen;
 }

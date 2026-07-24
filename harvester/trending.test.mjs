@@ -155,3 +155,16 @@ test("velocity guard honors a FORCED season (ACAPELLA_SEASON), not just the cale
     assert.equal(windowCleanOfSeason(Date.UTC(2026, 6, 20), 7, gate), true, "forced OFF = always clean, even mid-Three-Weeks");
   } finally { if (prev === undefined) delete process.env.ACAPELLA_SEASON; else process.env.ACAPELLA_SEASON = prev; }
 });
+
+test("exposureGate: a failed exposure fetch says so, instead of blaming the env var", () => {
+  const g = exposureGate({ ...ok, unavailable: "exposure window (28d) unavailable this run" });
+  assert.equal(g.on, false);
+  assert.match(g.reason, /unavailable this run/);
+  assert.doesNotMatch(g.reason, /EXPOSURE_DAMPENER/, "must not send the operator debugging the deployment");
+});
+
+test("exposureGate: duplicate surface rows MAX-merge, never last-one-wins", () => {
+  const dup = exposureGate({ ...ok, requiredSurfaces: ["artist:"],
+    surfaces: [{ surface: "artist:UC1", devices: 40 }, { surface: "artist:UC1", devices: 8 }] });
+  assert.equal(dup.on, true, "40 devices is the truth; the trailing 8-device row must not hide it");
+});

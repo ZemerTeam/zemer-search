@@ -102,7 +102,7 @@ export const EXPOSURE_DEFAULTS = { minCoverage: 0.6, minDevices: 20, minSurfaceD
 // anything else must match exactly.
 const surfaceMatches = (req, seen) => (req.endsWith(":") ? seen.startsWith(req) : seen === req);
 
-export function exposureGate({ enabled, impressionDevices = 0, playDevices = 0,
+export function exposureGate({ enabled, unavailable = null, impressionDevices = 0, playDevices = 0,
                                requiredSurfaces = [], surfaces = [],
                                minCoverage = EXPOSURE_DEFAULTS.minCoverage,
                                minDevices = EXPOSURE_DEFAULTS.minDevices,
@@ -112,6 +112,9 @@ export function exposureGate({ enabled, impressionDevices = 0, playDevices = 0,
   const no = (reason) => ({ on: false, coverage, missingSurfaces: [], reason });
 
   if (!enabled) return no("disabled (set EXPOSURE_DAMPENER=on to enable)");
+  // Enabled but the data isn't there this run — say THAT, not "the flag isn't set", or the operator goes
+  // looking for a deployment problem that doesn't exist.
+  if (unavailable) return no(unavailable);
 
   // DEVICE coverage answers rollout skew. It does NOT answer partial-SURFACE coverage: every updated
   // device visits home, so device coverage sails past the bar while artist/mood/chart screens are still
@@ -120,8 +123,12 @@ export function exposureGate({ enabled, impressionDevices = 0, playDevices = 0,
   // them must actually be present in the stream before exposure may touch ranking.
   if (!requiredSurfaces.length)
     return no("no declared surface list (set EXPOSURE_REQUIRED_SURFACES to the surfaces the app instruments)");
+  // MAX-merge duplicate slugs rather than last-one-wins: if /stats ever returns a surface twice (a shard
+  // merge, a per-version split), keeping the last row could report 8 devices for a surface that actually
+  // has 48 and hold the gate shut forever while the dashboard says otherwise.
   const seen = new Map();
-  for (const r of surfaces) if (r && r.surface) seen.set(r.surface, r.devices || 0);
+  for (const r of surfaces) if (r && r.surface)
+    seen.set(r.surface, Math.max(seen.get(r.surface) || 0, r.devices || 0));
   const missing = requiredSurfaces.filter((req) =>
     ![...seen].some(([slug, devices]) => surfaceMatches(req, slug) && devices >= minSurfaceDevices));
   if (missing.length)
