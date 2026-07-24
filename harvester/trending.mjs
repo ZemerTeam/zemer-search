@@ -57,14 +57,23 @@ export function windowCleanOfSeason(endMs, windowDays, inSeason) {
 // SMALLEST reach actually observed in the snapshot as a conservative ceiling. An uncapped snapshot
 // (fewer rows than the cap) is complete — absence there genuinely means zero.
 export const STATS_TOP_LIMIT = 200;
+// entries = [[id, reach], …] from a top-N /stats list. Absent id → the smallest reach in the list when
+// the list is cap-sized (it may simply rank below the cutoff), else 0 (the list is complete).
+export function cappedLookup(entries, cap = STATS_TOP_LIMIT) {
+  const rows = (Array.isArray(entries) ? entries : []).filter((e) => Array.isArray(e));
+  const map = new Map(rows.map(([id, n]) => [id, n || 0]));
+  const floor = rows.length >= cap ? Math.min(...rows.map(([, n]) => n || 0)) : 0;
+  return (id) => (map.has(id) ? map.get(id) : floor);
+}
+// the velocity baseline: sidecar topPlays7d rows ({v, d, …}) → same cap semantics
 export function baselineReach(snapshotRows, cap = STATS_TOP_LIMIT) {
-  const rows = Array.isArray(snapshotRows) ? snapshotRows : [];
-  const map = new Map(rows.map((r) => [r?.v, r?.d || 0]));
-  const floor = rows.length >= cap ? Math.min(...rows.map((r) => r?.d || 0)) : 0;
-  return (videoId) => (map.has(videoId) ? map.get(videoId) : floor);
+  return cappedLookup((Array.isArray(snapshotRows) ? snapshotRows : []).map((r) => [r?.v, r?.d || 0]), cap);
 }
 
-// Exposure dampener: 1 (no data / unexposed) down to 1−EXPO_W (saturating with exposed-device reach).
+// Exposure dampener: 1 (no data) down to 1−EXPO_W (saturating with exposed-device reach). NOTE the
+// caller must feed it a cappedLookup over topImpressions, NOT a raw map: `topImpressions` is also a
+// LIMIT-200 list, and treating a below-cutoff song as zero exposure would leave it undocked while the
+// song one rank above it takes the full dock — a score cliff that systematically favors the unlisted.
 // EXPO_PRIOR is deliberately larger than the ranking PRIOR: a song shown to a handful of devices is
 // barely docked; only broad surfacing (home rows shown fleet-wide) approaches the full dock.
 export const EXPO_W = 0.35, EXPO_PRIOR = 10;

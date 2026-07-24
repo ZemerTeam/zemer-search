@@ -133,7 +133,9 @@ exact dark surfaces/typography from `zemer-app`'s `Theme.kt`/`Dimensions.kt`):
 `PORT` (7700), `HOST` (`0.0.0.0`; set `127.0.0.1` in production behind a reverse proxy / Cloudflare tunnel
 so the port isn't exposed), `WORKERS` (1 | a number | `auto`), `RELOAD_MS` (30000), `CACHE_MAX` (5000),
 `CORPUS_DB`, `REL_FLOOR` (matcher precision floor, 0.4), `RELEASES_FEED` (New Releases feed URL),
-`FEED_TTL_MS` (feed cache, 300000). See [deployment.md](deployment.md).
+`FEED_TTL_MS` (feed cache, 300000), `AUTO_HISTORY` (rank-history sidecar — the chart-badge anchor; the
+auto-playlists generator reads the SAME path, resolved once in `corpus/store.mjs`, so an override must be
+set for **both** units or the badges silently disappear). See [deployment.md](deployment.md).
 (The `/playlist` endpoint does a live **unauthenticated** browse — no cookie.)
 
 **Reload is change-gated:** the `RELOAD_MS` tick only rebuilds the in-memory index when `corpus.db`

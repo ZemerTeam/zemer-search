@@ -426,6 +426,11 @@ export const ZEMER_PLAYLISTS_PATH = process.env.ZEMER_PLAYLISTS || path.resolve(
 // the hand-curated source-of-truth file stays pristine + committed (deploy = `git pull` never conflicts).
 // harvester/auto-playlists.mjs regenerates it on a timer; loadZemerPlaylists() MERGES it in (auto first).
 export const ZEMER_PLAYLISTS_AUTO_PATH = process.env.ZEMER_PLAYLISTS_AUTO || path.resolve(HERE, "../data/zemer-playlists-auto.json");
+// Rank-history sidecar (written by harvester/auto-playlists.mjs, read by the API for the chart-movement
+// badges). Exported HERE, not derived in each consumer: the writer and the reader are separate systemd
+// units with different environments, so a duplicated derivation lets AUTO_HISTORY/ZEMER_PLAYLISTS_AUTO
+// reach one and not the other — the badges would then silently vanish with nothing logged.
+export const AUTO_HISTORY_PATH = process.env.AUTO_HISTORY || ZEMER_PLAYLISTS_AUTO_PATH.replace(/[^/\\]+$/, "auto-playlists-history.json");
 // Auto-discovered, CLEARLY-LABELED acapella tracks (videoIds) — recent releases whose title unambiguously
 // says acapella/vocal-version, found by harvester/auto-playlists.mjs. Gitignored + VPS-local so the committed
 // curated file stays pristine; folded into the curated `acapella` playlist here so both the browsable playlist

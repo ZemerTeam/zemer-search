@@ -41,9 +41,9 @@
 //   STATS_URL=… STATS_KEY=… node harvester/auto-playlists.mjs        # generate + apply
 //   DRY=1 …                                                          # print what it would write, no write
 import fs from "node:fs";
-import { openCorpus, loadZemerPlaylists, applyZemerPlaylists, ZEMER_PLAYLISTS_PATH, ZEMER_PLAYLISTS_AUTO_PATH, ACAPELLA_AUTO_PATH } from "../corpus/store.mjs";
+import { openCorpus, loadZemerPlaylists, applyZemerPlaylists, ZEMER_PLAYLISTS_PATH, ZEMER_PLAYLISTS_AUTO_PATH, ACAPELLA_AUTO_PATH, AUTO_HISTORY_PATH } from "../corpus/store.mjs";
 import { dupKey, dedupRanked } from "./dedup.mjs";
-import { pickBaseline, windowCleanOfSeason, exposureMult, baselineReach } from "./trending.mjs";
+import { pickBaseline, windowCleanOfSeason, exposureMult, baselineReach, cappedLookup } from "./trending.mjs";
 import { hebDate, inThreeWeeks, seasonActive } from "../corpus/season.mjs";
 
 const num = (v, d) => (Number.isFinite(+v) && +v > 0 ? +v : d); // NaN/blank/≤0 env → default (never slice(0,NaN))
@@ -58,8 +58,9 @@ const ALLTIME_DAYS = 3650; // "all the days we have" — the window just spans e
 const PRIOR = 3; // shrinkage: a 3-device song scores 0.5, small-n songs are damped, needs no max-reach
 const TREND_MIN_DEVICES = 3, TREND_MAX_SKIP = 0.5; // trending precision floor
 const TREND_SKIP_PENALTY = 0.5; // skip is a HALF-weight dampener on reach (not a full multiplier)
-// rank-history sidecar (written by recordHistory below; read here as the velocity-Trending baseline)
-const HISTORY_PATH = process.env.AUTO_HISTORY || ZEMER_PLAYLISTS_AUTO_PATH.replace(/[^/\\]+$/, "auto-playlists-history.json");
+// rank-history sidecar (written by recordHistory below; read here as the velocity-Trending baseline).
+// Path comes from corpus/store.mjs so the API (the badge reader) and this writer can never diverge.
+const HISTORY_PATH = AUTO_HISTORY_PATH;
 const HISTORY_DAYS = num(process.env.HISTORY_DAYS, 60);
 
 // Signal weights for the loved-score blend. Backfill plays lead (deep + unbiased by our surfacing);
@@ -227,16 +228,26 @@ const top50 = dedupRanked(loved, keyOf).slice(0, TOP_N).map((x) => x.v);
 // EXPOSURE dampener (future-plans #3): both modes multiply in exposureMult — a song the app broadly
 // SURFACED (per-device impression reach from /stats topImpressions) must out-play its exposure to trend.
 // DORMANT (multiplier 1, byte-identical ranking) until app builds ship impression events.
-const expDev = new Map();
-for (const r of rows(trend, "topImpressions")) expDev.set(r.videoId, r.devices || 0);
-const mult = expDev.size ? (v) => exposureMult(expDev.get(v) || 0) : () => 1;
+const expRows = rows(trend, "topImpressions");
+// cappedLookup, not a raw map: topImpressions is a LIMIT-200 list, so an absent id means "at most the
+// smallest listed exposure", never "unexposed" — else the songs just below the cutoff would be the only
+// undocked ones on the chart (the stats server's contract: absent = no data, NOT zero exposure).
+const expReach = expRows.length ? cappedLookup(expRows.map((r) => [r.videoId, r.devices || 0])) : null;
+const mult = expReach ? (v) => exposureMult(expReach(v)) : () => 1;
 
+// the SAME gate every other seasonal path uses (seasonActive honors ACAPELLA_SEASON=on|off; the bare
+// inThreeWeeks predicate would ignore a forced season and engage velocity on exactly the skewed data
+// the guard exists to exclude).
+const inSeason = (d) => seasonActive("three-weeks", d);
 let velocityBase = null;
-if (windowCleanOfSeason(Date.now(), TRENDING_DAYS, inThreeWeeks)) {
+if (windowCleanOfSeason(Date.now(), TRENDING_DAYS, inSeason)) {
   let hist = null;
   try { hist = JSON.parse(fs.readFileSync(HISTORY_PATH, "utf8")); } catch { /* no/corrupt sidecar → reach mode */ }
-  const cand = pickBaseline(hist?.runs, Date.now() - 7 * 86400000, TRENDING_DAYS);
-  if (cand && windowCleanOfSeason(Date.parse(cand.t), cand.trendWindowDays, inThreeWeeks)) velocityBase = cand;
+  // one FULL window back, not a hardcoded 7 days: at the default TRENDING_DAYS=7 these are identical,
+  // but a changed window would otherwise overlap itself (double-counting a surge into a Δ of ~0) or
+  // leave an unobserved gap between the compared windows.
+  const cand = pickBaseline(hist?.runs, Date.now() - TRENDING_DAYS * 86400000, TRENDING_DAYS);
+  if (cand && windowCleanOfSeason(Date.parse(cand.t), cand.trendWindowDays, inSeason)) velocityBase = cand;
 }
 const prevReach = baselineReach(velocityBase?.topPlays7d);
 const dampSkip = (r) => 1 - TREND_SKIP_PENALTY * clamp(r.skipRate || 0, 0, 1);
@@ -252,7 +263,7 @@ const trendRanked = rows(trend, "topPlays")
   }))
   .sort((a, b) => b.score - a.score || b.tie - a.tie);
 const trendingIds = dedupRanked(trendRanked, keyOf).slice(0, TRENDING_N).map((x) => x.v);
-console.log(`trending: ${velocityBase ? `VELOCITY mode (baseline ${velocityBase.t})` : "reach mode (no clean T−7d baseline)"}${expDev.size ? `, exposure dampener active (${expDev.size} exposed ids)` : ""}`);
+console.log(`trending: ${velocityBase ? `VELOCITY mode (baseline ${velocityBase.t})` : `reach mode (no clean baseline one ${TRENDING_DAYS}d window back)`}${expRows.length ? `, exposure dampener active (${expRows.length} exposed ids)` : ""}`);
 
 // ── favorites = favorite-primary, download-corroborated ───────────────────────────────────────────────
 const favRanked = [...new Set([...favDev.keys(), ...dlDev.keys()])].filter((v) => inCorpus.has(v))

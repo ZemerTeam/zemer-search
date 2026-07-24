@@ -261,14 +261,17 @@ async function loadCommunity() {
 }
 
 // ---- rows (app-style) ----
-function rowSong(t) {
-  const num = t.trackNumber ? `<span class="tno">${t.trackNumber}</span>` : ''; // (zemer detail rows use rowZemerTrack)
+// ONE song row for every list — `prefix` is the only thing that varies (album track number, or a Zemer
+// chart position + movement badge). Keep new song-row fields here so no list silently renders less.
+function songRow(t, prefix) {
   const plays = t.playCount!=null ? ' · ' + fmtPlays(t.playCount) : '';
   const rel = t.releaseDate ? ' · ' + fmtDate(t.releaseDate) : '';
   return row(`https://music.youtube.com/watch?v=${t.videoId}`, yt(t.videoId), false,
-    num + esc(t.title) + (t.explicit?'<span class="e">E</span>':''), esc(t.artist||'') + plays + rel, 'song',
+    (prefix||'') + esc(t.title) + (t.explicit?'<span class="e">E</span>':''), esc(t.artist||'') + plays + rel, 'song',
     fmtDur(t.durationSec));
 }
+// NOTE: rendered via .map(), which passes (item, index) — so callers must not rely on a positional 2nd arg.
+function rowSong(t) { return songRow(t, t.trackNumber ? `<span class="tno">${t.trackNumber}</span>` : ''); }
 const ALBUMTYPE = { single:'Single', ep:'EP', album:'Album' };
 function rowAlbum(a) {
   const bits = [esc(a.artist)];
@@ -293,13 +296,8 @@ function chartBadge(t) {
   if (t.prevRank != null) return `<span class="cb flat">–</span>`;
   return '';
 }
-// zemer-detail track row: chart position + movement badge, then the standard song row content
-function rowZemerTrack(t, i) {
-  const plays = t.playCount!=null ? ' · ' + fmtPlays(t.playCount) : '';
-  return row(`https://music.youtube.com/watch?v=${t.videoId}`, yt(t.videoId), false,
-    `<span class="tno">${i+1}</span>` + chartBadge(t) + esc(t.title), esc(t.artist||'') + plays, 'song',
-    fmtDur(t.durationSec));
-}
+// zemer-detail track row = the standard song row with a chart position + movement badge prefixed
+function rowZemerTrack(t, i) { return songRow(t, `<span class="tno">${i+1}</span>` + chartBadge(t)); }
 const RENDER = { songs:rowSong, videos:rowSong, albums:rowAlbum, singles:rowAlbum, artists:rowArtist, playlists:rowPlaylist, community:rowPlaylist };
 
 function row(action, img, round, title, sub, kind, meta) {

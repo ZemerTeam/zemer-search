@@ -10,7 +10,8 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pickBaseline, windowCleanOfSeason, exposureMult, baselineReach } from "./trending.mjs";
+import { seasonActive } from "../corpus/season.mjs";
+import { pickBaseline, windowCleanOfSeason, exposureMult, baselineReach, cappedLookup } from "./trending.mjs";
 
 const D = 86400000;
 const T0 = Date.UTC(2026, 7, 10); // an arbitrary fixed "now" (no season dependence in these tests)
@@ -75,4 +76,28 @@ test("baselineReach: an UNCAPPED snapshot is complete — absence really means z
   assert.equal(r("a"), 9);
   assert.equal(r("zzz"), 0);
   assert.equal(baselineReach(undefined)("anything"), 0, "no snapshot at all → zero, never NaN");
+});
+
+test("cappedLookup: same cap semantics for ANY top-N list (topImpressions gets the floor too)", () => {
+  const capped = Array.from({ length: 200 }, (_, i) => [`id${i}`, 200 - i]); // min = 1
+  const l = cappedLookup(capped);
+  assert.equal(l("id0"), 200);
+  assert.equal(l("unlisted"), 1, "below-cutoff exposure is floored, not treated as unexposed");
+  // the cliff this prevents: an unlisted song must not score better than the last listed one
+  assert.ok(exposureMult(l("unlisted")) <= exposureMult(l("id199")) + 1e-12);
+  const short = cappedLookup([["a", 5]]);
+  assert.equal(short("b"), 0, "an uncapped list is complete — absence really is zero");
+  assert.equal(cappedLookup(null)("x"), 0);
+});
+
+test("velocity guard honors a FORCED season (ACAPELLA_SEASON), not just the calendar", () => {
+  // the generator passes (d) => seasonActive("three-weeks", d); prove the forced states propagate
+  const prev = process.env.ACAPELLA_SEASON;
+  try {
+    process.env.ACAPELLA_SEASON = "on";
+    const gate = (d) => seasonActive("three-weeks", d);
+    assert.equal(windowCleanOfSeason(Date.UTC(2026, 0, 15), 7, gate), false, "forced ON = never clean → velocity suspended");
+    process.env.ACAPELLA_SEASON = "off";
+    assert.equal(windowCleanOfSeason(Date.UTC(2026, 6, 20), 7, gate), true, "forced OFF = always clean, even mid-Three-Weeks");
+  } finally { if (prev === undefined) delete process.env.ACAPELLA_SEASON; else process.env.ACAPELLA_SEASON = prev; }
 });

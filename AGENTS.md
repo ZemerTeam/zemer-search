@@ -71,7 +71,7 @@ node harvester/releases.mjs                                   # date releases vi
 #      in one transaction; verify the undated counts drop and /new reflects the new dates on its next reload.
 scripts/maintain.sh shallow|deep                             # orchestrate whitelist+blocked-ids→onboard→prune→refresh (flock; cron/systemd; shallow daily / deep weekly)
 DRY=1 node harvester/mirror-sync.mjs                         # preview: watch content.zemer.io, on a whitelist change onboard new artists + prune + refresh blocked-ids (mirror-sourced, no Firestore); runs live every 10 min via zemer-mirror-sync.timer (Shabbat-gated)
-npm test                                                      # unit tests (index/ + corpus/ + harvester/)
+npm test                                                      # unit tests (index/ + corpus/ + harvester/ + server/)
 npm run verify                                                # FULL accuracy gate: test + audit + fuzz + deep-test (must stay green)
 npm run relevance | category-relevance | audit | fuzz | deep-test   # individual measurement harnesses (offline)
 npm run api                                                   # HTTP API + web UI on :7700  (WORKERS=auto to cluster)

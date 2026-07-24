@@ -21,6 +21,7 @@ the first server-side harvest free.
 | `WORKERS` | 1 | API | `auto` = one worker per core (production); a number; 1 for dev. |
 | `RELOAD_MS` | 30000 | API | In-memory index rebuild interval. |
 | `CACHE_MAX` | 5000 | API | LRU query-cache size. |
+| `AUTO_HISTORY` | `data/auto-playlists-history.json` | API + auto-playlists | Rank-history sidecar (velocity baseline + chart-badge anchor). If overridden it must be set for **both** the API service and the auto-playlists unit — otherwise writer and reader diverge and the badges vanish. |
 | `REL_FLOOR` | 0.4 | matcher | Precision floor (drop results below this fraction of the top score). |
 | `CONCURRENCY` | 1 | net | Max live requests in flight. **1 = single-flight.** `maintain.sh` sets 5. Higher = faster, still rate-capped. |
 | `MIN_INTERVAL_MS` / `JITTER_MS` | 900 / 500 | net | Min gap + jitter between live request **starts** (the aggregate-rate cap). `maintain.sh` sets 200/200 (~3 req/s with concurrency 5). |
