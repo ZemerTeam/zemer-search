@@ -25,7 +25,7 @@ import cluster from "node:cluster";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, BLOCKED_IDS_PATH, ZEMER_PLAYLISTS_AUTO_PATH } from "../corpus/store.mjs";
-import { pickAnchor, applyBadges } from "./chart-badges.mjs";
+import { pickAnchor, applyBadges, chartWeek } from "./chart-badges.mjs";
 import { buildCategories, searchCategories } from "../index/categories.mjs";
 import { buildFemaleMatcher, collectFemaleVideoIds } from "../index/credits.mjs";
 import { loadDefaultSynonyms } from "../index/synonyms.mjs";
@@ -40,6 +40,9 @@ const RELOAD_MS = Number(process.env.RELOAD_MS || 30000);
 const RELEASES_FEED = process.env.RELEASES_FEED || "https://api.flipphoneguy.duckdns.org/zemer/recent-releases.json";
 const FEED_TTL_MS = Number(process.env.FEED_TTL_MS || 300000); // ~5 min
 const CACHE_MAX = Number(process.env.CACHE_MAX || 5000);
+// rank-history sidecar (written by harvester/auto-playlists.mjs; same path derivation) — the source of
+// the auto playlists' chart-movement badges. Module scope: the reload change-gate stats it (below).
+const HISTORY_PATH = process.env.AUTO_HISTORY || ZEMER_PLAYLISTS_AUTO_PATH.replace(/[^/\\]+$/, "auto-playlists-history.json");
 // WORKERS=0/"auto" → one per core; default 1 (dev). Production: set to the core count.
 const WORKERS = process.env.WORKERS === "auto" ? os.availableParallelism() : Number(process.env.WORKERS || 1);
 const CORS = { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json; charset=utf-8" };
@@ -106,7 +109,11 @@ async function startServer() {
       const a = fs.statSync(DB_PATH);
       let w = 0; try { w = fs.statSync(DB_PATH + "-wal").mtimeMs; } catch { /* no -wal */ }
       let bi = 0; try { bi = fs.statSync(BLOCKED_IDS_PATH).mtimeMs; } catch { /* no blocked-ids.json */ }
-      sig = `${a.mtimeMs}:${a.size}:${w}:${bi}`; // a fresh override fetch (its own timer) re-applies on the next tick
+      // the rank-history sidecar is in the gate too: the chart-movement badges (and the weekly anchor
+      // rollover) change WITHOUT any corpus write — an auto-playlists run whose lists are unchanged
+      // appends history but leaves corpus.db alone, so without this the LRU would serve stale badges.
+      let hi = 0; try { hi = fs.statSync(HISTORY_PATH).mtimeMs; } catch { /* no sidecar */ }
+      sig = `${a.mtimeMs}:${a.size}:${w}:${bi}:${hi}`; // a fresh override fetch (its own timer) re-applies on the next tick
     } catch { /* stat failed → fall through and rebuild */ }
     if (!force && sig && sig === lastSig) return indexedCount; // unchanged → keep the current index
     const tracks = allTracks(liveDb);
@@ -210,19 +217,19 @@ async function startServer() {
   }
   const zemerCoverUrl = (id) => `/zemer-playlists/cover?id=${encodeURIComponent(id)}`;
 
-  // Weekly chart anchor for the auto playlists' movement badges — read from the rank-history sidecar
-  // (written by harvester/auto-playlists.mjs; same path derivation). mtime-cached: the file changes at
-  // most twice a day, the anchor itself rolls weekly. Missing/corrupt sidecar → null → no badges.
-  const HISTORY_PATH = process.env.AUTO_HISTORY || ZEMER_PLAYLISTS_AUTO_PATH.replace(/[^/\\]+$/, "auto-playlists-history.json");
-  let anchorCache = { mtime: -1, v: null };
+  // Weekly chart anchor for the auto playlists' movement badges — read from the rank-history sidecar.
+  // Cached on (file mtime, current chart week): the file changes twice a day, and the anchor also rolls
+  // on its own every Sunday with no file change at all, so the week must be part of the key. Missing or
+  // corrupt sidecar → null → no badge fields at all.
+  let anchorCache = { key: "", v: null };
   const chartAnchor = () => {
     try {
-      const mtime = fs.statSync(HISTORY_PATH).mtimeMs;
-      if (mtime !== anchorCache.mtime) {
+      const key = `${fs.statSync(HISTORY_PATH).mtimeMs}:${chartWeek(Date.now())}`;
+      if (key !== anchorCache.key) {
         const runs = JSON.parse(fs.readFileSync(HISTORY_PATH, "utf8"))?.runs;
-        anchorCache = { mtime, v: pickAnchor(runs) };
+        anchorCache = { key, v: pickAnchor(runs) };
       }
-    } catch { anchorCache = { mtime: -1, v: null }; } // no sidecar (fresh box) — badges simply absent
+    } catch { anchorCache = { key: "", v: null }; } // no sidecar (fresh box) — badges simply absent
     return anchorCache.v;
   };
 

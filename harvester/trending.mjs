@@ -51,6 +51,19 @@ export function windowCleanOfSeason(endMs, windowDays, inSeason) {
   return true;
 }
 
+// A baseline snapshot is the stats server's TOP-N list (LIMIT 200), so a song's ABSENCE from it is
+// ambiguous once the cap is hit: it may have had zero reach, or simply ranked below the cutoff. Treating
+// absence as 0 would inflate a below-cutoff song's growth into a fake surge, so absent songs get the
+// SMALLEST reach actually observed in the snapshot as a conservative ceiling. An uncapped snapshot
+// (fewer rows than the cap) is complete — absence there genuinely means zero.
+export const STATS_TOP_LIMIT = 200;
+export function baselineReach(snapshotRows, cap = STATS_TOP_LIMIT) {
+  const rows = Array.isArray(snapshotRows) ? snapshotRows : [];
+  const map = new Map(rows.map((r) => [r?.v, r?.d || 0]));
+  const floor = rows.length >= cap ? Math.min(...rows.map((r) => r?.d || 0)) : 0;
+  return (videoId) => (map.has(videoId) ? map.get(videoId) : floor);
+}
+
 // Exposure dampener: 1 (no data / unexposed) down to 1−EXPO_W (saturating with exposed-device reach).
 // EXPO_PRIOR is deliberately larger than the ranking PRIOR: a song shown to a handful of devices is
 // barely docked; only broad surfacing (home rows shown fleet-wide) approaches the full dock.

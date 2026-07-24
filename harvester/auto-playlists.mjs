@@ -43,7 +43,7 @@
 import fs from "node:fs";
 import { openCorpus, loadZemerPlaylists, applyZemerPlaylists, ZEMER_PLAYLISTS_PATH, ZEMER_PLAYLISTS_AUTO_PATH, ACAPELLA_AUTO_PATH } from "../corpus/store.mjs";
 import { dupKey, dedupRanked } from "./dedup.mjs";
-import { pickBaseline, windowCleanOfSeason, exposureMult } from "./trending.mjs";
+import { pickBaseline, windowCleanOfSeason, exposureMult, baselineReach } from "./trending.mjs";
 import { hebDate, inThreeWeeks, seasonActive } from "../corpus/season.mjs";
 
 const num = (v, d) => (Number.isFinite(+v) && +v > 0 ? +v : d); // NaN/blank/≤0 env → default (never slice(0,NaN))
@@ -238,7 +238,7 @@ if (windowCleanOfSeason(Date.now(), TRENDING_DAYS, inThreeWeeks)) {
   const cand = pickBaseline(hist?.runs, Date.now() - 7 * 86400000, TRENDING_DAYS);
   if (cand && windowCleanOfSeason(Date.parse(cand.t), cand.trendWindowDays, inThreeWeeks)) velocityBase = cand;
 }
-const prevDev = new Map((velocityBase?.topPlays7d || []).map((r) => [r.v, r.d || 0]));
+const prevReach = baselineReach(velocityBase?.topPlays7d);
 const dampSkip = (r) => 1 - TREND_SKIP_PENALTY * clamp(r.skipRate || 0, 0, 1);
 const reachScore = (r) => (r.devices || 0) * dampSkip(r) * mult(r.videoId);
 const trendRanked = rows(trend, "topPlays")
@@ -246,7 +246,7 @@ const trendRanked = rows(trend, "topPlays")
   .map((r) => ({
     v: r.videoId,
     score: velocityBase
-      ? Math.max(0, (r.devices || 0) - (prevDev.get(r.videoId) || 0)) * dampSkip(r) * mult(r.videoId)
+      ? Math.max(0, (r.devices || 0) - prevReach(r.videoId)) * dampSkip(r) * mult(r.videoId)
       : reachScore(r),
     tie: reachScore(r), // velocity ties (incl. the flat steady-state where every Δ=0) fall back to reach order
   }))

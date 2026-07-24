@@ -262,7 +262,11 @@ endpoint change; content filters (female/blocked/kidzone/video) are applied down
     **VELOCITY** (the default once data allows — shipped 2026-07-24): primary sort = reach GROWTH
     week-over-week — current-window distinct devices minus the same song's devices in the rank-history
     sidecar snapshot nearest T−7d (`pickBaseline`: same `trendWindowDays` only, ≤48h miss tolerance),
-    floored at 0; a new-to-chart song's full reach IS its growth. "Trending" = accelerating, not merely
+    floored at 0; a new-to-chart song's full reach IS its growth. A snapshot is the stats server's TOP-200
+    list, so once that cap is hit a song's ABSENCE from the baseline is ambiguous (zero reach, or merely
+    below the cutoff) — absent songs are therefore floored at the snapshot's SMALLEST observed reach
+    (`baselineReach`), never 0, so a below-cutoff song can't fake a full-reach surge; an uncapped snapshot
+    is complete, and absence there really does mean zero. "Trending" = accelerating, not merely
     big — a perennial #1 with flat reach yields to a genuinely surging song; ties (incl. the all-flat
     steady state) fall back to reach order. **Self-activating seasonal guard** (`windowCleanOfSeason`):
     velocity engages only when BOTH compared windows lie fully outside The Three Weeks — the acapella

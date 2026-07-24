@@ -24,10 +24,13 @@
 // row positions — a filtered-out member must not shift everyone below it into fake movement.
 
 const WEEK = 7 * 86400000;
-const weekStart = (ms) => { // most recent Sunday 00:00 UTC at/before ms
+// most recent Sunday 00:00 UTC at/before ms — the chart week. Exported so the API can key its anchor
+// cache on it: the anchor rolls over every Sunday WITHOUT any file change, so mtime alone is not enough.
+export const chartWeek = (ms) => {
   const d = new Date(ms);
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - d.getUTCDay() * 86400000;
 };
+const weekStart = chartWeek;
 
 // → the anchor run ({t, lists, …}) or null. `runs` = the sidecar's runs array (untrusted shape).
 export function pickAnchor(runs, nowMs = Date.now()) {

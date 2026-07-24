@@ -10,7 +10,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pickBaseline, windowCleanOfSeason, exposureMult } from "./trending.mjs";
+import { pickBaseline, windowCleanOfSeason, exposureMult, baselineReach } from "./trending.mjs";
 
 const D = 86400000;
 const T0 = Date.UTC(2026, 7, 10); // an arbitrary fixed "now" (no season dependence in these tests)
@@ -60,4 +60,19 @@ test("exposureMult: 1 with no data, saturating dock with reach, never below 1−
   assert.ok(few > 0.9, `3 exposed devices barely docks (got ${few})`);
   assert.ok(many < few, "more exposure docks more");
   assert.ok(many > 1 - 0.35 - 1e-9 && many >= 0.65, "dock saturates at EXPO_W");
+});
+
+test("baselineReach: absent song floors at the snapshot minimum when the top-N cap was hit", () => {
+  const capped = Array.from({ length: 200 }, (_, i) => ({ v: `id${i}`, d: 200 - i })); // min d = 1
+  const r = baselineReach(capped);
+  assert.equal(r("id0"), 200, "present songs read their recorded reach");
+  assert.equal(r("id199"), 1);
+  assert.equal(r("never-listed"), 1, "below-cutoff song assumed at the cutoff, not 0 (no fake surge)");
+});
+
+test("baselineReach: an UNCAPPED snapshot is complete — absence really means zero", () => {
+  const r = baselineReach([{ v: "a", d: 9 }, { v: "b", d: 4 }]);
+  assert.equal(r("a"), 9);
+  assert.equal(r("zzz"), 0);
+  assert.equal(baselineReach(undefined)("anything"), 0, "no snapshot at all → zero, never NaN");
 });
