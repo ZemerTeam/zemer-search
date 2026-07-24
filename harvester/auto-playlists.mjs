@@ -45,6 +45,7 @@ import { openCorpus, loadZemerPlaylists, applyZemerPlaylists, ZEMER_PLAYLISTS_PA
 import { dupKey, dedupRanked } from "./dedup.mjs";
 import { pickBaseline, windowCleanOfSeason, exposureMult, exposureGate, EXPOSURE_DEFAULTS, baselineReach, cappedLookup } from "./trending.mjs";
 import { hebDate, inThreeWeeks, seasonActive } from "../corpus/season.mjs";
+import { LEGACY_FORMULA } from "../server/chart-badges.mjs";
 
 const num = (v, d) => (Number.isFinite(+v) && +v > 0 ? +v : d); // NaN/blank/≤0 env → default (never slice(0,NaN))
 const DRY = process.env.DRY === "1";
@@ -281,6 +282,9 @@ const trendRanked = rows(trend, "topPlays")
   }))
   .sort((a, b) => b.score - a.score || b.tie - a.tie);
 const trendingIds = dedupRanked(trendRanked, keyOf).slice(0, TRENDING_N).map((x) => x.v);
+// Signature of the ranking formula behind THIS run — recorded with the ordering so the chart-movement
+// badges never compare across a formula change (they reset instead). See server/chart-badges.mjs.
+const RANK_FORMULA = `${velocityBase ? "velocity" : "reach"}${expReach ? "+exposure" : ""}`;
 console.log(`trending: ${velocityBase ? `VELOCITY mode (baseline ${velocityBase.t})` : `reach mode (no clean baseline one ${TRENDING_DAYS}d window back)`}${expReach ? `, exposure dampener ON — ${gate.reason}` : `, exposure dampener off — ${gate.reason}`}`);
 
 // ── favorites = favorite-primary, download-corroborated ───────────────────────────────────────────────
@@ -359,9 +363,15 @@ function recordHistory(appliedOk) {
       if (!hist) hist = { runs: [] };
       const cutoff = Date.now() - HISTORY_DAYS * 86400000;
       hist.runs = hist.runs.filter((r) => r && typeof r.t === "string" && Date.parse(r.t) >= cutoff);
+      // Stamp pre-existing entries with the formula that actually produced them: everything recorded
+      // before this field existed used reach-primary ranking with no exposure dampening.
+      for (const r of hist.runs) if (r && typeof r.formula !== "string") r.formula = LEGACY_FORMULA;
       hist.runs.push({
         t: new Date().toISOString(),
         applied: !!appliedOk, // false = the raw reach below is real, but the orderings were NOT served
+        // The ranking formula behind this ordering. Movement badges may only compare like with like —
+        // a formula change resets the baseline instead of rendering as a screenful of fake surges.
+        formula: RANK_FORMULA,
         trendWindowDays: TRENDING_DAYS, // the window topPlays rows below were measured over
         // lists only when the apply succeeded (or no-op'd): badges must never anchor on an unserved chart.
         ...(appliedOk ? { lists: Object.fromEntries(autoBlocks.filter((b) => b.videoIds).map((b) => [b.id, b.videoIds])) } : {}),

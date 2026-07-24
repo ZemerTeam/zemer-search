@@ -23,7 +23,18 @@
 // Deltas are computed on RAW chart ranks (the full stored ordering), NOT on a viewer's post-filter
 // row positions — a filtered-out member must not shift everyone below it into fake movement.
 
+// Every recorded run carries the RANKING FORMULA that produced it. Movement may only be measured
+// between runs of the SAME formula: when the formula changes (velocity Trending engaging, the exposure
+// dampener being flipped on), the order shifts for reasons that have nothing to do with demand, and
+// rendering that as ▲/▼ tells users "these songs surged" when the truth is "we changed how we rank".
+// A formula change therefore RESETS the baseline — badges simply disappear until a full week of
+// same-formula history exists again. Runs recorded before this field existed were all produced by the
+// original reach-primary, no-exposure formula, hence the legacy default.
+export const LEGACY_FORMULA = "reach";
+const formulaOf = (r) => (r && typeof r.formula === "string" ? r.formula : LEGACY_FORMULA);
+
 const WEEK = 7 * 86400000;
+const MIN_FALLBACK_ANCHOR_MS = 2 * 86400000; // youngest usable "since the series began" baseline
 // most recent Sunday 00:00 UTC at/before ms — the chart week. Exported so the API can key its anchor
 // cache on it: the anchor rolls over every Sunday WITHOUT any file change, so mtime alone is not enough.
 export const chartWeek = (ms) => {
@@ -33,12 +44,17 @@ export const chartWeek = (ms) => {
 const weekStart = chartWeek;
 
 // → the anchor run ({t, lists, …}) or null. `runs` = the sidecar's runs array (untrusted shape).
+// Only runs produced by the CURRENT formula are eligible (see above) — the current formula being that of
+// the most recent applied run.
 export function pickAnchor(runs, nowMs = Date.now()) {
-  const valid = (Array.isArray(runs) ? runs : [])
+  const all = (Array.isArray(runs) ? runs : [])
     .filter((r) => r && r.applied && r.lists && typeof r.lists === "object" && typeof r.t === "string")
     .map((r) => ({ r, ms: Date.parse(r.t) }))
     .filter((x) => Number.isFinite(x.ms) && x.ms <= nowMs)
     .sort((a, b) => a.ms - b.ms);
+  if (!all.length) return null;
+  const current = formulaOf(all[all.length - 1].r);
+  const valid = all.filter((x) => formulaOf(x.r) === current);
   if (!valid.length) return null;
   const cur = weekStart(nowMs);
   // last completed week first, then older weeks (bounded by the sidecar's own retention)
@@ -46,13 +62,35 @@ export function pickAnchor(runs, nowMs = Date.now()) {
     const hit = valid.find((x) => x.ms >= w && x.ms < w + WEEK);
     if (hit) return hit.r;
   }
-  return valid[0].r; // series younger than one completed week → movement since it began
+  // Series younger than a completed week (a fresh deployment, or the first days after a formula change):
+  // fall back to the earliest same-formula run — but only once it is old enough to be a meaningful
+  // baseline. Anchoring on a run from a few hours ago would label ~nothing as "movement since <today>",
+  // and immediately after a formula change it would quietly re-introduce the cross-formula comparison
+  // this reset exists to prevent.
+  const oldest = valid[0];
+  return nowMs - oldest.ms >= MIN_FALLBACK_ANCHOR_MS ? oldest.r : null;
 }
 
-// Annotate `tracks` (the detail rows, possibly content-filtered) with prevRank/delta/new for ONE
+// Every videoId that has EVER charted on this playlist strictly before the anchor, under the current
+// formula — the input that separates a first-time entry from a song returning to the chart.
+export function chartedBefore(runs, playlistId, anchorMs) {
+  const seen = new Set();
+  const all = (Array.isArray(runs) ? runs : []).filter((r) => r && r.applied && r.lists);
+  const current = formulaOf(all.length ? all[all.length - 1] : null);
+  for (const r of all) {
+    const t = Date.parse(r.t);
+    if (!Number.isFinite(t) || t >= anchorMs || formulaOf(r) !== current) continue;
+    for (const v of r.lists[playlistId] || []) seen.add(v);
+  }
+  return seen;
+}
+
+// Annotate `tracks` (the detail rows, possibly content-filtered) with prevRank/delta/new/reentry for ONE
 // playlist. `curOrder`/`prevOrder` = the RAW videoId orderings (current stored chart / anchor chart).
-// delta > 0 = climbed. Mutates + returns tracks; missing data → tracks untouched (fields stay absent).
-export function applyBadges(tracks, curOrder, prevOrder) {
+// delta > 0 = climbed. `everCharted` (optional, from chartedBefore) splits an absent-from-anchor song into
+// a true first appearance (`new`) and a return (`reentry`) — visually distinct, and not inferable from a
+// delta. Mutates + returns tracks; missing data → tracks untouched (fields stay absent).
+export function applyBadges(tracks, curOrder, prevOrder, everCharted = null) {
   if (!Array.isArray(tracks) || !Array.isArray(curOrder) || !Array.isArray(prevOrder) || !prevOrder.length) return tracks;
   const cur = new Map(curOrder.map((v, i) => [v, i + 1]));
   const prev = new Map(prevOrder.map((v, i) => [v, i + 1]));
@@ -61,7 +99,8 @@ export function applyBadges(tracks, curOrder, prevOrder) {
     if (!c) continue; // not on the raw chart (shouldn't happen) — leave unbadged
     const p = prev.get(t.videoId);
     if (p) { t.prevRank = p; t.delta = p - c; }
-    else t.new = true; // wasn't on last week's chart at all
+    else if (everCharted && everCharted.has(t.videoId)) t.reentry = true; // charted before, fell off, back
+    else t.new = true;                                                    // never charted under this formula
   }
   return tracks;
 }

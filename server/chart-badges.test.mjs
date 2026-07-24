@@ -10,7 +10,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pickAnchor, applyBadges } from "./chart-badges.mjs";
+import { pickAnchor, applyBadges, chartedBefore, LEGACY_FORMULA } from "./chart-badges.mjs";
 
 const D = 86400000;
 // Wed 2026-08-12 12:00 UTC → current week starts Sun Aug 9; last completed week starts Sun Aug 2.
@@ -24,11 +24,14 @@ test("pickAnchor: first applied run of the last COMPLETED week; stable against l
   assert.equal(pickAnchor(runs, NOW), lastWeekFirst, "earliest run of last week wins, not this week's");
 });
 
-test("pickAnchor: young history falls back to older weeks, then the series start", () => {
-  const first = run(SUN + 8 * 3600000); // series began THIS week (no completed week yet)
+test("pickAnchor: young history falls back to older weeks, then the series start (if old enough)", () => {
+  const first = run(SUN + 8 * 3600000); // series began THIS week (no completed week yet), >2d before NOW
   assert.equal(pickAnchor([first, run(NOW - 3600000)], NOW), first, "movement since the series began");
   const old = run(SUN - 21 * D); // only a 3-week-old run exists
   assert.equal(pickAnchor([old, run(NOW - 3600000)], NOW), old);
+  // a baseline only hours old is not a baseline — better no badges than "movement since this morning"
+  const fresh = run(NOW - 5 * 3600000);
+  assert.equal(pickAnchor([fresh, run(NOW - 3600000)], NOW), null);
 });
 
 test("pickAnchor: unapplied/list-less/malformed runs never anchor; empty history is null", () => {
@@ -55,4 +58,50 @@ test("applyBadges: delta from RAW ranks, NEW for chart entries, absent without a
   const bare = [{ videoId: "a" }];
   applyBadges(bare, ["a"], []);
   assert.deepEqual(bare[0], { videoId: "a" }, "no anchor data → no badge fields at all");
+});
+
+test("pickAnchor: a FORMULA change resets the baseline — never compare across ranking changes", () => {
+  // Last week's chart came from the old formula. Anchoring on it would render the ranking change itself
+  // as a screenful of dramatic (and entirely fake) movement.
+  const lastWeek = run(SUN - 7 * D + 8 * 3600000, { formula: "reach" });
+
+  // 1. Immediately after the flip there is no usable same-formula baseline at all → NO badges.
+  const justFlipped = run(NOW - 4 * 3600000, { formula: "velocity" });
+  assert.equal(pickAnchor([lastWeek, justFlipped], NOW), null, "the flip itself is never rendered as movement");
+
+  // 2. A few days in, movement resumes against the FIRST POST-FLIP run — same formula, honest comparison,
+  //    and still never the pre-flip chart.
+  const firstPostFlip = run(SUN + 8 * 3600000, { formula: "velocity" });
+  assert.equal(pickAnchor([lastWeek, firstPostFlip, run(NOW - 3600000, { formula: "velocity" })], NOW),
+    firstPostFlip, "anchors post-flip, never across the change");
+
+  // 3. Once a completed week of the new formula exists, the normal weekly anchor takes over.
+  const newLastWeek = run(SUN - 7 * D + 9 * 3600000, { formula: "velocity" });
+  assert.equal(pickAnchor([lastWeek, newLastWeek, firstPostFlip], NOW), newLastWeek);
+});
+
+test("pickAnchor: legacy runs (no formula field) count as the original reach formula", () => {
+  const legacy = run(SUN - 7 * D + 8 * 3600000);                       // no formula key at all
+  const now = run(SUN + 8 * 3600000, { formula: LEGACY_FORMULA });     // same formula, explicitly
+  assert.equal(pickAnchor([legacy, now], NOW), legacy, "existing history keeps working across the upgrade");
+});
+
+test("chartedBefore + applyBadges: a returning song is a RE-ENTRY, not a new entry", () => {
+  const anchorMs = SUN - 7 * D;
+  const runs = [
+    run(anchorMs - 14 * D, { lists: { "auto-top-50": ["old-hit", "x"] } }),   // charted long ago
+    run(anchorMs, { lists: { "auto-top-50": ["x", "y"] } }),                  // the anchor week
+  ];
+  const ever = chartedBefore(runs, "auto-top-50", anchorMs);
+  assert.ok(ever.has("old-hit"));
+  assert.ok(!ever.has("y"), "the anchor run itself is not 'before' it");
+  const tracks = [{ videoId: "old-hit" }, { videoId: "brand-new" }, { videoId: "x" }];
+  applyBadges(tracks, ["old-hit", "brand-new", "x"], ["x", "y"], ever);
+  assert.deepEqual(tracks[0], { videoId: "old-hit", reentry: true }, "returned to the chart");
+  assert.deepEqual(tracks[1], { videoId: "brand-new", new: true }, "never charted before");
+  assert.equal(tracks[2].delta, -2, "x fell 1 → 3");
+  // without history the old behaviour holds: everything absent from the anchor reads as NEW
+  const bare = [{ videoId: "old-hit" }];
+  applyBadges(bare, ["old-hit"], ["x"]);
+  assert.deepEqual(bare[0], { videoId: "old-hit", new: true });
 });

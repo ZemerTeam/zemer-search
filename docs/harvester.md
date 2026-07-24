@@ -340,7 +340,8 @@ endpoint change; content filters (female/blocked/kidzone/video) are applied down
   `HISTORY_DAYS=60` prune): each run appends each list's ordering **plus the raw trending-window play-reach
   rows** (`topPlays7d`, compact keys `v/d/n/s` = videoId/devices/qualified-plays/skipRate) and the entry's
   `trendWindowDays` (so a non-default `TRENDING_DAYS` stretch is detectable in the data). The raw reach rows
-  are recorded on **every** run — the reach time series is independent of apply success — while the
+  are recorded on **every** run, along with the **ranking formula** that produced the ordering (`reach` /
+  `velocity` / `+exposure`) so the chart-movement badges never compare across a formula change — while the
   **orderings** (`lists`) are included only when the apply succeeded or no-op'd (`applied` flag): a failed
   apply records reach-only, so badges never anchor on an unserved chart AND the velocity baseline has no
   holes. Robust by design: a corrupt **or wrong-shape** existing file is **preserved aside**

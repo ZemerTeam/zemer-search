@@ -105,6 +105,7 @@ the Free Software Foundation, either version 3 of the License, or
   .cb { display:inline-block; margin-right:8px; font-size:11px; font-weight:700; letter-spacing:.02em; vertical-align:1px; }
   .cb.up { color:#81c784; } .cb.down { color:#e57373; } .cb.flat { color:var(--onSurfaceVariant); }
   .cb.new { color:var(--primary); border:1px solid var(--primary); border-radius:6px; padding:0 4px; font-size:10px; }
+  .cb.re { color:var(--onSurfaceVariant); border:1px solid var(--onSurfaceVariant); border-radius:6px; padding:0 4px; font-size:10px; }
   .tno { display:inline-block; min-width:1.5em; margin-right:8px; text-align:right; color:var(--onSurfaceVariant);
     font-size:12px; font-variant-numeric:tabular-nums; }
   .empty { color:var(--onSurfaceVariant); padding:48px 14px; text-align:center; font-size:14px; }
@@ -291,6 +292,7 @@ function rowZemer(p) {
 // chart-movement badge (auto playlists only — prevRank/delta/new from the weekly anchor, see /zemer-playlists)
 function chartBadge(t) {
   if (t.new) return `<span class="cb new">NEW</span>`;
+  if (t.reentry) return `<span class="cb re">RE</span>`; // charted before, fell off, now back
   if (t.delta > 0) return `<span class="cb up">▲${t.delta}</span>`;
   if (t.delta < 0) return `<span class="cb down">▼${-t.delta}</span>`;
   if (t.prevRank != null) return `<span class="cb flat">–</span>`;
