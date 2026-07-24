@@ -121,7 +121,10 @@ on a block so the wrapper can stop the pipeline):
   curated junk to exclude **regardless of the whitelist** — for track-level junk under an otherwise-wanted
   artist (the whitelist is artist-granularity). `upsertArtistCatalog` never stores a blocklisted id (so a
   re-harvest can't re-add it) and `prune.mjs` deletes any existing blocklisted rows (`pruneBlocklisted`).
-- **`harvester/prune.mjs`** (`PRUNE_MIN_RATIO` default 0.5): applies the blocklist, then removes artists no longer on the whitelist
+- **`harvester/prune.mjs`** (`PRUNE_MIN_RATIO` default 0.5; **`DRY=1` = preview** — the complete
+  would-remove report (blocklist hits + de-whitelisted artists with names/track counts) with ZERO writes,
+  exit 1 if the safety guard would refuse; this feeds the admin dash's destructive-job preview flow):
+  applies the blocklist, then removes artists no longer on the whitelist
   (and all their rows, one transaction) so a de-whitelisted artist stops being searchable. **Safety guard
   (`prunePlan`, unit-tested):** refuses unless ≥ `PRUNE_MIN_RATIO` of the **current** artists *survive*
   (corpus ∩ whitelist) — comparing survivors, not raw whitelist size, so a plausibly-sized-but-wrong
@@ -144,6 +147,10 @@ run retries). Net effect: a newly-whitelisted artist is fully searchable within 
 two tiny GETs, a true no-op. `DRY=1` previews.
 
 ## Community playlists (pilot)
+
+> **`DRY=1` preview:** the full discovery/validation pass runs (fetches happen and cache as ever) but
+> **zero DB writes** — the yield line reports would-admit / would-remove counts, and the
+> rejected-artists report is skipped. Combine with `REVALIDATE=1` to preview a stale-prune.
 
 Goal: surface **community-built YTM playlists** (curated by users, not whitelisted artists) — *as many as
 possible* — while serving **whitelisted tracks only**. Two independent guarantees:

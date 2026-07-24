@@ -627,3 +627,13 @@ test("seasonal curated playlists retire off-season, return in-season, never dele
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("pruneBlocklisted dry mode counts without deleting (the prune DRY preview)", () => {
+  const db = openCorpus(":memory:"); seed(db);
+  const bl = { videoIds: new Set(["vid00000001"]), artistIds: new Set(), playlistIds: new Set(), playlistTerms: [] };
+  const dry = pruneBlocklisted(db, bl, { dry: true });
+  assert.equal(dry.tracks, 1, "dry counts the would-removed track");
+  assert.equal(stats(db).tracks, 2, "dry removed NOTHING");
+  const real = pruneBlocklisted(db, bl);
+  assert.equal(real.tracks, 1); assert.equal(stats(db).tracks, 1, "real run removes it");
+});

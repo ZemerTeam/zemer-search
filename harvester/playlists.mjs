@@ -143,6 +143,7 @@ async function main() {
   const MIN_WL_RATIO = Number(process.env.MIN_WL_RATIO || 0.5);
   const RECHECK = process.env.RECHECK === "1";       // re-validate re-discovered playlists (remove failures)
   const REVALIDATE = process.env.REVALIDATE === "1"; // re-validate EVERY stored playlist, even if not re-found
+  const DRY = process.env.DRY === "1"; // PREVIEW: full discovery/validation pass (fetches run, cached as ever) but ZERO DB writes — counts report what WOULD happen
   const FIRSTNAMES = process.env.FIRSTNAMES === "1"; // also seed each artist's first name (broader sweep)
   // Discovery searches are forever-cached by default (a re-run finds nothing new). SEARCH_MAX_AGE_H makes
   // them re-fetch when older than N hours — set it on the scheduled timer so each run surfaces NEW playlists.
@@ -199,7 +200,7 @@ async function main() {
     if (bl.playlistIds.has(pl.id) || screenedTerm) {
       const why = bl.playlistIds.has(pl.id) ? "blocklisted" : "screened";
       rejected++; reasons[why] = (reasons[why] || 0) + 1;
-      if (existing.has(pl.id)) { removeCommunityPlaylist(db, pl.id); removed++; }
+      if (existing.has(pl.id)) { if (!DRY) removeCommunityPlaylist(db, pl.id); removed++; }
       if (candList.length) setStatus({ done: ++i });
       continue;
     }
@@ -221,7 +222,7 @@ async function main() {
         }
         const verdict = admitPlaylist({ total: songs.length, whitelisted: wl.length }, { minTracks: MIN_WL_TRACKS, minRatio: MIN_WL_RATIO });
         if (verdict.ok) {
-          upsertCommunityPlaylist(db, { id: pl.id, title: pl.title, author: pl.author, thumbnail: pl.thumbnail, total: songs.length },
+          if (!DRY) upsertCommunityPlaylist(db, { id: pl.id, title: pl.title, author: pl.author, thumbnail: pl.thumbnail, total: songs.length },
             // record each member's resolved artist (for un-harvested members the track join can't supply gender);
             // corpus members keep null — their corpus track's artist is authoritative.
             wl.map((x, pos) => ({ videoId: x.videoId, pos, artistId: corpus.has(x.videoId) ? null : (channelToArtist.get(x.rowArtistId) || null) })));
@@ -229,7 +230,7 @@ async function main() {
           console.log(`+ ${(pl.title || pl.id).slice(0, 40).padEnd(40)} ${wl.length}/${songs.length} wl  ${pl.author || ""}`);
         } else {
           rejected++; reasons[verdict.reason] = (reasons[verdict.reason] || 0) + 1;
-          if (existing.has(pl.id)) { removeCommunityPlaylist(db, pl.id); removed++; } // "remove what's not"
+          if (existing.has(pl.id)) { if (!DRY) removeCommunityPlaylist(db, pl.id); removed++; } // "remove what's not"
         }
       }
     } catch (e) {
@@ -242,15 +243,18 @@ async function main() {
 
   // Write the non-whitelisted artist channels seen inside the processed playlists — for whitelist review.
   if (rejectedArtists.size) {
-    const file = path.join(DATA, "rejected-artists.json");
-    fs.writeFileSync(file, formatRejectedArtists(rejectedArtists));
-    console.log(`wrote ${rejectedArtists.size} non-whitelisted artist channels → data/rejected-artists.json`);
+    if (DRY) console.log(`[DRY] ${rejectedArtists.size} non-whitelisted artist channels seen (report not written in DRY)`);
+    else {
+      const file = path.join(DATA, "rejected-artists.json");
+      fs.writeFileSync(file, formatRejectedArtists(rejectedArtists));
+      console.log(`wrote ${rejectedArtists.size} non-whitelisted artist channels → data/rejected-artists.json`);
+    }
   }
 
   const s = stats(db);
   db.close();
   const ns = netStats();
-  console.log(`\nYIELD: admitted ${admitted}, rejected ${rejected}${removed ? `, removed ${removed} stale` : ""} (${Object.entries(reasons).map(([k, v]) => `${k}:${v}`).join(", ") || "none"})`);
+  console.log(`\nYIELD${DRY ? " [DRY — nothing written]" : ""}: ${DRY ? "would admit" : "admitted"} ${admitted}, rejected ${rejected}${removed ? `, ${DRY ? "would remove" : "removed"} ${removed} stale` : ""} (${Object.entries(reasons).map(([k, v]) => `${k}:${v}`).join(", ") || "none"})`);
   console.log(`captured ${wlTotal} whitelisted track-slots across admitted playlists; corpus now holds ${s.communityPlaylists} community playlists`);
   console.log(`${aborted ? "ABORTED on anti-bot block; " : ""}net: ${ns.liveCount} live, ${ns.cacheHits} cached, ${ns.blockedCount} blocks`);
   if (aborted) process.exitCode = 75; // EX_TEMPFAIL — a block is a (resumable) failure

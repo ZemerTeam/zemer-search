@@ -33,6 +33,7 @@
     "verify": "node --test index/ corpus/ harvester/ && node bench/audit.mjs && node bench/fuzz.mjs && node bench/deep-test.mjs"
   },
   "dependencies": {
-    "better-sqlite3": "^12.11.1"
+    "better-sqlite3": "^12.11.1",
+    "undici": "^7.29.0"
   }
 }

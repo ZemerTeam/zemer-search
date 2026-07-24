@@ -34,6 +34,22 @@ const MIN_INTERVAL_MS = Number(process.env.MIN_INTERVAL_MS || 900); // min gap b
 const JITTER_MS = Number(process.env.JITTER_MS || 500);
 const CONCURRENCY = Math.max(1, Number(process.env.CONCURRENCY || 1)); // max live requests in flight
 const BLOCK_COOLDOWN_MS = Number(process.env.BLOCK_COOLDOWN_MS || 300000); // back-off after an anti-bot page
+// PROXY_URL (optional): route ALL live requests through a forward proxy — e.g. a tiny always-on proxy on
+// a RESIDENTIAL connection reached over the tailnet — so /player-dependent jobs (release dating, LIVE
+// duration top-up) can run from a datacenter with their YouTube egress leaving from a residential IP.
+// Unset (the default) nothing changes: fetch uses its normal direct path. The pacing/breaker above ride
+// the proxied path unchanged — IP-safety applies to whichever IP the traffic exits from.
+const PROXY_URL = process.env.PROXY_URL || "";
+let proxyDispatcher = null;
+if (PROXY_URL) {
+  try {
+    const { ProxyAgent } = await import("undici"); // lazy: only loaded when proxying is requested
+    proxyDispatcher = new ProxyAgent(PROXY_URL);
+    console.error(`net: routing live requests via proxy ${PROXY_URL.replace(/\/\/[^@]*@/, "//***@")}`);
+  } catch (e) {
+    throw new Error(`PROXY_URL is set but the undici package is unavailable (${e.message}) — npm install first`);
+  }
+}
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const sha1 = (s) => crypto.createHash("sha1").update(s).digest("hex");
 
@@ -94,7 +110,7 @@ export async function cachedPost(url, headers, bodyObj, { maxAgeMs = Infinity, c
   return scheduleLive(async () => {
     let res, txt;
     try {
-      res = await fetch(url, { method: "POST", headers, body });
+      res = await fetch(url, { method: "POST", headers, body, ...(proxyDispatcher ? { dispatcher: proxyDispatcher } : {}) });
       txt = await res.text();
     } catch (e) {
       return { error: e.message, networkError: true };

@@ -797,8 +797,14 @@ export function pruneArtists(db, keepIds) {
 
 // Delete blocklisted videoIds (+ blocklisted artists and all their rows) from the corpus — the cleanup
 // that complements upsertArtistCatalog's skip (which keeps them out going forward). One transaction.
-export function pruneBlocklisted(db, bl = blocklist()) {
+export function pruneBlocklisted(db, bl = blocklist(), { dry = false } = {}) {
   let tracks = 0, artists = 0, playlists = 0;
+  if (dry) { // DRY: count what WOULD be removed — read-only, same semantics as the deleting branch below
+    for (const vid of bl.videoIds) tracks += db.prepare("SELECT COUNT(*) c FROM track WHERE videoId=?").get(vid).c;
+    for (const pid of (bl.playlistIds || [])) playlists += db.prepare("SELECT COUNT(*) c FROM community_playlist WHERE id=?").get(pid).c;
+    for (const id of bl.artistIds) if (db.prepare("SELECT 1 FROM artist WHERE id=?").get(id)) artists++;
+    return { tracks, artists, playlists };
+  }
   const tx = db.transaction(() => {
     for (const vid of bl.videoIds) {
       db.prepare("DELETE FROM album_track WHERE videoId=?").run(vid);

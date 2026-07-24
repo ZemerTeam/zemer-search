@@ -53,3 +53,8 @@ data/rejected-artists.txt
 # secrets (not in this dir by default, but guard against accidents)
 innertube_cookie.txt
 google-services.json
+
+# local corpus snapshots / sync remnants / zmanim cache — never commit (each bak is ~29MB)
+data/corpus.db.*bak*
+data/corpus.db.vps-new*
+data/shabbat.json
