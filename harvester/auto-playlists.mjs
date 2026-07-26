@@ -41,7 +41,7 @@
 //   STATS_URL=… STATS_KEY=… node harvester/auto-playlists.mjs        # generate + apply
 //   DRY=1 …                                                          # print what it would write, no write
 import fs from "node:fs";
-import { openCorpus, loadZemerPlaylists, applyZemerPlaylists, ZEMER_PLAYLISTS_PATH, ZEMER_PLAYLISTS_AUTO_PATH, ACAPELLA_AUTO_PATH, AUTO_HISTORY_PATH } from "../corpus/store.mjs";
+import { openCorpus, loadZemerPlaylists, applyZemerPlaylists, applyHomeRank, ZEMER_PLAYLISTS_PATH, ZEMER_PLAYLISTS_AUTO_PATH, ACAPELLA_AUTO_PATH, AUTO_HISTORY_PATH } from "../corpus/store.mjs";
 import { dupKey, dedupRanked } from "./dedup.mjs";
 import { pickBaseline, windowCleanOfSeason, exposureMult, exposureGate, EXPOSURE_DEFAULTS, baselineReach, cappedLookup } from "./trending.mjs";
 import { hebDate, inThreeWeeks, seasonActive } from "../corpus/season.mjs";
@@ -437,6 +437,56 @@ const changed = nextJson !== prevJson || (autoBlocks.length && !dbHasAuto) || ac
 
 for (const b of autoBlocks) console.log(`  ${b.id} — "${b.title}"  ${b.year ? `dynamic (year ${b.year})` : `${b.videoIds.length} track(s)`}`);
 console.log(`auto-playlists: ${autoBlocks.length} auto list(s)${mourning ? `  [acapella season — ${hebDate(new Date()).month} ${hebDate(new Date()).day}]` : ""}${DRY ? "  [DRY]" : ""}${changed ? "" : "  [unchanged — no write]"}`);
+
+// ── HOME ROWS (top albums / videos by real listening — the /home-rows endpoint) ───────────────────────
+// Runs on EVERY completed tick — before the DRY / no-op exits below — because album & video reach shift
+// on days the Top 50 ordering doesn't, and it has its own table and its own /stats window. Fully ISOLATED
+// in a try/catch that never rethrows: a bug here degrades home rows (the app falls back to its YouTube
+// scrape) but can NEVER disturb the Top 50 / Trending / Favorites apply that follows, nor the run's exit.
+// Ranked by distinct-device reach over a 30-day LIVE window (home stays current; no backfill — sidesteps
+// the Top 50 backfill-freeze). Community omitted until the app tags community:<id> (today those plays are
+// indistinguishable inside playlist:). Writes only when !DRY.
+await (async () => {
+  try {
+    const HOME_WINDOW_DAYS = num(process.env.HOME_WINDOW_DAYS, 30);
+    const HOME_N = num(process.env.HOME_N, 40);
+    const home = await fetchStats(HOME_WINDOW_DAYS);
+    // artist channel id is needed on every card (the app maps our artist NAMES to null ids, which no-ops
+    // its famous/american/israeli gate + one-per-artist dedup).
+    const artistOfAlbum = new Map(db.prepare("SELECT id, artistId FROM album").all().map((x) => [x.id, x.artistId]));
+    const artistOfVideo = new Map(db.prepare("SELECT videoId, artistId FROM track WHERE isVideo=1").all().map((x) => [x.videoId, x.artistId]));
+    // OLAK5uy_ (audio-playlist id from YouTubeAlbumRadio) → album browseId, so those plays aren't dropped.
+    const olakToAlbum = new Map(db.prepare("SELECT playlistId, id FROM album WHERE playlistId IS NOT NULL").all().map((x) => [x.playlistId, x.id]));
+
+    const albReach = new Map();
+    for (const x of rows(home, "topSources")) {
+      if (!x.source?.startsWith("album:")) continue;
+      let id = x.source.slice(6);
+      if (!artistOfAlbum.has(id)) id = olakToAlbum.get(id) || id; // bridge OLAK; unknown ids fall through
+      if (!artistOfAlbum.has(id)) continue;                        // album not in corpus → skip
+      albReach.set(id, Math.max(albReach.get(id) || 0, x.devices || 0)); // MAX-merge the two id spaces
+    }
+    const topAlbums = [...albReach.entries()].sort((a, b) => b[1] - a[1]).slice(0, HOME_N)
+      .map(([id, d]) => ({ kind: "album", refId: id, artistId: artistOfAlbum.get(id), score: s(d) }));
+
+    const topVideos = rows(home, "topPlays")
+      .filter((x) => artistOfVideo.has(x.videoId) && (x.devices || 0) >= 1)
+      .map((x) => ({ v: x.videoId, score: s(x.devices || 0) * (1 - TREND_SKIP_PENALTY * clamp(x.skipRate || 0, 0, 1)) }))
+      .sort((a, b) => b.score - a.score).slice(0, HOME_N)
+      .map((x) => ({ kind: "video", refId: x.v, artistId: artistOfVideo.get(x.v), score: x.score }));
+
+    // Only write rows we actually have data for — applyHomeRank replaces just the keys present, so an empty
+    // window (or a stats server without the album rollup) leaves the OTHER row's last-good intact instead of
+    // blanking it. Both empty → write nothing → the whole table's last-good survives (the fail-safe: home
+    // never goes dark on a bad tick, it just serves the previous ranking until the next good one).
+    const homeOut = {};
+    if (topAlbums.length) homeOut["top-albums"] = topAlbums;
+    if (topVideos.length) homeOut["top-videos"] = topVideos;
+    if (!DRY && Object.keys(homeOut).length) applyHomeRank(db, homeOut);
+    console.log(`home-rows: ${topAlbums.length} albums, ${topVideos.length} videos (${HOME_WINDOW_DAYS}d live reach)`
+      + `${Object.keys(homeOut).length ? "" : " — no data, last-good left untouched"}${DRY ? "  [DRY]" : ""}`);
+  } catch (e) { console.warn(`home-rows: skipped (${e.message}) — playlists unaffected.`); }
+})();
 
 if (DRY) process.exit(0);
 if (!changed) { recordHistory(true); process.exit(0); } // no-op: the published ordering == this one — safe to record

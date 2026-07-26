@@ -10,7 +10,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistList, communityKeptCounts, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, tracksNeedingDate, setTrackUploadDate, recentAlbums, recentTracks, setFemaleSet, applyZemerPlaylists, zemerPlaylistList, zemerPlaylistDetail } from "./store.mjs";
+import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistList, communityKeptCounts, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, tracksNeedingDate, setTrackUploadDate, recentAlbums, recentTracks, setFemaleSet, applyZemerPlaylists, zemerPlaylistList, zemerPlaylistDetail, applyHomeRank, homeRows } from "./store.mjs";
 import { parseDurationSec, parsePlays } from "../harness/browse.mjs";
 
 const seed = (db) => upsertArtistCatalog(db, { id: "UCmusic", name: "Test Artist" }, {
@@ -636,4 +636,72 @@ test("pruneBlocklisted dry mode counts without deleting (the prune DRY preview)"
   assert.equal(stats(db).tracks, 2, "dry removed NOTHING");
   const real = pruneBlocklisted(db, bl);
   assert.equal(real.tracks, 1); assert.equal(stats(db).tracks, 1, "real run removes it");
+});
+
+test("home rows: apply + read hydrate to wire shapes, artistId on every card", () => {
+  const db = openCorpus(":memory:"); seed(db);
+  applyHomeRank(db, {
+    "top-albums": [{ kind: "album", refId: "MPRE_album", artistId: "UCmusic" }],
+    "top-videos": [{ kind: "video", refId: "vid00000002", artistId: "UCmusic" }],
+  });
+  const h = homeRows(db, {}, null);
+  assert.equal(h.topAlbums.length, 1);
+  assert.equal(h.topAlbums[0].id, "MPRE_album");
+  assert.equal(h.topAlbums[0].playlistId, "PLa", "playlistId kept — required to play the album");
+  assert.equal(h.topAlbums[0].artist, "Test Artist");
+  assert.equal(h.topAlbums[0].artistId, "UCmusic", "artist channel id present for the app's gate");
+  assert.equal(h.topVideos.length, 1);
+  assert.equal(h.topVideos[0].videoId, "vid00000002");
+  assert.equal(h.topVideos[0].isVideo, true);
+  assert.equal(h.topVideos[0].artistId, "UCmusic");
+  assert.deepEqual(h.topCommunity, [], "empty until community source is tagged");
+});
+
+test("home rows: blockVideos empties topVideos but leaves topAlbums", () => {
+  const db = openCorpus(":memory:"); seed(db);
+  applyHomeRank(db, {
+    "top-albums": [{ kind: "album", refId: "MPRE_album", artistId: "UCmusic" }],
+    "top-videos": [{ kind: "video", refId: "vid00000002", artistId: "UCmusic" }],
+  });
+  const h = homeRows(db, { blockVideos: true }, null);
+  assert.equal(h.topVideos.length, 0, "videos are videos — blocked");
+  assert.equal(h.topAlbums.length, 1, "albums unaffected");
+});
+
+test("home rows: blocked-id drops a card; rank order preserved with gaps closed", () => {
+  const db = openCorpus(":memory:"); seed(db);
+  applyHomeRank(db, { "top-albums": [
+    { kind: "album", refId: "MPRE_album", artistId: "UCmusic" },
+    { kind: "album", refId: "MPRE_single", artistId: "UCmusic" },
+  ] });
+  const dropId = (x) => x === "MPRE_album";
+  const h = homeRows(db, {}, dropId);
+  assert.equal(h.topAlbums.length, 1);
+  assert.equal(h.topAlbums[0].id, "MPRE_single", "dropped card removed, survivor kept in order");
+});
+
+test("home rows: applyHomeRank replaces a row-key in place", () => {
+  const db = openCorpus(":memory:"); seed(db);
+  applyHomeRank(db, { "top-albums": [{ kind: "album", refId: "MPRE_album", artistId: "UCmusic" }] });
+  applyHomeRank(db, { "top-albums": [{ kind: "album", refId: "MPRE_single", artistId: "UCmusic" }] });
+  const h = homeRows(db, {}, null);
+  assert.equal(h.topAlbums.length, 1);
+  assert.equal(h.topAlbums[0].id, "MPRE_single", "same row-key replaced");
+});
+
+test("home rows: applyHomeRank touches only the keys given (empty /stats can't wipe last-good)", () => {
+  const db = openCorpus(":memory:"); seed(db);
+  applyHomeRank(db, {
+    "top-albums": [{ kind: "album", refId: "MPRE_album", artistId: "UCmusic" }],
+    "top-videos": [{ kind: "video", refId: "vid00000002", artistId: "UCmusic" }],
+  });
+  // a later run with data for videos only must NOT clear albums
+  applyHomeRank(db, { "top-videos": [{ kind: "video", refId: "vid00000002", artistId: "UCmusic" }] });
+  const h = homeRows(db, {}, null);
+  assert.equal(h.topAlbums.length, 1, "albums preserved — the key wasn't in the write");
+  assert.equal(h.topVideos.length, 1);
+  // an empty write changes nothing
+  assert.equal(applyHomeRank(db, {}), 0);
+  const h2 = homeRows(db, {}, null);
+  assert.equal(h2.topAlbums.length, 1); assert.equal(h2.topVideos.length, 1);
 });

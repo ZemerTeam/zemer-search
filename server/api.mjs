@@ -25,7 +25,7 @@ import cluster from "node:cluster";
 import os from "node:os";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, BLOCKED_IDS_PATH, AUTO_HISTORY_PATH } from "../corpus/store.mjs";
+import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, homeRows, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, BLOCKED_IDS_PATH, AUTO_HISTORY_PATH } from "../corpus/store.mjs";
 import { pickAnchor, applyBadges, applyRanks, chartedBefore, formulaOf, chartWeek } from "./chart-badges.mjs";
 import { buildCategories, searchCategories } from "../index/categories.mjs";
 import { buildFemaleMatcher, collectFemaleVideoIds } from "../index/credits.mjs";
@@ -256,7 +256,7 @@ async function startServer() {
 
   const send = (res, code, obj) => { const body = JSON.stringify(obj); res.writeHead(code, CORS); res.end(body); return body; };
   const cacheSet = (key, body) => { cache.set(key, body); if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value); };
-  const CACHEABLE = new Set(["/search", "/artist", "/album", "/playlist", "/community", "/zemer-playlists"]); // /new self-caches via the feed TTL
+  const CACHEABLE = new Set(["/search", "/artist", "/album", "/playlist", "/community", "/zemer-playlists", "/home-rows"]); // /new self-caches via the feed TTL
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -380,6 +380,17 @@ async function startServer() {
         const playlists = zemerPlaylistList(liveDb, cf, dropId).filter((p) => !dropId(p.id))
           .map((p) => ({ ...p, thumbnail: zemerCoverUrl(p.id) })); // generated text cover, never album art
         return cacheSet(req.url, send(res, 200, { count: playlists.length, playlists }));
+      }
+      if (u.pathname === "/home-rows") {
+        // Telemetry-ranked home rows (top albums / videos / community by real listening) — the app swaps its
+        // YouTube-scraped featured rows for these. Pure corpus reads from the home_rank table (written twice
+        // daily by harvester/auto-playlists.mjs). Content flags + blocked-ids applied INSIDE the read; each
+        // card carries artistId so the app's famous/american/israeli gate + one-per-artist dedup work
+        // (the app maps our artist names to null ids otherwise). A thin/empty row is the app's cue to fall
+        // back to its scrape for that row. topCommunity is empty until community playback is tagged.
+        const cf = contentFlags(u.searchParams);
+        const dropId = (x) => idDropped(x, cats.blocked, cf.allowFemale);
+        return cacheSet(req.url, send(res, 200, homeRows(liveDb, cf, dropId)));
       }
       if (u.pathname === "/zemer-playlists/cover") {
         // Branded SVG title card for a curated playlist (see zemerCoverSvg). Relative-linked from the

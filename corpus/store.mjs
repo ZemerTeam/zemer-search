@@ -144,6 +144,23 @@ export function openCorpus(file = DB_PATH) {
       PRIMARY KEY (playlistId, kind, refId)
     );
     CREATE INDEX IF NOT EXISTS idx_zpi_playlist ON zemer_playlist_item(playlistId);
+    -- Telemetry-ranked HOME ROWS (the /home-rows endpoint): "top albums / videos / community playlists by
+    -- real listening", computed twice-daily by harvester/auto-playlists.mjs from the zemer-stats /stats
+    -- rollups and written wholesale. row = top-albums | top-videos | top-community; kind = album | video
+    -- | community; refId = album browseId | videoId | community playlistId; artistId = the card's artist
+    -- channel id (so the APP's famous/american/israeli gate + one-per-artist dedup can run — the app maps
+    -- our artist NAMES to null ids, which would no-op both). Purely additive + server-side; the corpus
+    -- never ships to a phone, so this has no Android-version implications.
+    CREATE TABLE IF NOT EXISTS home_rank (
+      row      TEXT NOT NULL,
+      kind     TEXT NOT NULL,
+      refId    TEXT NOT NULL,
+      artistId TEXT,
+      pos      INTEGER NOT NULL DEFAULT 0,
+      score    REAL,
+      PRIMARY KEY (row, refId)
+    );
+    CREATE INDEX IF NOT EXISTS idx_home_rank_row ON home_rank(row, pos);
   `);
   // Migrate existing DBs (CREATE TABLE IF NOT EXISTS won't add a new column to an existing table).
   if (!db.prepare("PRAGMA table_info(artist)").all().some((c) => c.name === "regularChannelId"))
@@ -486,6 +503,70 @@ export function applyZemerPlaylists(db, doc = loadZemerPlaylists(), { dry = fals
   if (dry) pass();
   else db.transaction(() => { db.prepare("DELETE FROM zemer_playlist_item").run(); db.prepare("DELETE FROM zemer_playlist").run(); pass(); })();
   return { playlists: pls.length, items, missing };
+}
+
+// Write the telemetry-ranked home rows (harvester/auto-playlists.mjs). `rows` = { <rowKey>: [ { kind,
+// refId, artistId } , … in rank order ] }. Replaces ONLY the row-keys PRESENT in `rows`, each in one
+// transaction — so a caller that has fresh data for only some rows (e.g. a stats server without the album
+// rollup yet, or an empty telemetry window) can update those and LEAVE the others' last-good rows intact,
+// rather than a blanket wipe blanking a row for ~12h. An empty `rows` writes nothing. A row-key mapped to
+// [] deliberately clears that row (caller opts in); the generator instead OMITS empty rows.
+export function applyHomeRank(db, rows = {}) {
+  const ins = db.prepare("INSERT OR REPLACE INTO home_rank(row,kind,refId,artistId,pos,score) VALUES(?,?,?,?,?,?)");
+  const del = db.prepare("DELETE FROM home_rank WHERE row=?");
+  let n = 0;
+  db.transaction(() => {
+    for (const [rowKey, items] of Object.entries(rows)) {
+      del.run(rowKey);
+      (items || []).forEach((it, pos) => { ins.run(rowKey, it.kind, it.refId, it.artistId ?? null, pos, it.score ?? null); n++; });
+    }
+  })();
+  return n;
+}
+
+// Read the home rows, hydrated to the app's wire shapes and content-filtered at read time (same contract
+// as /zemer-playlists: default-OPEN, filters applied only when the flag is set; blocked-ids via dropId).
+// Each card carries `artistId` (the app's famous/american/israeli gate + one-per-artist dedup need it).
+// A row is returned in stored rank order with filtered-out cards removed (gaps close — the app caps/rotates
+// downstream). blockVideos empties top-videos (they ARE videos). Unknown/absent rows → [].
+export function homeRows(db, { allowFemale = true, kidZoneOnly = false, blockVideos = false } = {}, dropId = null) {
+  const ranked = (rowKey) => db.prepare("SELECT kind,refId,artistId FROM home_rank WHERE row=? ORDER BY pos").all(rowKey);
+  const drop = (id) => (dropId ? dropId(id) : false);
+
+  // ── top albums → ZemerAlbum (+ explicit + artistId), the exact shape the app's toAlbumItem maps. Gate by
+  //    the album's primary artist (as albumDetail), require it still exists, and flag `explicit` = the album
+  //    contains any explicit track (the app hides explicit client-side via hideExplicit). No trackCount:
+  //    it isn't in the ZemerAlbum wire shape, and a home-only count would risk diverging from the /search
+  //    card's canonical aggregate (gotcha #19) shown beside it.
+  const albRow = db.prepare(`SELECT al.id, al.playlistId, al.title, al.year, al.thumbnail, al.artistId,
+      a.name artistName, a.isFemale, a.isKidZone,
+      EXISTS(SELECT 1 FROM album_track at JOIN track t ON t.videoId=at.videoId WHERE at.albumId=al.id AND t.explicit=1) AS explicit
+    FROM album al JOIN artist a ON a.id=al.artistId WHERE al.id=?`);
+  const topAlbums = ranked("top-albums").map((r) => albRow.get(r.refId)).filter(Boolean)
+    .filter((al) => (allowFemale || !al.isFemale) && (!kidZoneOnly || al.isKidZone) && !drop(al.id) && !drop(al.artistId))
+    .map((al) => ({ id: al.id, playlistId: al.playlistId, title: al.title, artist: al.artistName, artistId: al.artistId,
+      year: al.year, thumbnail: al.thumbnail, explicit: !!al.explicit }));
+
+  // ── top videos → ZemerTrack (+ artistId). These ARE videos, so blockVideos empties the row. Female =
+  //    primary OR credited (the _female set), same as every other endpoint.
+  const vidRow = db.prepare(`SELECT t.videoId, t.title, t.explicit, t.durationSec, t.artistId, a.name artistName, a.isKidZone,
+      (a.isFemale=1 OR t.videoId IN (SELECT videoId FROM _female)) AS femInv
+    FROM track t JOIN artist a ON a.id=t.artistId WHERE t.videoId=? AND t.isVideo=1`);
+  const topVideos = blockVideos ? [] : ranked("top-videos").map((r) => vidRow.get(r.refId)).filter(Boolean)
+    .filter((t) => (allowFemale || !t.femInv) && (!kidZoneOnly || t.isKidZone) && !drop(t.videoId) && !drop(t.artistId))
+    .map((t) => ({ videoId: t.videoId, title: t.title, artist: t.artistName, artistId: t.artistId,
+      explicit: !!t.explicit, isVideo: true, durationSec: t.durationSec ?? null }));
+
+  // ── top community → PHASE 2, deliberately not served yet. The generator never writes `top-community`
+  //    (community playback isn't tagged `community:<id>` — those plays are indistinguishable inside
+  //    playlist:), so there is nothing to hydrate. Just as important: a correct community filter is NOT
+  //    member-survival alone — gotcha #7 also requires the `femaleOwned` hide (a female-artist-owned or
+  //    female-curated playlist is dropped under allowFemale=0 even if it survives on a male collab track)
+  //    plus dropId on the curator/owner id, and that logic lives in index/categories.mjs, not here. Shipping
+  //    the member-survival-only version would bake a female-leak into the new path. Phase 2 must port the
+  //    full gotcha #7 rule (and settle the curator-vs-channel gate) before this returns anything.
+  const topCommunity = [];
+  return { topAlbums, topVideos, topCommunity };
 }
 
 // Expanded, filtered, display-shaped tracks of one curated playlist. Direct track items keep file order;
