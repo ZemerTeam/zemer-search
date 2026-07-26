@@ -37,6 +37,9 @@ community_playlist (
   title TEXT, author TEXT,         -- curator display name (free text; not a whitelisted artist)
   thumbnail TEXT,
   total INTEGER, whitelisted INTEGER,   -- discovery-time counts (tracks on YTM / of those, whitelisted)
+  viewCount INTEGER,               -- the playlist's OWN YouTube view count (header strapline); drives the
+                                   -- Top Community home row. NULL = unknown. Set at discovery + by
+                                   -- harvester/backfill-community-views.mjs (cache-only) for existing rows.
   discoveredAt INTEGER
 )
 community_playlist_track (playlistId TEXT, videoId TEXT, pos INTEGER, PRIMARY KEY(playlistId, videoId))

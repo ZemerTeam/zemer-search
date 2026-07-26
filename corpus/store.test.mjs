@@ -654,7 +654,7 @@ test("home rows: apply + read hydrate to wire shapes, artistId on every card", (
   assert.equal(h.topVideos[0].videoId, "vid00000002");
   assert.equal(h.topVideos[0].isVideo, true);
   assert.equal(h.topVideos[0].artistId, "UCmusic");
-  assert.deepEqual(h.topCommunity, [], "empty until community source is tagged");
+  assert.deepEqual(h.topCommunity, [], "empty when no community playlist carries a viewCount");
 });
 
 test("home rows: blockVideos empties topVideos but leaves topAlbums", () => {
@@ -736,6 +736,42 @@ test("home rows: applyHomeRank dedups a row keeping the FIRST (best) position", 
   assert.equal(n, 2, "duplicate not counted");
   const h = homeRows(db, {}, null);
   assert.deepEqual(h.topAlbums.map((a) => a.id), ["MPRE_album", "MPRE_single"], "first position wins, dup dropped");
+});
+
+test("home rows: topCommunity ranks by viewCount desc, shapes cards, caps the row", () => {
+  const db = openCorpus(":memory:"); seedFlags(db);
+  // three view-tagged playlists (out of order) + one with NO viewCount (must be excluded)
+  upsertCommunityPlaylist(db, { id: "PLlow", title: "Low", author: "Curator A", total: 1, viewCount: 100 }, [{ videoId: "male0song01", pos: 0 }]);
+  upsertCommunityPlaylist(db, { id: "PLhigh", title: "High", author: "Curator B", total: 1, viewCount: 90000 }, [{ videoId: "male0song01", pos: 0 }]);
+  upsertCommunityPlaylist(db, { id: "PLmid", title: "Mid", author: "Curator C", total: 1, viewCount: 5000 }, [{ videoId: "male0song01", pos: 0 }]);
+  upsertCommunityPlaylist(db, { id: "PLnull", title: "NoViews", total: 1, viewCount: null }, [{ videoId: "male0song01", pos: 0 }]);
+  const h = homeRows(db, {}, null);
+  assert.deepEqual(h.topCommunity.map((c) => c.id), ["PLhigh", "PLmid", "PLlow"], "ordered by viewCount desc, untagged excluded");
+  const c = h.topCommunity[0];
+  assert.deepEqual(Object.keys(c).sort(), ["artist", "id", "songCount", "thumbnail", "title"]);
+  assert.equal(c.title, "High");
+  assert.equal(c.artist, "Curator B", "curator carried in artist for display");
+  assert.equal(c.songCount, 1);
+  assert.equal(c.thumbnail, "https://i.ytimg.com/vi/male0song01/mqdefault.jpg", "cover derived from a whitelisted track, never a curator image");
+});
+
+test("home rows: topCommunity honors filters — member-survival, blocked-id, and femaleOwned hide (gotcha #7)", () => {
+  const db = openCorpus(":memory:"); seedFlags(db);
+  upsertCommunityPlaylist(db, { id: "PLmix", title: "Mixed", author: "Some Guy", total: 2, viewCount: 9000 }, [
+    { videoId: "male0song01", pos: 0 }, { videoId: "fem00song01", pos: 1 }]); // survives with male track, count reduced
+  upsertCommunityPlaylist(db, { id: "PLallfem", title: "All Female", author: "Some Gal", total: 1, viewCount: 8000 }, [
+    { videoId: "fem00song01", pos: 0 }]); // no survivor when female blocked → hidden
+  upsertCommunityPlaylist(db, { id: "PLowned", title: "Her Own List", author: "Female Singer", total: 1, viewCount: 7000 }, [
+    { videoId: "male0song01", pos: 0 }]); // female-owned (curator is a whitelisted female) → hidden even with a male track
+  // default OPEN: all three present, ordered by views
+  assert.deepEqual(homeRows(db, {}, null).topCommunity.map((c) => c.id), ["PLmix", "PLallfem", "PLowned"]);
+  // female blocked: all-female hidden (no survivor), female-owned hidden (rule 2), mixed survives with reduced count
+  const nf = homeRows(db, { allowFemale: false }, null);
+  assert.deepEqual(nf.topCommunity.map((c) => c.id), ["PLmix"], "only the mixed list survives female filtering");
+  assert.equal(nf.topCommunity[0].songCount, 1, "count reduced to the surviving (male) track");
+  assert.equal(nf.topCommunity[0].thumbnail, "https://i.ytimg.com/vi/male0song01/mqdefault.jpg", "cover from the surviving track");
+  // blocked-id drops the top card, order preserved with the gap closed
+  assert.deepEqual(homeRows(db, {}, (x) => x === "PLmix").topCommunity.map((c) => c.id), ["PLallfem", "PLowned"]);
 });
 
 test("auto-playlist freshness: stats exposes applied-at + age, null until stamped", () => {

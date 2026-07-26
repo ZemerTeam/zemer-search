@@ -55,6 +55,16 @@ export function parsePlays(t) {
   const n = parseFloat(m[1].replace(/,/g, ""));
   return isNaN(n) ? null : Math.round(n * ({ k: 1e3, m: 1e6, b: 1e9 }[m[2].toLowerCase()] || 1));
 }
+
+// Playlist VIEW count from a header strapline like "13K views • 532 tracks • 50+ hours" (community
+// playlists carry it in the browse header's secondSubtitle). Same K/M/B handling as parsePlays but for
+// "views" — an intrinsic popularity signal, no telemetry. Null when absent.
+export function parseViews(t) {
+  const m = String(t || "").match(/([\d.,]+)\s*([KMB]?)\s*views?\b/i);
+  if (!m) return null;
+  const n = parseFloat(m[1].replace(/,/g, ""));
+  return isNaN(n) ? null : Math.round(n * ({ k: 1e3, m: 1e6, b: 1e9 }[m[2].toLowerCase()] || 1));
+}
 const fixedText = (r) => (r.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text?.runs || []).map((x) => x.text).join("");
 
 // MRLIR → minimal song, + duration (fixed column) + play count (a "N plays" flex run) when the row carries
@@ -180,9 +190,24 @@ export function parsePlaylistPage(json) {
     ?? json?.contents?.singleColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents
     ?? [];
   const shelf = contents.map((c) => c.musicPlaylistShelfRenderer ?? c.musicShelfRenderer).find(Boolean);
+  // playlist VIEW count from the header strapline ("13K views • 532 tracks • …"). The header renderer sits
+  // in the two-column tab (musicResponsiveHeaderRenderer) or, on the single-column layout, under json.header
+  // (musicDetailHeaderRenderer). We read whichever subtitle run carries "views".
+  const hdr =
+    json?.contents?.twoColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents?.find((c) => c.musicResponsiveHeaderRenderer)?.musicResponsiveHeaderRenderer
+    ?? json?.header?.musicDetailHeaderRenderer
+    ?? json?.header?.musicResponsiveHeaderRenderer
+    ?? json?.header?.musicEditablePlaylistDetailHeaderRenderer?.header?.musicDetailHeaderRenderer;
+  const runsText = (o) => (o?.runs || []).map((r) => r.text).join("");
+  let viewCount = null;
+  for (const k of ["secondSubtitle", "subtitle", "straplineTextOne"]) {
+    viewCount = parseViews(runsText(hdr?.[k]));
+    if (viewCount != null) break;
+  }
   return {
     songs: getItems(shelf?.contents).map((r) => songFromMRLIR(r, false)).filter(Boolean),
     continuation: getContinuation(shelf?.continuations) ?? getShelfContinuation(shelf?.contents),
+    viewCount,
   };
 }
 

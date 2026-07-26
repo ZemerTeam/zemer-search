@@ -17,6 +17,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { seasonActive } from "./season.mjs";
+import { femaleNameKey, makeFemaleOwned } from "../index/female-owned.mjs"; // shared gotcha #7 rule-2 detection
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // Env-configurable so it deploys to a server unchanged (CORPUS_DB=/var/lib/zemer-search/corpus.db).
@@ -117,6 +118,8 @@ export function openCorpus(file = DB_PATH) {
       thumbnail    TEXT,
       total        INTEGER NOT NULL DEFAULT 0,   -- tracks on YTM at discovery
       whitelisted  INTEGER NOT NULL DEFAULT 0,   -- of those, how many are whitelisted (the only ones served)
+      viewCount    INTEGER,                       -- the playlist's TOTAL YouTube views (header strapline) —
+                                                  -- intrinsic popularity, ranks the home Top Community row (no telemetry)
       discoveredAt INTEGER
     );
     CREATE TABLE IF NOT EXISTS community_playlist_track (
@@ -181,6 +184,11 @@ export function openCorpus(file = DB_PATH) {
   // backfilled (harvester/backfill-community-artists.mjs), and NULL behaves exactly like the old behavior.
   if (!db.prepare("PRAGMA table_info(community_playlist_track)").all().some((c) => c.name === "artistId"))
     db.exec("ALTER TABLE community_playlist_track ADD COLUMN artistId TEXT");
+  // community_playlist.viewCount: the playlist's total YouTube views, parsed from the browse header at
+  // discovery (backfilled from cache by harvester/backfill-community-views.mjs). Ranks the home Top
+  // Community row by intrinsic popularity — no user telemetry. NULL until captured/backfilled.
+  if (!db.prepare("PRAGMA table_info(community_playlist)").all().some((c) => c.name === "viewCount"))
+    db.exec("ALTER TABLE community_playlist ADD COLUMN viewCount INTEGER");
   // Zemer-curated DYNAMIC year playlists ("Year of 2026"): a rule instead of an id list — contents are
   // computed at read time from release dates, so the playlist grows with every harvest all year.
   if (!db.prepare("PRAGMA table_info(zemer_playlist)").all().some((c) => c.name === "year"))
@@ -294,21 +302,22 @@ export const allPlaylists = (db) => db.prepare(`
 // artist-owned `playlist` table. Purity is NOT enforced here — it's enforced when the playlist is opened
 // (/playlist re-fetches and keeps only whitelisted tracks). These rows hold the discovery-time counts and
 // the matched whitelisted membership, for search/index, the displayed "X of Y" counts, and yield reports.
-export function upsertCommunityPlaylist(db, { id, title, author = null, thumbnail = null, total = 0 }, whitelistedTracks = [], ts = Date.now()) {
+export function upsertCommunityPlaylist(db, { id, title, author = null, thumbnail = null, total = 0, viewCount = null }, whitelistedTracks = [], ts = Date.now()) {
   const bl = blocklist();
   if (bl.playlistIds.has(id)) return { whitelisted: 0, total, blocked: true }; // never store a blocklisted playlist
   const mem = whitelistedTracks.filter((t) => t.videoId && !bl.videoIds.has(t.videoId)); // never store blocklisted junk
   const insPl = db.prepare(
-    `INSERT INTO community_playlist(id,title,author,thumbnail,total,whitelisted,discoveredAt)
-     VALUES(@id,@title,@author,@thumbnail,@total,@whitelisted,@discoveredAt)
+    `INSERT INTO community_playlist(id,title,author,thumbnail,total,whitelisted,viewCount,discoveredAt)
+     VALUES(@id,@title,@author,@thumbnail,@total,@whitelisted,@viewCount,@discoveredAt)
      ON CONFLICT(id) DO UPDATE SET title=excluded.title, author=excluded.author, thumbnail=excluded.thumbnail,
-       total=excluded.total, whitelisted=excluded.whitelisted, discoveredAt=excluded.discoveredAt`);
+       total=excluded.total, whitelisted=excluded.whitelisted,
+       viewCount=COALESCE(excluded.viewCount, community_playlist.viewCount), discoveredAt=excluded.discoveredAt`);
   const delMem = db.prepare("DELETE FROM community_playlist_track WHERE playlistId=?");
   const insMem = db.prepare(
     `INSERT INTO community_playlist_track(playlistId,videoId,pos,artistId) VALUES(@playlistId,@videoId,@pos,@artistId)
      ON CONFLICT(playlistId,videoId) DO UPDATE SET pos=excluded.pos, artistId=excluded.artistId`);
   const tx = db.transaction(() => { // whole playlist in one transaction (gotcha #10)
-    insPl.run({ id, title, author, thumbnail, total, whitelisted: mem.length, discoveredAt: ts });
+    insPl.run({ id, title, author, thumbnail, total, whitelisted: mem.length, viewCount, discoveredAt: ts });
     delMem.run(id); // re-snapshot membership (a re-check may change which tracks are whitelisted)
     mem.forEach((t, i) => insMem.run({ playlistId: id, videoId: t.videoId, pos: t.pos ?? i, artistId: t.artistId ?? null }));
   });
@@ -582,15 +591,36 @@ export function homeRows(db, { allowFemale = true, kidZoneOnly = false, blockVid
     .filter((a) => (allowFemale || !a.isFemale) && (!kidZoneOnly || a.isKidZone) && !drop(a.id))
     .map((a) => ({ id: a.id, name: a.name, thumbnail: a.thumbnail || null }));
 
-  // ── top community → PHASE 2, deliberately not served yet. The generator never writes `top-community`
-  //    (community playback isn't tagged `community:<id>` — those plays are indistinguishable inside
-  //    playlist:), so there is nothing to hydrate. Just as important: a correct community filter is NOT
-  //    member-survival alone — gotcha #7 also requires the `femaleOwned` hide (a female-artist-owned or
-  //    female-curated playlist is dropped under allowFemale=0 even if it survives on a male collab track)
-  //    plus dropId on the curator/owner id, and that logic lives in index/categories.mjs, not here. Shipping
-  //    the member-survival-only version would bake a female-leak into the new path. Phase 2 must port the
-  //    full gotcha #7 rule (and settle the curator-vs-channel gate) before this returns anything.
+  // ── top community → VIEWS-ranked (the playlist's own YouTube view count, captured at discovery), so it
+  //    needs NO user telemetry and works the moment views are backfilled. Served by the EXACT community
+  //    recipe used by /community + /search, so it behaves identically across surfaces:
+  //      • member-survival + per-track filter — only whitelisted, filter-surviving (male, when female is
+  //        blocked) tracks count and serve; songCount reflects the survivors (communityKeptCounts).
+  //      • track-derived, filter-aware cover (gotcha #14) — the first SURVIVING whitelisted member's art,
+  //        never the curator's uploaded image.
+  //      • femaleOwned HIDE (gotcha #7 rule 2) — a female artist's own playlist (its id is a female-owned
+  //        artist playlist, or its curator name matches a female whitelist entry) is dropped under
+  //        allowFemale=0 even if it survives on a male collab track. Same recipe as index/categories.mjs.
+  //      • blocked-ids (dropId).
+  const HOME_COMMUNITY_POOL = 80, HOME_COMMUNITY_N = 16; // pool wide enough to survive the filter → ~8-wide row
+  const cpool = db.prepare(`SELECT id, title, author, whitelisted, ${COVER_SQL} AS cover
+    FROM community_playlist WHERE viewCount IS NOT NULL ORDER BY viewCount DESC, whitelisted DESC, id LIMIT ?`).all(HOME_COMMUNITY_POOL);
+  let femaleOwned = null;
+  if (!allowFemale && cpool.length) { // same femaleOwned recipe as index/categories.mjs
+    const fpl = new Set(db.prepare("SELECT p.id FROM playlist p JOIN artist a ON a.id=p.artistId WHERE a.isFemale=1").all().map((r) => r.id));
+    const fnames = new Set(db.prepare("SELECT name FROM artist WHERE isFemale=1 AND name IS NOT NULL").all().map((r) => femaleNameKey(r.name)));
+    femaleOwned = makeFemaleOwned(fpl, fnames);
+  }
+  const cKept = communityKeptCounts(db, cpool.map((c) => c.id), { allowFemale, kidZoneOnly, blockVideos }); // Map when filtering, else null
   const topCommunity = [];
+  for (const c of cpool) {
+    if (topCommunity.length >= HOME_COMMUNITY_N) break;
+    if (drop(c.id)) continue;                          // blocked-id
+    if (femaleOwned && femaleOwned(c)) continue;       // gotcha #7 rule 2 — hide a female's own playlist
+    let songCount = c.whitelisted, cover = ytThumb(c.cover);
+    if (cKept) { const k = cKept.get(c.id); if (!k || k.kept <= 0) continue; songCount = k.kept; cover = k.cover; } // member-survival + surviving-cover
+    topCommunity.push({ id: c.id, title: c.title, artist: c.author || "", thumbnail: cover, songCount });
+  }
   return { topAlbums, topVideos, topArtists, topCommunity };
 }
 

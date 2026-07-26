@@ -14,7 +14,7 @@
 // top-k per category with content-filter scoping.
 import { buildIndex, search } from "./search.mjs";
 import { buildFemaleMatcher, isFemaleInvolved } from "./credits.mjs";
-import { plainTokens } from "./normalize.mjs";
+import { femaleNameKey, makeFemaleOwned } from "./female-owned.mjs";
 
 // Each entity doc carries `femaleInvolved` — true when its PRIMARY artist is female OR any credited
 // (featured) artist matches a known female (see credits.mjs). The content filter uses this instead of the
@@ -40,8 +40,9 @@ export function buildCategories({ tracks = [], artists = [], albums = [], playli
   // few male collab tracks, so flag it to hide when female is blocked. (Caught a real leak: "DJ Kraz - Complete
   // Collection" surviving on 4 non-female members.)
   const femaleOwnedPl = new Set(playlists.filter((p) => p.isFemale).map((p) => p.id));
-  const femaleNames = new Set(artists.filter((a) => a.isFemale && a.name).map((a) => plainTokens(a.name).join(" ")));
-  const communityDocs = community.map((c) => ({ ...c, femaleOwned: femaleOwnedPl.has(c.id) || (!!c.author && femaleNames.has(plainTokens(c.author).join(" "))) }));
+  const femaleNames = new Set(artists.filter((a) => a.isFemale && a.name).map((a) => femaleNameKey(a.name)));
+  const isFemaleOwned = makeFemaleOwned(femaleOwnedPl, femaleNames);
+  const communityDocs = community.map((c) => ({ ...c, femaleOwned: isFemaleOwned(c) }));
   const cats = {
     artists: buildIndex(artistDocs, synonyms),
     songs: buildIndex(songs, synonyms),

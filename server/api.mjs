@@ -382,12 +382,13 @@ async function startServer() {
         return cacheSet(req.url, send(res, 200, { count: playlists.length, playlists }));
       }
       if (u.pathname === "/home-rows") {
-        // Telemetry-ranked home rows (top albums / videos / community by real listening) — the app swaps its
-        // YouTube-scraped featured rows for these. Pure corpus reads from the home_rank table (written twice
-        // daily by harvester/auto-playlists.mjs). Content flags + blocked-ids applied INSIDE the read; each
-        // card carries artistId so the app's famous/american/israeli gate + one-per-artist dedup work
-        // (the app maps our artist names to null ids otherwise). A thin/empty row is the app's cue to fall
-        // back to its scrape for that row. topCommunity is empty until community playback is tagged.
+        // Home rows — the app swaps its YouTube-scraped featured rows for these. Pure corpus reads:
+        // topAlbums/topVideos/topArtists come from the home_rank table (device-reach ranked, written twice
+        // daily by harvester/auto-playlists.mjs); topCommunity is ranked live by each playlist's own YouTube
+        // view count (community_playlist.viewCount — no telemetry). Content flags + blocked-ids applied INSIDE
+        // the read; each card carries artistId so the app's famous/american/israeli gate + one-per-artist
+        // dedup work (the app maps our artist names to null ids otherwise). A thin/empty row is the app's cue
+        // to fall back to its scrape for that row.
         const cf = contentFlags(u.searchParams);
         const dropId = (x) => idDropped(x, cats.blocked, cf.allowFemale);
         return cacheSet(req.url, send(res, 200, homeRows(liveDb, cf, dropId)));

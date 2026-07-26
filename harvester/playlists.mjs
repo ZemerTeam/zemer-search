@@ -131,7 +131,7 @@ async function fetchPlaylistTracks(playlistId, cap) {
     songs.push(...(cp.songs || []));
     cont = cp.continuation;
   }
-  return songs;
+  return { songs, viewCount: p0.viewCount ?? null }; // viewCount from the first page's header strapline
 }
 
 async function main() {
@@ -205,9 +205,10 @@ async function main() {
       continue;
     }
     try {
-      const songs = await fetchPlaylistTracks(pl.id, CAP);
-      if (!songs) { reasons.unavailable = (reasons.unavailable || 0) + 1; rejected++; } // transient — never remove on this
+      const res = await fetchPlaylistTracks(pl.id, CAP);
+      if (!res) { reasons.unavailable = (reasons.unavailable || 0) + 1; rejected++; } // transient — never remove on this
       else {
+        const { songs, viewCount } = res;
         const corpus = tracksByIds(db, songs.map((x) => x.videoId));
         // A track is whitelisted exactly as the /playlist endpoint serves it: we hold the videoId, OR it was
         // uploaded to a whitelisted artist's (music or regular) channel.
@@ -222,7 +223,7 @@ async function main() {
         }
         const verdict = admitPlaylist({ total: songs.length, whitelisted: wl.length }, { minTracks: MIN_WL_TRACKS, minRatio: MIN_WL_RATIO });
         if (verdict.ok) {
-          if (!DRY) upsertCommunityPlaylist(db, { id: pl.id, title: pl.title, author: pl.author, thumbnail: pl.thumbnail, total: songs.length },
+          if (!DRY) upsertCommunityPlaylist(db, { id: pl.id, title: pl.title, author: pl.author, thumbnail: pl.thumbnail, total: songs.length, viewCount },
             // record each member's resolved artist (for un-harvested members the track join can't supply gender);
             // corpus members keep null — their corpus track's artist is authoritative.
             wl.map((x, pos) => ({ videoId: x.videoId, pos, artistId: corpus.has(x.videoId) ? null : (channelToArtist.get(x.rowArtistId) || null) })));
