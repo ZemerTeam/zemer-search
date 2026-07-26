@@ -54,7 +54,9 @@ zemer_playlist_item (
   pos INTEGER, PRIMARY KEY(playlistId, kind, refId)
 )
 -- Telemetry-ranked HOME ROWS (served by /home-rows), written twice-daily by harvester/auto-playlists.mjs.
-home_rank (row TEXT, kind TEXT, refId TEXT,  -- row 'top-albums'|'top-videos'|'top-artists'|'top-community';
+-- Only the three telemetry rows live here; the fourth home row, Top Community, is NOT in home_rank — it is
+-- ranked live at serve time from community_playlist.viewCount (gated by runtime + engaged-song, see api.md).
+home_rank (row TEXT, kind TEXT, refId TEXT,  -- row 'top-albums'|'top-videos'|'top-artists';
            artistId TEXT, pos INTEGER, score REAL,  -- kind album|video|artist; refId = browseId|videoId|channelId
            PRIMARY KEY(row, refId))
 -- Operational key/value (server-side only). auto_applied_at = epoch ms of the last SUCCESSFUL auto-apply,
