@@ -611,7 +611,7 @@ export function homeRows(db, { allowFemale = true, kidZoneOnly = false, blockVid
   //        artist playlist, or its curator name matches a female whitelist entry) is dropped under
   //        allowFemale=0 even if it survives on a male collab track. Same recipe as index/categories.mjs.
   //      • blocked-ids (dropId).
-  const HOME_COMMUNITY_POOL = 80, HOME_COMMUNITY_N = 16, HOME_COMMUNITY_MIN_SEC = 40 * 60; // pool wide enough to survive the filter → ~8-wide row
+  const HOME_COMMUNITY_POOL = 80, HOME_COMMUNITY_N = 32, HOME_COMMUNITY_MIN_SEC = 40 * 60; // serve up to 32 (8-slot row × headroom so the app's rotation turns it over on refresh)
   const ENGAGED_LISTS = ["auto-top-50", "auto-trending", "auto-favorites"]; // the data-driven engagement signals
   const engagedIn = ENGAGED_LISTS.map((x) => `'${x}'`).join(",");
   const engagedN = db.prepare(`SELECT COUNT(*) n FROM zemer_playlist_item WHERE kind='track' AND playlistId IN (${engagedIn})`).get().n;

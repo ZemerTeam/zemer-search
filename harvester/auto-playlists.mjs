@@ -449,7 +449,15 @@ console.log(`auto-playlists: ${autoBlocks.length} auto list(s)${mourning ? `  [a
 await (async () => {
   try {
     const HOME_WINDOW_DAYS = num(process.env.HOME_WINDOW_DAYS, 30);
-    const HOME_N = num(process.env.HOME_N, 40);
+    // Per-row pool caps — deliberately larger than what the app SHOWS so its rotateByArtist has fresh
+    // headroom to turn the row over on refresh (the app caps the shown count client-side). Sized to give
+    // ≥2× each row's shown count in DISTINCT artists: albums show 20 but average >1 album/artist, so 80
+    // albums yields ~50 distinct; artists are 1:1 so 60 is ample for a 20-shown row. Videos are
+    // content-limited (few whitelisted music videos clear the reach floor) — the cap never binds; we send
+    // all that qualify.
+    const HOME_ALBUMS_N = num(process.env.HOME_ALBUMS_N, 80);
+    const HOME_VIDEOS_N = num(process.env.HOME_VIDEOS_N, 80);
+    const HOME_ARTISTS_N = num(process.env.HOME_ARTISTS_N, 60);
     const home = await fetchStats(HOME_WINDOW_DAYS);
     // artist channel id is needed on every card (the app maps our artist NAMES to null ids, which no-ops
     // its famous/american/israeli gate + one-per-artist dedup).
@@ -467,13 +475,13 @@ await (async () => {
       if (!artistOfAlbum.has(id)) continue;                        // album not in corpus → skip
       albReach.set(id, Math.max(albReach.get(id) || 0, x.devices || 0)); // MAX-merge the two id spaces
     }
-    const topAlbums = [...albReach.entries()].sort((a, b) => b[1] - a[1]).slice(0, HOME_N)
+    const topAlbums = [...albReach.entries()].sort((a, b) => b[1] - a[1]).slice(0, HOME_ALBUMS_N)
       .map(([id, d]) => ({ kind: "album", refId: id, artistId: artistOfAlbum.get(id), score: s(d) }));
 
     const topVideos = rows(home, "topPlays")
       .filter((x) => artistOfVideo.has(x.videoId) && (x.devices || 0) >= 1)
       .map((x) => ({ v: x.videoId, score: s(x.devices || 0) * (1 - TREND_SKIP_PENALTY * clamp(x.skipRate || 0, 0, 1)) }))
-      .sort((a, b) => b.score - a.score).slice(0, HOME_N)
+      .sort((a, b) => b.score - a.score).slice(0, HOME_VIDEOS_N)
       .map((x) => ({ kind: "video", refId: x.v, artistId: artistOfVideo.get(x.v), score: x.score }));
 
     // top artists: /stats topArtists already ranks by distinct-device reach and (as of the topArtists
@@ -482,7 +490,7 @@ await (async () => {
     const topArtists = rows(home, "topArtists")
       .filter((x) => x.id && artistIds.has(x.id) && (x.devices || 0) >= 1)
       .sort((a, b) => (b.devices || 0) - (a.devices || 0)) // self-contained ranking, don't trust /stats order
-      .slice(0, HOME_N)
+      .slice(0, HOME_ARTISTS_N)
       .map((x) => ({ kind: "artist", refId: x.id, artistId: x.id, score: s(x.devices || 0) }));
 
     // Only write rows we actually have data for — applyHomeRank replaces just the keys present, so an empty
