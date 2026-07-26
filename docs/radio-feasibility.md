@@ -37,6 +37,16 @@ Covers the long tail (54,725 tracks never played, ~67k below the ≥3-device co-
 
 ---
 
+### Scope note — long-press **Shuffle** rides on this, it's not a separate task
+
+Shuffle splits by whether the entity carries a YouTube `shuffleEndpoint`:
+- **Zemer-native entities** (search results, Zemer curated + auto playlists, Latest Releases, library/downloads) set `shuffleEndpoint = null` — the whole filtered list is already in hand, so Shuffle is a **local `ListQueue(items.shuffled())`, no InnerTube.** Already done.
+- **YouTube-native screens** (a YouTube artist page's Shuffle, `YouTubeAlbumMenu`/`YouTubePlaylistMenu`) build a `WatchEndpoint(shuffleEndpoint…)` → `YouTubeQueue` → `YouTube.next()` = **InnerTube.**
+
+So there is **no standalone "replace Shuffle" task**: (a) a *finite* shuffle becomes local automatically the moment its screen is migrated to a corpus-backed artist/album/playlist (`shuffleEndpoint` → `null` → `ListQueue`), and (b) the *endless* YouTube **artist shuffle** (`RDAO…` → `next()`) is really artist-radio, so it **folds into Zemer Radio (artist-seeded)**. Both are already legs on the InnerTube-replacement map — Shuffle just comes along.
+
+---
+
 ## Part 2 — Synchronized stations: **feasible now**, and cheaper to scale than per-user radio
 
 **The only viable sync model** (we don't host or own the audio — playback stays per-client via YouTube, for IP-safety and ToS): **the server publishes a schedule; clients self-sync by wall clock.** No streaming, no transcoding, no per-listener server cost.
