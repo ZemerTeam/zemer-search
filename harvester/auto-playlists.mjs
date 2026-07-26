@@ -457,6 +457,7 @@ await (async () => {
     const artistOfVideo = new Map(db.prepare("SELECT videoId, artistId FROM track WHERE isVideo=1").all().map((x) => [x.videoId, x.artistId]));
     // OLAK5uy_ (audio-playlist id from YouTubeAlbumRadio) → album browseId, so those plays aren't dropped.
     const olakToAlbum = new Map(db.prepare("SELECT playlistId, id FROM album WHERE playlistId IS NOT NULL").all().map((x) => [x.playlistId, x.id]));
+    const artistIds = new Set(db.prepare("SELECT id FROM artist").all().map((x) => x.id));
 
     const albReach = new Map();
     for (const x of rows(home, "topSources")) {
@@ -475,6 +476,15 @@ await (async () => {
       .sort((a, b) => b.score - a.score).slice(0, HOME_N)
       .map((x) => ({ kind: "video", refId: x.v, artistId: artistOfVideo.get(x.v), score: x.score }));
 
+    // top artists: /stats topArtists already ranks by distinct-device reach and (as of the topArtists
+    // channel-id change) carries the artist id. refId IS the artist id. famous/american does not apply
+    // (app decision) — content gate is female/kidzone/blocked, applied at read time by homeRows.
+    const topArtists = rows(home, "topArtists")
+      .filter((x) => x.id && artistIds.has(x.id) && (x.devices || 0) >= 1)
+      .sort((a, b) => (b.devices || 0) - (a.devices || 0)) // self-contained ranking, don't trust /stats order
+      .slice(0, HOME_N)
+      .map((x) => ({ kind: "artist", refId: x.id, artistId: x.id, score: s(x.devices || 0) }));
+
     // Only write rows we actually have data for — applyHomeRank replaces just the keys present, so an empty
     // window (or a stats server without the album rollup) leaves the OTHER row's last-good intact instead of
     // blanking it. Both empty → write nothing → the whole table's last-good survives (the fail-safe: home
@@ -482,8 +492,9 @@ await (async () => {
     const homeOut = {};
     if (topAlbums.length) homeOut["top-albums"] = topAlbums;
     if (topVideos.length) homeOut["top-videos"] = topVideos;
+    if (topArtists.length) homeOut["top-artists"] = topArtists;
     if (!DRY && Object.keys(homeOut).length) applyHomeRank(db, homeOut);
-    console.log(`home-rows: ${topAlbums.length} albums, ${topVideos.length} videos (${HOME_WINDOW_DAYS}d live reach)`
+    console.log(`home-rows: ${topAlbums.length} albums, ${topVideos.length} videos, ${topArtists.length} artists (${HOME_WINDOW_DAYS}d live reach)`
       + `${Object.keys(homeOut).length ? "" : " — no data, last-good left untouched"}${DRY ? "  [DRY]" : ""}`);
   } catch (e) { console.warn(`home-rows: skipped (${e.message}) — playlists unaffected.`); }
 })();

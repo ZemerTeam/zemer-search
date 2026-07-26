@@ -146,8 +146,9 @@ export function openCorpus(file = DB_PATH) {
     CREATE INDEX IF NOT EXISTS idx_zpi_playlist ON zemer_playlist_item(playlistId);
     -- Telemetry-ranked HOME ROWS (the /home-rows endpoint): "top albums / videos / community playlists by
     -- real listening", computed twice-daily by harvester/auto-playlists.mjs from the zemer-stats /stats
-    -- rollups and written wholesale. row = top-albums | top-videos | top-community; kind = album | video
-    -- | community; refId = album browseId | videoId | community playlistId; artistId = the card's artist
+    -- rollups and written wholesale. row = top-albums | top-videos | top-artists | top-community; kind =
+    -- album | video | artist | community; refId = album browseId | videoId | artist channelId | community
+    -- playlistId; artistId = the card's artist
     -- channel id (so the APP's famous/american/israeli gate + one-per-artist dedup can run — the app maps
     -- our artist NAMES to null ids, which would no-op both). Purely additive + server-side; the corpus
     -- never ships to a phone, so this has no Android-version implications.
@@ -518,7 +519,13 @@ export function applyHomeRank(db, rows = {}) {
   db.transaction(() => {
     for (const [rowKey, items] of Object.entries(rows)) {
       del.run(rowKey);
-      (items || []).forEach((it, pos) => { ins.run(rowKey, it.kind, it.refId, it.artistId ?? null, pos, it.score ?? null); n++; });
+      const seen = new Set(); // a duplicate refId keeps its FIRST (best) position, matching zemerPlaylist
+      let pos = 0;
+      for (const it of items || []) {
+        if (seen.has(it.refId)) continue;
+        seen.add(it.refId);
+        ins.run(rowKey, it.kind, it.refId, it.artistId ?? null, pos++, it.score ?? null); n++;
+      }
     }
   })();
   return n;
@@ -557,6 +564,15 @@ export function homeRows(db, { allowFemale = true, kidZoneOnly = false, blockVid
     .map((t) => ({ videoId: t.videoId, title: t.title, artist: t.artistName, artistId: t.artistId,
       explicit: !!t.explicit, isVideo: true, durationSec: t.durationSec ?? null }));
 
+  // ── top artists → ZemerArtist { id, name, thumbnail }. Ranked by device reach (generator). Gate by the
+  //    artist's own flags (female/kidzone) + blocked-id; famous/american does NOT apply to ranked rows
+  //    (app decision). No _female cross-credit — an artist card IS an artist, not a track. thumbnail is
+  //    read here from the corpus (not carried on /stats topArtists).
+  const artRow = db.prepare("SELECT id, name, thumbnail, isFemale, isKidZone FROM artist WHERE id=?");
+  const topArtists = ranked("top-artists").map((r) => artRow.get(r.refId)).filter(Boolean)
+    .filter((a) => (allowFemale || !a.isFemale) && (!kidZoneOnly || a.isKidZone) && !drop(a.id))
+    .map((a) => ({ id: a.id, name: a.name, thumbnail: a.thumbnail || null }));
+
   // ── top community → PHASE 2, deliberately not served yet. The generator never writes `top-community`
   //    (community playback isn't tagged `community:<id>` — those plays are indistinguishable inside
   //    playlist:), so there is nothing to hydrate. Just as important: a correct community filter is NOT
@@ -566,7 +582,7 @@ export function homeRows(db, { allowFemale = true, kidZoneOnly = false, blockVid
   //    the member-survival-only version would bake a female-leak into the new path. Phase 2 must port the
   //    full gotcha #7 rule (and settle the curator-vs-channel gate) before this returns anything.
   const topCommunity = [];
-  return { topAlbums, topVideos, topCommunity };
+  return { topAlbums, topVideos, topArtists, topCommunity };
 }
 
 // Expanded, filtered, display-shaped tracks of one curated playlist. Direct track items keep file order;

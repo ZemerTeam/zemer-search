@@ -705,3 +705,35 @@ test("home rows: applyHomeRank touches only the keys given (empty /stats can't w
   const h2 = homeRows(db, {}, null);
   assert.equal(h2.topAlbums.length, 1); assert.equal(h2.topVideos.length, 1);
 });
+
+test("home rows: top artists hydrate to ZemerArtist, female-gated, blocked-id dropped", () => {
+  const db = openCorpus(":memory:"); seed(db);
+  upsertArtistCatalog(db, { id: "UCfemale", name: "Fem Artist", isFemale: 1 }, {
+    tracks: [{ videoId: "femvid00001", title: "Fem Song", isVideo: false }],
+  });
+  applyHomeRank(db, { "top-artists": [
+    { kind: "artist", refId: "UCmusic", artistId: "UCmusic" },
+    { kind: "artist", refId: "UCfemale", artistId: "UCfemale" },
+  ] });
+  const open = homeRows(db, {}, null);
+  assert.equal(open.topArtists.length, 2);
+  assert.deepEqual(Object.keys(open.topArtists[0]).sort(), ["id", "name", "thumbnail"]);
+  assert.equal(open.topArtists[0].id, "UCmusic");
+  const nf = homeRows(db, { allowFemale: false }, null);
+  assert.equal(nf.topArtists.length, 1, "female artist dropped under allowFemale=0");
+  assert.equal(nf.topArtists[0].id, "UCmusic");
+  const blk = homeRows(db, {}, (x) => x === "UCmusic");
+  assert.deepEqual(blk.topArtists.map((a) => a.id), ["UCfemale"], "blocked-id drops the artist card");
+});
+
+test("home rows: applyHomeRank dedups a row keeping the FIRST (best) position", () => {
+  const db = openCorpus(":memory:"); seed(db);
+  const n = applyHomeRank(db, { "top-albums": [
+    { kind: "album", refId: "MPRE_album", artistId: "UCmusic" },
+    { kind: "album", refId: "MPRE_single", artistId: "UCmusic" },
+    { kind: "album", refId: "MPRE_album", artistId: "UCmusic" }, // dup of #1 — must not take a worse slot
+  ] });
+  assert.equal(n, 2, "duplicate not counted");
+  const h = homeRows(db, {}, null);
+  assert.deepEqual(h.topAlbums.map((a) => a.id), ["MPRE_album", "MPRE_single"], "first position wins, dup dropped");
+});
