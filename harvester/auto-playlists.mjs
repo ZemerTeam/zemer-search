@@ -41,7 +41,7 @@
 //   STATS_URL=… STATS_KEY=… node harvester/auto-playlists.mjs        # generate + apply
 //   DRY=1 …                                                          # print what it would write, no write
 import fs from "node:fs";
-import { openCorpus, loadZemerPlaylists, applyZemerPlaylists, applyHomeRank, applyCommunityReach, setMeta, ZEMER_PLAYLISTS_PATH, ZEMER_PLAYLISTS_AUTO_PATH, ACAPELLA_AUTO_PATH, AUTO_HISTORY_PATH } from "../corpus/store.mjs";
+import { openCorpus, loadZemerPlaylists, applyZemerPlaylists, applyHomeRank, setMeta, ZEMER_PLAYLISTS_PATH, ZEMER_PLAYLISTS_AUTO_PATH, ACAPELLA_AUTO_PATH, AUTO_HISTORY_PATH } from "../corpus/store.mjs";
 import { dupKey, dedupRanked } from "./dedup.mjs";
 import { pickBaseline, windowCleanOfSeason, exposureMult, exposureGate, EXPOSURE_DEFAULTS, baselineReach, cappedLookup } from "./trending.mjs";
 import { hebDate, inThreeWeeks, seasonActive } from "../corpus/season.mjs";
@@ -444,9 +444,8 @@ console.log(`auto-playlists: ${autoBlocks.length} auto list(s)${mourning ? `  [a
 // in a try/catch that never rethrows: a bug here degrades home rows (the app falls back to its YouTube
 // scrape) but can NEVER disturb the Top 50 / Trending / Favorites apply that follows, nor the run's exit.
 // Ranked by distinct-device reach over a 30-day LIVE window (home stays current; no backfill — sidesteps
-// the Top 50 backfill-freeze). The Top Community reachScore is ALSO computed here (a proxy — shrunk-mean
-// member reach — until the app tags community:<id>, which swaps in with no contract change). Writes only
-// when !DRY.
+// the Top 50 backfill-freeze). Community omitted until the app tags community:<id> (today those plays are
+// indistinguishable inside playlist:). Writes only when !DRY.
 await (async () => {
   try {
     const HOME_WINDOW_DAYS = num(process.env.HOME_WINDOW_DAYS, 30);
@@ -485,39 +484,6 @@ await (async () => {
       .sort((a, b) => (b.devices || 0) - (a.devices || 0)) // self-contained ranking, don't trust /stats order
       .slice(0, HOME_N)
       .map((x) => ({ kind: "artist", refId: x.id, artistId: x.id, score: s(x.devices || 0) }));
-
-    // ── Top Community REACH re-rank: score each community playlist by how much OUR users play its songs.
-    // The row is GATED + ordered live by homeRows; this only supplies the ORDER signal (reachScore), which
-    // the API can't compute (no /stats handle). Metric = SHRUNK-MEAN member device-reach:
-    //   score = Σ s(reach(member)) / (memberCount + COMM_SIZE_PRIOR)
-    // — a coverage proxy ("how much of this list is songs our users play"), NOT a raw sum (which would
-    // size-bias toward 300-track mega-dumps). The size prior damps a tiny list of 2 mega-hits from topping.
-    // reach(v) = MAX(all-time backfill, recent live) device reach, 0 if unplayed — same deep+live axis as
-    // Favorites/Top 50. NOTE: this is a PROXY for playlist engagement (community is search-only, rarely
-    // opened) — the true signal awaits the app's community:<id> play tagging, which swaps in with no contract
-    // change. Fail-safe: computed empty (no reach) → we DON'T write, last-good reachScore survives; and
-    // homeRows falls back to viewCount for any NULL score, so the row never empties.
-    const COMM_SIZE_PRIOR = num(process.env.COMM_SIZE_PRIOR, 10);
-    const creachMap = new Map();
-    for (const r of rows(home, "topBackfilled")) creachMap.set(r.videoId, r.devices || 0);
-    for (const r of rows(home, "topPlays")) creachMap.set(r.videoId, Math.max(creachMap.get(r.videoId) || 0, r.devices || 0));
-    const creach = (v) => creachMap.get(v) || 0;
-    const commMembers = new Map();
-    for (const r of db.prepare("SELECT playlistId, videoId FROM community_playlist_track").all()) {
-      let a = commMembers.get(r.playlistId); if (!a) commMembers.set(r.playlistId, a = []); a.push(r.videoId);
-    }
-    const commEntries = [];
-    for (const [pid, vids] of commMembers) {
-      if (!vids.length) continue;
-      const score = vids.reduce((acc, v) => acc + s(creach(v)), 0) / (vids.length + COMM_SIZE_PRIOR);
-      if (score > 0) commEntries.push([pid, score]);
-    }
-    commEntries.sort((a, b) => b[1] - a[1]);
-    if (process.env.COMM_REACH_DUMP) { // DRY before/after aid: dump the full scored list, DB untouched
-      try { fs.writeFileSync(process.env.COMM_REACH_DUMP, JSON.stringify(commEntries)); console.log(`home-rows community: dumped ${commEntries.length} scores → ${process.env.COMM_REACH_DUMP}`); } catch (e) { console.warn(`dump failed: ${e.message}`); }
-    }
-    if (!DRY && commEntries.length) applyCommunityReach(db, commEntries);
-    console.log(`home-rows community: scored ${commEntries.length} playlists by member reach (shrunk-mean, prior ${COMM_SIZE_PRIOR})${commEntries.length ? "" : " — no reach, last-good reachScore left untouched"}${DRY ? "  [DRY]" : ""}`);
 
     // Only write rows we actually have data for — applyHomeRank replaces just the keys present, so an empty
     // window (or a stats server without the album rollup) leaves the OTHER row's last-good intact instead of

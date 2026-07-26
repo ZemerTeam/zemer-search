@@ -10,7 +10,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistList, communityKeptCounts, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, tracksNeedingDate, setTrackUploadDate, recentAlbums, recentTracks, setFemaleSet, applyZemerPlaylists, zemerPlaylistList, zemerPlaylistDetail, applyHomeRank, applyCommunityReach, homeRows, setMeta, getMeta } from "./store.mjs";
+import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistList, communityKeptCounts, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, tracksNeedingDate, setTrackUploadDate, recentAlbums, recentTracks, setFemaleSet, applyZemerPlaylists, zemerPlaylistList, zemerPlaylistDetail, applyHomeRank, homeRows, setMeta, getMeta } from "./store.mjs";
 import { parseDurationSec, parsePlays } from "../harness/browse.mjs";
 
 const seed = (db) => upsertArtistCatalog(db, { id: "UCmusic", name: "Test Artist" }, {
@@ -809,34 +809,6 @@ test("home rows: topCommunity gate — fail-safe: no engagement data → runtime
   upsertCommunityPlaylist(db, { id: "PLb", title: "B", total: 1, viewCount: 9000 }, [{ videoId: "male0song01", pos: 0 }]);
   // engaged set empty → engagement clause dropped; both pass on runtime alone, ranked by views
   assert.deepEqual(homeRows(db, {}, null).topCommunity.map((c) => c.id), ["PLb", "PLa"], "falls back to pure view-count, never empties");
-});
-
-test("home rows: topCommunity is REACH-ranked when reachScore present, viewCount only the fallback", () => {
-  const db = openCorpus(":memory:"); seedFlags(db); gatePrep(db);
-  // three eligible playlists; view-count order would be C > B > A
-  upsertCommunityPlaylist(db, { id: "PLa", title: "A", total: 1, viewCount: 100 }, [{ videoId: "male0song01", pos: 0 }]);
-  upsertCommunityPlaylist(db, { id: "PLb", title: "B", total: 1, viewCount: 5000 }, [{ videoId: "male0song01", pos: 0 }]);
-  upsertCommunityPlaylist(db, { id: "PLc", title: "C", total: 1, viewCount: 90000 }, [{ videoId: "male0song01", pos: 0 }]);
-  assert.deepEqual(homeRows(db, {}, null).topCommunity.map((c) => c.id), ["PLc", "PLb", "PLa"], "no reachScore → view-count fallback order");
-  // reach flips it: A most-engaged, C least
-  applyCommunityReach(db, [["PLa", 0.9], ["PLb", 0.5], ["PLc", 0.1]]);
-  assert.deepEqual(homeRows(db, {}, null).topCommunity.map((c) => c.id), ["PLa", "PLb", "PLc"], "reachScore DESC overrides view count");
-  // a playlist with a reach score outranks a higher-view one that has none (NULLs sort last)
-  applyCommunityReach(db, [["PLa", 0.3]]); // only A scored; B, C cleared to NULL
-  assert.deepEqual(homeRows(db, {}, null).topCommunity.map((c) => c.id), ["PLa", "PLc", "PLb"], "A (scored) first; B/C fall back to view-count among themselves");
-});
-
-test("applyCommunityReach: wholesale replace — sets given, clears stale, empty clears all", () => {
-  const db = openCorpus(":memory:"); seedFlags(db);
-  upsertCommunityPlaylist(db, { id: "P1", title: "1", total: 1 }, [{ videoId: "male0song01", pos: 0 }]);
-  upsertCommunityPlaylist(db, { id: "P2", title: "2", total: 1 }, [{ videoId: "male0song01", pos: 0 }]);
-  assert.equal(applyCommunityReach(db, [["P1", 0.4], ["P2", 0.7]]), 2);
-  const score = (id) => db.prepare("SELECT reachScore r FROM community_playlist WHERE id=?").get(id).r;
-  assert.equal(score("P1"), 0.4); assert.equal(score("P2"), 0.7);
-  applyCommunityReach(db, [["P2", 0.9]]); // P1 not in the new set → cleared
-  assert.equal(score("P1"), null, "stale score cleared"); assert.equal(score("P2"), 0.9);
-  applyCommunityReach(db, []); // empty → all cleared (fail-safe path → homeRows falls back to viewCount)
-  assert.equal(score("P2"), null, "empty entries clears everything");
 });
 
 test("auto-playlist freshness: stats exposes applied-at + age, null until stamped", () => {

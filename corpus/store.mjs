@@ -119,10 +119,7 @@ export function openCorpus(file = DB_PATH) {
       total        INTEGER NOT NULL DEFAULT 0,   -- tracks on YTM at discovery
       whitelisted  INTEGER NOT NULL DEFAULT 0,   -- of those, how many are whitelisted (the only ones served)
       viewCount    INTEGER,                       -- the playlist's TOTAL YouTube views (header strapline) —
-                                                  -- intrinsic popularity, the Top Community fallback rank (no telemetry)
-      reachScore   REAL,                           -- OUR users' engagement: shrunk-mean device-reach of the
-                                                  -- whitelisted members (harvester/auto-playlists.mjs). Ranks the
-                                                  -- Top Community row when present; NULL → fall back to viewCount.
+                                                  -- intrinsic popularity, ranks the home Top Community row (no telemetry)
       discoveredAt INTEGER
     );
     CREATE TABLE IF NOT EXISTS community_playlist_track (
@@ -192,11 +189,6 @@ export function openCorpus(file = DB_PATH) {
   // Community row by intrinsic popularity — no user telemetry. NULL until captured/backfilled.
   if (!db.prepare("PRAGMA table_info(community_playlist)").all().some((c) => c.name === "viewCount"))
     db.exec("ALTER TABLE community_playlist ADD COLUMN viewCount INTEGER");
-  // community_playlist.reachScore: OUR users' engagement with each list — the shrunk-mean device-reach of
-  // its whitelisted members (precomputed by harvester/auto-playlists.mjs from /stats, since the API has no
-  // stats handle). Ranks the home Top Community row when present; NULL (generator not yet run) → viewCount.
-  if (!db.prepare("PRAGMA table_info(community_playlist)").all().some((c) => c.name === "reachScore"))
-    db.exec("ALTER TABLE community_playlist ADD COLUMN reachScore REAL");
   // Zemer-curated DYNAMIC year playlists ("Year of 2026"): a rule instead of an id list — contents are
   // computed at read time from release dates, so the playlist grows with every harvest all year.
   if (!db.prepare("PRAGMA table_info(zemer_playlist)").all().some((c) => c.name === "year"))
@@ -557,22 +549,6 @@ export function applyHomeRank(db, rows = {}) {
   return n;
 }
 
-// community_playlist.reachScore — OUR users' engagement, precomputed by the auto-playlists generator (the
-// only place with a /stats handle). WHOLESALE replace: clears every existing score first, then sets the
-// supplied ones, so a playlist that drops out of the scored set can't keep a stale score. `entries` =
-// [[playlistId, score], …]. An empty entries clears all → homeRows falls back to viewCount (fail-safe).
-// Returns the number of scores written.
-export function applyCommunityReach(db, entries = []) {
-  const clear = db.prepare("UPDATE community_playlist SET reachScore=NULL WHERE reachScore IS NOT NULL");
-  const set = db.prepare("UPDATE community_playlist SET reachScore=? WHERE id=?");
-  let n = 0;
-  db.transaction(() => {
-    clear.run();
-    for (const [id, score] of entries) if (score != null) n += set.run(score, id).changes;
-  })();
-  return n;
-}
-
 // Read the home rows, hydrated to the app's wire shapes and content-filtered at read time (same contract
 // as /zemer-playlists: default-OPEN, filters applied only when the flag is set; blocked-ids via dropId).
 // Each card carries `artistId` (the app's famous/american/israeli gate + one-per-artist dedup need it).
@@ -615,12 +591,9 @@ export function homeRows(db, { allowFemale = true, kidZoneOnly = false, blockVid
     .filter((a) => (allowFemale || !a.isFemale) && (!kidZoneOnly || a.isKidZone) && !drop(a.id))
     .map((a) => ({ id: a.id, name: a.name, thumbnail: a.thumbnail || null }));
 
-  // ── top community → REACH-ranked among OUR users, GATED so the row reflects our audience, not raw YouTube
-  //    virality (a globally-viral nostalgia collection nobody here plays shouldn't headline the row).
-  //    RANKING: reachScore DESC (shrunk-mean device-reach of the whitelisted members — how much of the list
-  //    our users actually play, precomputed by the generator), with viewCount DESC as the FALLBACK when
-  //    reachScore is NULL (generator not yet run / no reach) — so the row is never empty and, pre-first-run,
-  //    ranks exactly as the view-count version did. GATE — a playlist is eligible only when it is:
+  // ── top community → VIEWS-ranked (the playlist's own YouTube view count, captured at discovery), but
+  //    GATED so the row reflects OUR users' taste, not raw YouTube virality (a globally-viral nostalgia
+  //    collection nobody here plays shouldn't headline the row). A playlist is eligible only when it is:
   //      1. substantial — ≥40 min (HOME_COMMUNITY_MIN_SEC) of whitelisted-member runtime (a truer measure
   //         than a raw song count: it keeps quality lists of fewer-but-longer songs, drops tiny throwaways).
   //         Duration is summed over corpus tracks (100% covered); un-harvested members contribute 0, so the
@@ -649,7 +622,7 @@ export function homeRows(db, { allowFemale = true, kidZoneOnly = false, blockVid
     : ""; // fail-safe: no engagement data → gate on runtime only, fall back to pure view-count ranking
   const cpool = db.prepare(`SELECT id, title, author, whitelisted, ${COVER_SQL} AS cover
     FROM community_playlist WHERE viewCount IS NOT NULL AND ${durSql} ${engagedSql}
-    ORDER BY reachScore IS NULL, reachScore DESC, viewCount DESC, whitelisted DESC, id LIMIT ?`).all(HOME_COMMUNITY_POOL);
+    ORDER BY viewCount DESC, whitelisted DESC, id LIMIT ?`).all(HOME_COMMUNITY_POOL);
   let femaleOwned = null;
   if (!allowFemale && cpool.length) { // same femaleOwned recipe as index/categories.mjs
     const fpl = new Set(db.prepare("SELECT p.id FROM playlist p JOIN artist a ON a.id=p.artistId WHERE a.isFemale=1").all().map((r) => r.id));
