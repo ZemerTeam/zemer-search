@@ -45,6 +45,19 @@ Shuffle splits by whether the entity carries a YouTube `shuffleEndpoint`:
 
 So there is **no standalone "replace Shuffle" task**: (a) a *finite* shuffle becomes local automatically the moment its screen is migrated to a corpus-backed artist/album/playlist (`shuffleEndpoint` → `null` → `ListQueue`), and (b) the *endless* YouTube **artist shuffle** (`RDAO…` → `next()`) is really artist-radio, so it **folds into Zemer Radio (artist-seeded)**. Both are already legs on the InnerTube-replacement map — Shuffle just comes along.
 
+### Scope note — Artist/Album open: browse is covered, but the **Radio button couples to this work**
+
+Diffed what the app's artist/album screens actually consume against `/artist` + `/album` (both already corpus-native, `artistDetail`/`albumDetail`):
+
+- **Browse data — fully covered.** `ArtistScreen` uses only artist name, thumbnail, the content sections, and the radio/shuffle buttons — it does **not** render bio, subscriber count, or related-artists, so those are *not* gaps. `/artist` returns name/thumbnail/songs/videos/albums/singles/playlists; `/album` returns `{album, tracks}` with durations/year/art. **Opening, browsing, and playing an artist/album needs no InnerTube.**
+- **The Radio button is the catch — it's coupled to Zemer Radio.** `radioEndpoint`/`shuffleEndpoint` are *actions*, not data:
+  - Artist **Shuffle** → replaceable now with a local `ListQueue` of the artist's tracks (data is in `/artist`).
+  - Artist/Album **Radio** → **no corpus equivalent until Zemer Radio exists.** You cannot fully de-InnerTube these screens without the radio engine → **sequence radio before/with the artist-album screen migration, not after.**
+- **Small concrete server gap:** `albumDetail` (`/album`) does **not** return `playlistId`, though the corpus has the column. Today `LocalAlbumRadio` calls `YouTube.album()` *only* to fetch that id; expose it on `/album` (or it's moot once album-radio uses Zemer Radio).
+- **App-side shape mapping (not a server gap):** `/artist` returns flat arrays; the app's `ArtistPage` expects `sections[]` — a `ZemerResultMapper`-style mapping, like search already does.
+
+**Net:** artist/album *open* is server-ready today (minus the tiny `playlistId` add); the Radio *actions* on those screens are the coupling to the radio engine. So "replace artist/album InnerTube" is not a clean standalone leg — its radio buttons wait on Zemer Radio.
+
 ---
 
 ## Part 2 — Synchronized stations: **feasible now**, and cheaper to scale than per-user radio
