@@ -272,6 +272,11 @@ endpoint change; content filters (female/blocked/kidzone/video) are applied down
     velocity engages only when BOTH compared windows lie fully outside The Three Weeks — the acapella
     season skews both sides of a cross-season growth comparison — so it suspends for the season plus the
     following two windows every year (Hebrew-calendar-recurring, no hardcoded dates) and re-engages alone.
+    **Acapella is excluded** from Trending year-round (`masterAcapellaIds`): the master curated `acapella`
+    playlist's `videoIds` (read UN-gated straight from `data/zemer-playlists.json`, since `loadZemerPlaylists`
+    retires that entry off-season — exactly when the just-passed Three-Weeks acapella surge is still inside
+    Trending's 7-day window) are filtered out of the ranking. Acapella has its own seasonal lists; the general
+    Trending row stays acapella-free.
     **REACH** (the standing fallback + the velocity tiebreak): raw distinct-device reach (what a user means
     by "trending" — lots of people playing it now), with skip a HALF-weight dampener
     (`reach·(1 − 0.5·skipRate)`) plus the `skipRate<0.5`/`devices≥3` floor — a genuinely skipped track is

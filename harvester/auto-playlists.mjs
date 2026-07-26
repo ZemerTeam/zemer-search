@@ -111,6 +111,19 @@ function acapellaSet() {
   return ac ? new Set(ac.videoIds || []) : null;
 }
 
+// The MASTER curated acapella playlist's videoIds — read UN-GATED, straight from data/zemer-playlists.json,
+// NOT via loadZemerPlaylists (which seasonally RETIRES the acapella entry off-season, exactly when we still
+// need it: right after the Three Weeks the seasonal acapella surge is still inside Trending's 7-day window).
+// Used to keep acapella OUT of the regular Trending list year-round (acapella has its own seasonal list).
+// videoIds only — these are the hand-vetted acapella tracks; we do NOT expand albumIds (they can carry
+// non-acapella album members, same caution as acapellaSet). Empty set on any read error → no-op (safe).
+function masterAcapellaIds() {
+  try {
+    const ac = (JSON.parse(fs.readFileSync(ZEMER_PLAYLISTS_PATH, "utf8")).playlists || []).find((p) => p?.id === "acapella");
+    return new Set(ac?.videoIds || []);
+  } catch { return new Set(); }
+}
+
 // Recurring auto-add: recent releases whose TITLE clearly says acapella / vocal-version get appended to the
 // gitignored acapella-auto list (folded into the curated acapella playlist by loadZemerPlaylists). ONLY clear
 // labels — a STRICT marker, so nothing ambiguous is ever added; a rolling window keeps it to NEW releases.
@@ -293,8 +306,11 @@ if (windowCleanOfSeason(Date.now(), TRENDING_DAYS, inSeason)) {
 const prevReach = baselineReach(velocityBase?.topPlays7d);
 const dampSkip = (r) => 1 - TREND_SKIP_PENALTY * clamp(r.skipRate || 0, 0, 1);
 const reachScore = (r) => (r.devices || 0) * dampSkip(r) * mult(r.videoId);
+// Acapella belongs to the seasonal Acapella lists, not the general Trending row — keep the master curated
+// acapella set OUT of Trending year-round (esp. post-season, when the Three-Weeks surge is still in-window).
+const trendAcapExclude = masterAcapellaIds();
 const trendRanked = rows(trend, "topPlays")
-  .filter((r) => inCorpus.has(r.videoId) && (r.devices || 0) >= TREND_MIN_DEVICES && (r.skipRate || 0) < TREND_MAX_SKIP)
+  .filter((r) => inCorpus.has(r.videoId) && !trendAcapExclude.has(r.videoId) && (r.devices || 0) >= TREND_MIN_DEVICES && (r.skipRate || 0) < TREND_MAX_SKIP)
   .map((r) => ({
     v: r.videoId,
     score: velocityBase
