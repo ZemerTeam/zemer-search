@@ -328,8 +328,11 @@ const LOVED_SIG = `loved|b${W.backPlay},l${W.livePlay},f${W.favorite},d${W.downl
 const RANK_FORMULAS = {
   "auto-top-50": LOVED_SIG,
   "auto-favorites": `fav|f${W.favorite},d${W.download}|prior${PRIOR}`,
+  // `acapx` marks the acapella-excluded membership: it removes rows, which shifts survivors' ranks, so it's
+  // a chart-basis change like a mode flip — including it in the signature makes the badges RESET (blank until
+  // a fresh matching anchor forms) instead of rendering the one-time acapella-removal shuffle as fake surges.
   "auto-trending": `trend|${velocityBase ? "velocity" : "reach"}|${expReach ? `expo${EXPOSURE_DAYS}` : "noexpo"}`
-    + `|win${TRENDING_DAYS}|skip${TREND_SKIP_PENALTY}/${TREND_MAX_SKIP}|min${TREND_MIN_DEVICES}`,
+    + `|win${TRENDING_DAYS}|skip${TREND_SKIP_PENALTY}/${TREND_MAX_SKIP}|min${TREND_MIN_DEVICES}${trendAcapExclude.size ? "|acapx" : ""}`,
   "auto-acapella-top-50": `acap|skip${TREND_SKIP_PENALTY}|min1`,
 };
 console.log(`trending: ${velocityBase ? `VELOCITY mode (baseline ${velocityBase.t})` : `reach mode (no clean baseline one ${TRENDING_DAYS}d window back)`}${expReach ? `, exposure dampener ON (${EXPOSURE_DAYS}d exposure window) — ${gate.reason}` : `, exposure dampener off — ${gate.reason}`}`);
