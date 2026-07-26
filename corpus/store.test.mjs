@@ -40,6 +40,7 @@ test("albumDetail returns the album's tracks in order", () => {
   const db = openCorpus(":memory:"); seed(db);
   const a = albumDetail(db, "MPRE_album");
   assert.equal(a.album.title, "Big Album");
+  assert.equal(a.album.playlistId, "PLa", "playlistId exposed — the app needs it to play/queue the album");
   assert.equal(a.tracks.length, 1);
   assert.equal(a.tracks[0].videoId, "vid00000001");
 });

@@ -798,7 +798,7 @@ export function artistDetail(db, artistId, { allowFemale = true, kidZoneOnly = f
 }
 
 export function albumDetail(db, albumId, { allowFemale = true, kidZoneOnly = false, blockVideos = false } = {}) {
-  const al = db.prepare("SELECT al.id,al.title,al.type,al.year,al.thumbnail,al.uploadDate,a.name artistName,a.isFemale,a.isKidZone FROM album al JOIN artist a ON a.id=al.artistId WHERE al.id=?").get(albumId);
+  const al = db.prepare("SELECT al.id,al.playlistId,al.title,al.type,al.year,al.thumbnail,al.uploadDate,a.name artistName,a.isFemale,a.isKidZone FROM album al JOIN artist a ON a.id=al.artistId WHERE al.id=?").get(albumId);
   if (!al) return null;
   // Gate the whole album by its artist (same as artistDetail); then filter the track list per-track (a
   // compilation can mix artists / include video tracks).
@@ -813,7 +813,7 @@ export function albumDetail(db, albumId, { allowFemale = true, kidZoneOnly = fal
   // match the /artist list row even if content filters shorten the returned `tracks`.
   const agg = db.prepare(`SELECT COUNT(at.videoId) AS trackCount, SUM(t.durationSec) AS totalDurationSec
     FROM album_track at JOIN track t ON t.videoId=at.videoId WHERE at.albumId=?`).get(albumId);
-  return { album: { id: al.id, title: al.title, type: al.type, year: al.year, thumbnail: al.thumbnail, artist: al.artistName, releaseDate: al.uploadDate ?? null, trackCount: agg.trackCount, totalDurationSec: agg.totalDurationSec ?? null }, tracks };
+  return { album: { id: al.id, playlistId: al.playlistId, title: al.title, type: al.type, year: al.year, thumbnail: al.thumbnail, artist: al.artistName, releaseDate: al.uploadDate ?? null, trackCount: agg.trackCount, totalDurationSec: agg.totalDurationSec ?? null }, tracks };
 }
 
 // Which of `ids` are whitelisted tracks we already hold (for playlist detail: a playlist may include
