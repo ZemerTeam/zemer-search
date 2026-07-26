@@ -738,8 +738,16 @@ test("home rows: applyHomeRank dedups a row keeping the FIRST (best) position", 
   assert.deepEqual(h.topAlbums.map((a) => a.id), ["MPRE_album", "MPRE_single"], "first position wins, dup dropped");
 });
 
+// Make community playlists eligible for the Top Community home-row gate (≥40 min whitelisted runtime AND
+// containing an ENGAGED song): give the shared members a ≥40 min duration and enroll them in an engaged list.
+const gatePrep = (db, ids = ["male0song01", "fem00song01"]) => {
+  const setDur = db.prepare("UPDATE track SET durationSec=2400 WHERE videoId=?");
+  for (const v of ids) setDur.run(v);
+  applyZemerPlaylists(db, { playlists: [{ id: "auto-top-50", title: "Top 50", videoIds: ids }] });
+};
+
 test("home rows: topCommunity ranks by viewCount desc, shapes cards, caps the row", () => {
-  const db = openCorpus(":memory:"); seedFlags(db);
+  const db = openCorpus(":memory:"); seedFlags(db); gatePrep(db);
   // three view-tagged playlists (out of order) + one with NO viewCount (must be excluded)
   upsertCommunityPlaylist(db, { id: "PLlow", title: "Low", author: "Curator A", total: 1, viewCount: 100 }, [{ videoId: "male0song01", pos: 0 }]);
   upsertCommunityPlaylist(db, { id: "PLhigh", title: "High", author: "Curator B", total: 1, viewCount: 90000 }, [{ videoId: "male0song01", pos: 0 }]);
@@ -756,7 +764,7 @@ test("home rows: topCommunity ranks by viewCount desc, shapes cards, caps the ro
 });
 
 test("home rows: topCommunity honors filters — member-survival, blocked-id, and femaleOwned hide (gotcha #7)", () => {
-  const db = openCorpus(":memory:"); seedFlags(db);
+  const db = openCorpus(":memory:"); seedFlags(db); gatePrep(db);
   upsertCommunityPlaylist(db, { id: "PLmix", title: "Mixed", author: "Some Guy", total: 2, viewCount: 9000 }, [
     { videoId: "male0song01", pos: 0 }, { videoId: "fem00song01", pos: 1 }]); // survives with male track, count reduced
   upsertCommunityPlaylist(db, { id: "PLallfem", title: "All Female", author: "Some Gal", total: 1, viewCount: 8000 }, [
@@ -772,6 +780,35 @@ test("home rows: topCommunity honors filters — member-survival, blocked-id, an
   assert.equal(nf.topCommunity[0].thumbnail, "https://i.ytimg.com/vi/male0song01/mqdefault.jpg", "cover from the surviving track");
   // blocked-id drops the top card, order preserved with the gap closed
   assert.deepEqual(homeRows(db, {}, (x) => x === "PLmix").topCommunity.map((c) => c.id), ["PLallfem", "PLowned"]);
+});
+
+test("home rows: topCommunity gate — a playlist under 40 min of runtime is excluded", () => {
+  const db = openCorpus(":memory:"); seedFlags(db);
+  applyZemerPlaylists(db, { playlists: [{ id: "auto-top-50", title: "Top 50", videoIds: ["male0song01"] }] });
+  db.prepare("UPDATE track SET durationSec=2400 WHERE videoId=?").run("fem00song01"); // 40 min
+  db.prepare("UPDATE track SET durationSec=100 WHERE videoId=?").run("male0song01");   // ~1.6 min
+  // both contain the engaged song male0song01; only the ≥40 min one is eligible
+  upsertCommunityPlaylist(db, { id: "PLshort", title: "Short", total: 1, viewCount: 99999 }, [{ videoId: "male0song01", pos: 0 }]);
+  upsertCommunityPlaylist(db, { id: "PLlong", title: "Long", total: 2, viewCount: 100 }, [{ videoId: "male0song01", pos: 0 }, { videoId: "fem00song01", pos: 1 }]);
+  assert.deepEqual(homeRows(db, {}, null).topCommunity.map((c) => c.id), ["PLlong"], "short list excluded despite far higher views");
+});
+
+test("home rows: topCommunity gate — a substantial playlist with no engaged song is excluded", () => {
+  const db = openCorpus(":memory:"); seedFlags(db);
+  db.prepare("UPDATE track SET durationSec=2400 WHERE videoId IN ('male0song01','male0vid001')").run();
+  applyZemerPlaylists(db, { playlists: [{ id: "auto-top-50", title: "Top 50", videoIds: ["male0song01"] }] }); // engaged = {male0song01}
+  upsertCommunityPlaylist(db, { id: "PLengaged", title: "Has engaged", total: 1, viewCount: 100 }, [{ videoId: "male0song01", pos: 0 }]);
+  upsertCommunityPlaylist(db, { id: "PLnone", title: "No engaged", total: 1, viewCount: 99999 }, [{ videoId: "male0vid001", pos: 0 }]); // ≥40 min but no engaged member
+  assert.deepEqual(homeRows(db, {}, null).topCommunity.map((c) => c.id), ["PLengaged"], "no-engaged-song list excluded despite higher views");
+});
+
+test("home rows: topCommunity gate — fail-safe: no engagement data → runtime-only, ranks on views", () => {
+  const db = openCorpus(":memory:"); seedFlags(db);
+  db.prepare("UPDATE track SET durationSec=2400 WHERE videoId=?").run("male0song01"); // ≥40 min, but NO auto-* lists exist
+  upsertCommunityPlaylist(db, { id: "PLa", title: "A", total: 1, viewCount: 5000 }, [{ videoId: "male0song01", pos: 0 }]);
+  upsertCommunityPlaylist(db, { id: "PLb", title: "B", total: 1, viewCount: 9000 }, [{ videoId: "male0song01", pos: 0 }]);
+  // engaged set empty → engagement clause dropped; both pass on runtime alone, ranked by views
+  assert.deepEqual(homeRows(db, {}, null).topCommunity.map((c) => c.id), ["PLb", "PLa"], "falls back to pure view-count, never empties");
 });
 
 test("auto-playlist freshness: stats exposes applied-at + age, null until stamped", () => {

@@ -591,9 +591,18 @@ export function homeRows(db, { allowFemale = true, kidZoneOnly = false, blockVid
     .filter((a) => (allowFemale || !a.isFemale) && (!kidZoneOnly || a.isKidZone) && !drop(a.id))
     .map((a) => ({ id: a.id, name: a.name, thumbnail: a.thumbnail || null }));
 
-  // ── top community → VIEWS-ranked (the playlist's own YouTube view count, captured at discovery), so it
-  //    needs NO user telemetry and works the moment views are backfilled. Served by the EXACT community
-  //    recipe used by /community + /search, so it behaves identically across surfaces:
+  // ── top community → VIEWS-ranked (the playlist's own YouTube view count, captured at discovery), but
+  //    GATED so the row reflects OUR users' taste, not raw YouTube virality (a globally-viral nostalgia
+  //    collection nobody here plays shouldn't headline the row). A playlist is eligible only when it is:
+  //      1. substantial — ≥40 min (HOME_COMMUNITY_MIN_SEC) of whitelisted-member runtime (a truer measure
+  //         than a raw song count: it keeps quality lists of fewer-but-longer songs, drops tiny throwaways).
+  //         Duration is summed over corpus tracks (100% covered); un-harvested members contribute 0, so the
+  //         gate is conservative (a borderline list sits out rather than sneaking in) — the safe direction.
+  //      2. relevant — contains at least one ENGAGED song: a member in the data-driven Top 50 / Trending /
+  //         Favorites (Favorites already folds in downloads). "Year of ‹Y›" is excluded — a calendar rule,
+  //         not an engagement signal. FAIL-SAFE: if that set is empty (generator hasn't run / /stats was
+  //         down), the engagement clause is dropped so the row falls back to pure view-count, never empties.
+  //    Survivors are then served by the EXACT community recipe used by /community + /search:
   //      • member-survival + per-track filter — only whitelisted, filter-surviving (male, when female is
   //        blocked) tracks count and serve; songCount reflects the survivors (communityKeptCounts).
   //      • track-derived, filter-aware cover (gotcha #14) — the first SURVIVING whitelisted member's art,
@@ -602,9 +611,18 @@ export function homeRows(db, { allowFemale = true, kidZoneOnly = false, blockVid
   //        artist playlist, or its curator name matches a female whitelist entry) is dropped under
   //        allowFemale=0 even if it survives on a male collab track. Same recipe as index/categories.mjs.
   //      • blocked-ids (dropId).
-  const HOME_COMMUNITY_POOL = 80, HOME_COMMUNITY_N = 16; // pool wide enough to survive the filter → ~8-wide row
+  const HOME_COMMUNITY_POOL = 80, HOME_COMMUNITY_N = 16, HOME_COMMUNITY_MIN_SEC = 40 * 60; // pool wide enough to survive the filter → ~8-wide row
+  const ENGAGED_LISTS = ["auto-top-50", "auto-trending", "auto-favorites"]; // the data-driven engagement signals
+  const engagedIn = ENGAGED_LISTS.map((x) => `'${x}'`).join(",");
+  const engagedN = db.prepare(`SELECT COUNT(*) n FROM zemer_playlist_item WHERE kind='track' AND playlistId IN (${engagedIn})`).get().n;
+  const durSql = `(SELECT COALESCE(SUM(t.durationSec),0) FROM community_playlist_track cpt JOIN track t ON t.videoId=cpt.videoId WHERE cpt.playlistId=community_playlist.id) >= ${HOME_COMMUNITY_MIN_SEC}`;
+  const engagedSql = engagedN > 0
+    ? `AND EXISTS (SELECT 1 FROM community_playlist_track cpt WHERE cpt.playlistId=community_playlist.id
+         AND cpt.videoId IN (SELECT refId FROM zemer_playlist_item WHERE kind='track' AND playlistId IN (${engagedIn})))`
+    : ""; // fail-safe: no engagement data → gate on runtime only, fall back to pure view-count ranking
   const cpool = db.prepare(`SELECT id, title, author, whitelisted, ${COVER_SQL} AS cover
-    FROM community_playlist WHERE viewCount IS NOT NULL ORDER BY viewCount DESC, whitelisted DESC, id LIMIT ?`).all(HOME_COMMUNITY_POOL);
+    FROM community_playlist WHERE viewCount IS NOT NULL AND ${durSql} ${engagedSql}
+    ORDER BY viewCount DESC, whitelisted DESC, id LIMIT ?`).all(HOME_COMMUNITY_POOL);
   let femaleOwned = null;
   if (!allowFemale && cpool.length) { // same femaleOwned recipe as index/categories.mjs
     const fpl = new Set(db.prepare("SELECT p.id FROM playlist p JOIN artist a ON a.id=p.artistId WHERE a.isFemale=1").all().map((r) => r.id));
