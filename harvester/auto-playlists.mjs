@@ -311,11 +311,12 @@ if (windowCleanOfSeason(Date.now(), TRENDING_DAYS, inSeason)) {
 const prevReach = baselineReach(velocityBase?.topPlays7d);
 const dampSkip = (r) => 1 - TREND_SKIP_PENALTY * clamp(r.skipRate || 0, 0, 1);
 const reachScore = (r) => (r.devices || 0) * dampSkip(r) * mult(r.videoId);
-// Acapella belongs to the seasonal Acapella lists, not the general Trending row — keep the master curated
-// acapella set OUT of Trending year-round (esp. post-season, when the Three-Weeks surge is still in-window).
-const trendAcapExclude = masterAcapellaIds();
+// Acapella belongs to the seasonal Acapella lists, not the general Trending or Top Downloaded rows — keep
+// the master curated acapella set OUT of both year-round (esp. post-season, when the Three-Weeks surge is
+// still in-window). Shared by trendRanked and dlRanked below.
+const acapExclude = masterAcapellaIds();
 const trendRanked = rows(trend, "topPlays")
-  .filter((r) => inCorpus.has(r.videoId) && !trendAcapExclude.has(r.videoId) && (r.devices || 0) >= TREND_MIN_DEVICES && (r.skipRate || 0) < TREND_MAX_SKIP)
+  .filter((r) => inCorpus.has(r.videoId) && !acapExclude.has(r.videoId) && (r.devices || 0) >= TREND_MIN_DEVICES && (r.skipRate || 0) < TREND_MAX_SKIP)
   .map((r) => ({
     v: r.videoId,
     score: velocityBase
@@ -337,9 +338,9 @@ const RANK_FORMULAS = {
   // a chart-basis change like a mode flip — including it in the signature makes the badges RESET (blank until
   // a fresh matching anchor forms) instead of rendering the one-time acapella-removal shuffle as fake surges.
   "auto-trending": `trend|${velocityBase ? "velocity" : "reach"}|${expReach ? `expo${EXPOSURE_DAYS}` : "noexpo"}`
-    + `|win${TRENDING_DAYS}|skip${TREND_SKIP_PENALTY}/${TREND_MAX_SKIP}|min${TREND_MIN_DEVICES}${trendAcapExclude.size ? "|acapx" : ""}`,
+    + `|win${TRENDING_DAYS}|skip${TREND_SKIP_PENALTY}/${TREND_MAX_SKIP}|min${TREND_MIN_DEVICES}${acapExclude.size ? "|acapx" : ""}`,
   "auto-acapella-top-50": `acap|skip${TREND_SKIP_PENALTY}|min1`,
-  "auto-downloaded": `dl|prior${PRIOR}|album${DOWNLOADED_MAX_PER_ALBUM}`,
+  "auto-downloaded": `dl|prior${PRIOR}|album${DOWNLOADED_MAX_PER_ALBUM}${acapExclude.size ? "|acapx" : ""}`,
 };
 console.log(`trending: ${velocityBase ? `VELOCITY mode (baseline ${velocityBase.t})` : `reach mode (no clean baseline one ${TRENDING_DAYS}d window back)`}${expReach ? `, exposure dampener ON (${EXPOSURE_DAYS}d exposure window) — ${gate.reason}` : `, exposure dampener off — ${gate.reason}`}`);
 
@@ -356,7 +357,8 @@ const favIds = dedupRanked(favRanked, keyOf).slice(0, FAV_N).map((x) => x.v);
 // a downloaded album gives every track equal download reach — so raw per-track ranking is one album
 // exploded into rows. `capPerAlbum` keeps only each album's TOP track (download-primary; ties broken by
 // PLAY reach — an album's tracks are download-tied, so the tiebreak surfaces the album's actual hit, not an
-// arbitrary track). Standalone singles have no album → never capped. Needs ≥1 real download.
+// arbitrary track). Standalone singles have no album → never capped. Needs ≥1 real download. Acapella is
+// excluded (shared `acapExclude`, same as Trending) — it has its own seasonal lists.
 const albumOfTrack = new Map();
 for (const r of db.prepare("SELECT albumId, videoId FROM album_track").all()) if (!albumOfTrack.has(r.videoId)) albumOfTrack.set(r.videoId, r.albumId);
 const capPerAlbum = (ranked, maxPer) => {
@@ -369,7 +371,7 @@ const capPerAlbum = (ranked, maxPer) => {
   return out;
 };
 const dlPlayReach = (v) => Math.max(bpDev.get(v) || 0, lpDev.get(v) || 0); // for the within-album tiebreak
-const dlRanked = [...dlDev.keys()].filter((v) => inCorpus.has(v) && (dlDev.get(v) || 0) > 0)
+const dlRanked = [...dlDev.keys()].filter((v) => inCorpus.has(v) && !acapExclude.has(v) && (dlDev.get(v) || 0) > 0)
   .map((v) => ({ v, score: s(dlDev.get(v) || 0), tie: s(dlPlayReach(v)) }))
   .sort((a, b) => b.score - a.score || b.tie - a.tie); // download desc; within a download-tie, most-played first
 const dlIds = capPerAlbum(dedupRanked(dlRanked, keyOf), DOWNLOADED_MAX_PER_ALBUM).slice(0, DOWNLOADED_N).map((x) => x.v);
