@@ -10,7 +10,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistList, communityKeptCounts, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, tracksNeedingDate, setTrackUploadDate, recentAlbums, recentTracks, setFemaleSet, applyZemerPlaylists, zemerPlaylistList, zemerPlaylistDetail, applyHomeRank, homeRows, setMeta, getMeta } from "./store.mjs";
+import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, trackAlbumInfo, tracksByIds, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistList, communityKeptCounts, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, tracksNeedingDate, setTrackUploadDate, recentAlbums, recentTracks, setFemaleSet, applyZemerPlaylists, zemerPlaylistList, zemerPlaylistDetail, applyHomeRank, homeRows, setMeta, getMeta } from "./store.mjs";
 import { parseDurationSec, parsePlays } from "../harness/browse.mjs";
 
 const seed = (db) => upsertArtistCatalog(db, { id: "UCmusic", name: "Test Artist" }, {
@@ -43,6 +43,24 @@ test("albumDetail returns the album's tracks in order", () => {
   assert.equal(a.album.playlistId, "PLa", "playlistId exposed — the app needs it to play/queue the album");
   assert.equal(a.tracks.length, 1);
   assert.equal(a.tracks[0].videoId, "vid00000001");
+});
+
+test("artistDetail: songs carry per-track album art + {id,name}; standalone → null", () => {
+  const db = openCorpus(":memory:");
+  upsertArtistCatalog(db, { id: "UCaa", name: "AA" }, {
+    tracks: [{ videoId: "onalbum0001", title: "On Album", isVideo: false }, { videoId: "standalone1", title: "Loose Single", isVideo: false }],
+    albums: [{ id: "MPRE_x", playlistId: "PLx", title: "X Album", type: "album", year: 2024, thumbnail: "https://art/x=w544-h544" }],
+    albumTracks: [{ albumId: "MPRE_x", videoId: "onalbum0001", pos: 0 }],
+  });
+  const d = artistDetail(db, "UCaa");
+  const onAlbum = d.songs.find((s) => s.videoId === "onalbum0001");
+  const loose = d.songs.find((s) => s.videoId === "standalone1");
+  assert.equal(onAlbum.thumbnail, "https://art/x=w544-h544", "album-member song carries its album's square art");
+  assert.deepEqual(onAlbum.album, { id: "MPRE_x", name: "X Album" }, "album linkage present (for View album)");
+  assert.equal(loose.thumbnail, null, "standalone single → no album art");
+  assert.equal(loose.album, null, "standalone single → no album linkage");
+  // helper is reusable for other track surfaces
+  assert.equal(trackAlbumInfo(db, ["onalbum0001"]).get("onalbum0001").albumName, "X Album");
 });
 
 test("whitelistedChannelIds includes both the music and the regular-upload channel", () => {

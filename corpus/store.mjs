@@ -762,6 +762,26 @@ export function zemerPlaylistDetail(db, id, cf = {}, dropId = null) {
 }
 
 // Detail pages -----------------------------------------------------------------------------------
+// Per-track "primary album" — square album art + {id,name} — for any track surface (artist songs, and
+// later search/home/playlist tracks). Album art is NOT derivable from a videoId client-side, so the server
+// supplies it from album_track → album (the same googleusercontent square art `/album` returns). Deterministic:
+// the album with the smallest id when a track is on more than one. A track on NO album (standalone single or
+// a video — videos have only 16:9 art) is absent → the caller emits null and the app falls back to the video
+// frame. Chunked for the 999-variable limit. Returns Map(videoId → {albumId, albumName, thumbnail}).
+export function trackAlbumInfo(db, videoIds) {
+  const out = new Map();
+  for (let i = 0; i < videoIds.length; i += 900) {
+    const chunk = videoIds.slice(i, i + 900);
+    if (!chunk.length) break;
+    const rows = db.prepare(`SELECT at.videoId, al.id albumId, al.title albumName, al.thumbnail
+      FROM album_track at JOIN album al ON al.id=at.albumId
+      WHERE at.videoId IN (${chunk.map(() => "?").join(",")})
+        AND at.albumId = (SELECT MIN(at2.albumId) FROM album_track at2 WHERE at2.videoId=at.videoId)`).all(...chunk);
+    for (const r of rows) out.set(r.videoId, { albumId: r.albumId, albumName: r.albumName, thumbnail: r.thumbnail ?? null });
+  }
+  return out;
+}
+
 export function artistDetail(db, artistId, { allowFemale = true, kidZoneOnly = false, blockVideos = false } = {}) {
   const a = db.prepare("SELECT id,name,thumbnail,isFemale,isKidZone FROM artist WHERE id=?").get(artistId);
   if (!a) return null;
@@ -785,7 +805,10 @@ export function artistDetail(db, artistId, { allowFemale = true, kidZoneOnly = f
     FROM album al LEFT JOIN album_track at ON at.albumId=al.id LEFT JOIN track t ON t.videoId=at.videoId
     WHERE al.artistId=? GROUP BY al.id ORDER BY (al.year IS NULL), al.year DESC`).all(artistId);
   const pl = db.prepare("SELECT id,title,thumbnail FROM playlist WHERE artistId=?").all(artistId);
-  const song = (t) => ({ videoId: t.videoId, title: t.title, explicit: !!t.explicit, durationSec: t.durationSec ?? null, playCount: t.playCount ?? null, releaseDate: t.releaseDate ?? null });
+  // Per-track album art + {id,name} so the app's top-songs list shows square covers (not the letterboxed
+  // video frame) and can offer "View album". Null for standalone singles/videos (no album art in corpus).
+  const albumInfo = trackAlbumInfo(db, trk.map((t) => t.videoId));
+  const song = (t) => { const ai = albumInfo.get(t.videoId); return { videoId: t.videoId, title: t.title, explicit: !!t.explicit, durationSec: t.durationSec ?? null, playCount: t.playCount ?? null, releaseDate: t.releaseDate ?? null, thumbnail: ai?.thumbnail ?? null, album: ai ? { id: ai.albumId, name: ai.albumName } : null }; };
   const al = (x) => ({ id: x.id, playlistId: x.playlistId, title: x.title, artist: a.name, type: x.type, year: x.year, thumbnail: x.thumbnail, releaseDate: x.uploadDate ?? null, trackCount: x.trackCount, totalDurationSec: x.totalDurationSec ?? null });
   return {
     artist: { id: a.id, name: a.name, thumbnail: a.thumbnail },
