@@ -503,6 +503,7 @@ function zemerPlaylistTracks(db, id, { allowFemale = true, kidZoneOnly = false, 
     ? db.prepare(`
         SELECT t.videoId, t.title, t.explicit, t.isVideo, t.durationSec, t.playCount,
                COALESCE(t.uploadDate, MAX(al.uploadDate)) AS releaseDate,
+               MAX(al.thumbnail) AS albumArt,
                MAX(at2.videoId IS NOT NULL) AS onAlbum,
                a.name AS artistName, a.isKidZone,
                (a.isFemale=1 OR t.videoId IN (SELECT videoId FROM _female)) AS femInv
@@ -514,6 +515,7 @@ function zemerPlaylistTracks(db, id, { allowFemale = true, kidZoneOnly = false, 
     : db.prepare(`
         SELECT x.ipos, x.spos, t.videoId, t.title, t.explicit, t.isVideo, t.durationSec, t.playCount,
                COALESCE(t.uploadDate, MAX(al.uploadDate)) AS releaseDate,
+               MAX(al.thumbnail) AS albumArt,
                a.name AS artistName, a.isKidZone,
                (a.isFemale=1 OR t.videoId IN (SELECT videoId FROM _female)) AS femInv
         FROM (
@@ -535,7 +537,12 @@ function zemerPlaylistTracks(db, id, { allowFemale = true, kidZoneOnly = false, 
     // spos>=0 = album expansion) — for the app's All/Albums/Songs detail chips. A videoId reachable both
     // ways gets the kind that owns its kept (first) position, same rule as the dedup itself.
     // (Year playlists: fromAlbum = on any album, per the mapping above.)
+    // `thumbnail` = the REAL album art when the track belongs to an album (a track on more than one takes
+    // one deterministically). NULL for standalone singles/videos, which have no album art in the corpus —
+    // the client's i.ytimg.com fallback is still the only art that exists for those. Emitting null rather
+    // than synthesising the fallback here keeps "we know the art" distinguishable from "we don't".
     out.push({ videoId: r.videoId, title: r.title, artist: r.artistName, explicit: !!r.explicit, isVideo: !!r.isVideo,
+      thumbnail: r.albumArt ?? null,
       durationSec: r.durationSec ?? null, playCount: r.playCount ?? null, releaseDate: r.releaseDate ?? null,
       fromAlbum: r.spos >= 0 });
   }
