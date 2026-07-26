@@ -238,7 +238,9 @@ node harvester/zemer-playlists.mjs         # apply → corpus.db
 
 Alongside the hand-curated categories, three playlists are **generated from anonymous usage telemetry** (the
 sibling `zemer-stats` server, `tracking.zemer.io`): **Top 50** (`auto-top-50`), **Trending** (`auto-trending`),
-**Favorites** (`auto-favorites`). It fetches `GET /stats` (key from `STATS_KEY`, base from `STATS_URL`), scores
+**Favorites** (`auto-favorites`), **Top Downloaded** (`auto-downloaded` — download-primary, ONE track per
+album (its most-downloaded, play-tiebroken) since downloads come in album bursts; `DOWNLOADED_N=30`,
+`DOWNLOADED_MAX_PER_ALBUM=1`). It fetches `GET /stats` (key from `STATS_KEY`, base from `STATS_URL`), scores
 every song, and writes the results as ordinary `auto-*` playlist blocks into the **gitignored**
 `data/zemer-playlists-auto.json` — which `loadZemerPlaylists()` merges *in front of* the curated file, then
 `applyZemerPlaylists` writes the union. **The curated file is never touched**, so `git pull` on the VPS never

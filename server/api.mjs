@@ -215,7 +215,7 @@ async function startServer() {
   // dark hues were). Stable per id → a cover never changes color when playlists are added/removed (no stale
   // caches). Known lists get fixed colors; any other id hashes into the same distinct set.
   const COVER_COLORS = ["#1f66c2", "#d13b3a", "#c93f86", "#5b41c7", "#d9591f", "#0b7a43", "#0a9d8f", "#b5860f"]; // blue red magenta violet orange green teal gold
-  const FIXED_COLOR = { "auto-top-50": "#1f66c2", "auto-trending": "#d13b3a", "auto-favorites": "#c93f86", "auto-acapella-top-50": "#5b41c7", "acapella": "#d9591f" };
+  const FIXED_COLOR = { "auto-top-50": "#1f66c2", "auto-trending": "#d13b3a", "auto-favorites": "#c93f86", "auto-downloaded": "#0e8a8a", "auto-acapella-top-50": "#5b41c7", "acapella": "#d9591f" };
   const darken = (hex, f) => "#" + hex.slice(1).match(/../g).map((x) => Math.round(parseInt(x, 16) * (1 - f)).toString(16).padStart(2, "0")).join("");
   function coverColor(id) {
     if (FIXED_COLOR[id]) return FIXED_COLOR[id];

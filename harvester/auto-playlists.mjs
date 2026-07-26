@@ -67,6 +67,11 @@ const TRENDING_DAYS = num(process.env.TRENDING_DAYS, 7);
 // slow-moving exposure estimate damps that: rank can move week to week while exposure barely does.
 const EXPOSURE_DAYS = num(process.env.EXPOSURE_DAYS, 28);
 const FAV_N = num(process.env.FAV_N, 30);
+const DOWNLOADED_N = num(process.env.DOWNLOADED_N, 30);
+// People download whole ALBUMS at once, so a downloaded album gives every one of its tracks equal download
+// reach — raw per-track ranking is one album exploded into rows. Keep at most this many tracks PER ALBUM
+// (1 = one representative per album). Standalone singles (no album) aren't bursts and are never capped.
+const DOWNLOADED_MAX_PER_ALBUM = num(process.env.DOWNLOADED_MAX_PER_ALBUM, 1);
 const ALLTIME_DAYS = 3650; // "all the days we have" — the window just spans everything since launch
 const PRIOR = 3; // shrinkage: a 3-device song scores 0.5, small-n songs are damped, needs no max-reach
 const TREND_MIN_DEVICES = 3, TREND_MAX_SKIP = 0.5; // trending precision floor
@@ -334,6 +339,7 @@ const RANK_FORMULAS = {
   "auto-trending": `trend|${velocityBase ? "velocity" : "reach"}|${expReach ? `expo${EXPOSURE_DAYS}` : "noexpo"}`
     + `|win${TRENDING_DAYS}|skip${TREND_SKIP_PENALTY}/${TREND_MAX_SKIP}|min${TREND_MIN_DEVICES}${trendAcapExclude.size ? "|acapx" : ""}`,
   "auto-acapella-top-50": `acap|skip${TREND_SKIP_PENALTY}|min1`,
+  "auto-downloaded": `dl|prior${PRIOR}|album${DOWNLOADED_MAX_PER_ALBUM}`,
 };
 console.log(`trending: ${velocityBase ? `VELOCITY mode (baseline ${velocityBase.t})` : `reach mode (no clean baseline one ${TRENDING_DAYS}d window back)`}${expReach ? `, exposure dampener ON (${EXPOSURE_DAYS}d exposure window) — ${gate.reason}` : `, exposure dampener off — ${gate.reason}`}`);
 
@@ -343,6 +349,30 @@ const favRanked = [...new Set([...favDev.keys(), ...dlDev.keys()])].filter((v) =
   .filter((x) => (favDev.get(x.v) || 0) > 0) // must have at least one real favorite; downloads alone are too noisy to seed
   .sort((a, b) => b.score - a.score);
 const favIds = dedupRanked(favRanked, keyOf).slice(0, FAV_N).map((x) => x.v);
+
+// ── Top Downloaded = download-primary, ONE per album ──────────────────────────────────────────────────
+// Downloading is this audience's dominant SAVE action (far outweighs favoriting), and it surfaces content
+// neither Top 50 (play-primary) nor Favorites (favorite-primary) does. But downloads come in ALBUM bursts —
+// a downloaded album gives every track equal download reach — so raw per-track ranking is one album
+// exploded into rows. `capPerAlbum` keeps only each album's TOP track (download-primary; ties broken by
+// PLAY reach — an album's tracks are download-tied, so the tiebreak surfaces the album's actual hit, not an
+// arbitrary track). Standalone singles have no album → never capped. Needs ≥1 real download.
+const albumOfTrack = new Map();
+for (const r of db.prepare("SELECT albumId, videoId FROM album_track").all()) if (!albumOfTrack.has(r.videoId)) albumOfTrack.set(r.videoId, r.albumId);
+const capPerAlbum = (ranked, maxPer) => {
+  const count = new Map(), out = [];
+  for (const x of ranked) {
+    const al = albumOfTrack.get(x.v);
+    if (al) { const c = count.get(al) || 0; if (c >= maxPer) continue; count.set(al, c + 1); }
+    out.push(x);
+  }
+  return out;
+};
+const dlPlayReach = (v) => Math.max(bpDev.get(v) || 0, lpDev.get(v) || 0); // for the within-album tiebreak
+const dlRanked = [...dlDev.keys()].filter((v) => inCorpus.has(v) && (dlDev.get(v) || 0) > 0)
+  .map((v) => ({ v, score: s(dlDev.get(v) || 0), tie: s(dlPlayReach(v)) }))
+  .sort((a, b) => b.score - a.score || b.tie - a.tie); // download desc; within a download-tie, most-played first
+const dlIds = capPerAlbum(dedupRanked(dlRanked, keyOf), DOWNLOADED_MAX_PER_ALBUM).slice(0, DOWNLOADED_N).map((x) => x.v);
 
 // ── acapella season: ADD an acapella list on top. Two hard rules: (1) ONLY songs hand-listed in the curated
 // acapella playlist, and (2) ranked by plays FROM THE THREE WEEKS ONLY (the `season` window — NO all-time
@@ -365,6 +395,7 @@ const autoBlocks = [
   { id: "auto-top-50", title: "Top 50", videoIds: top50 },
   { id: "auto-trending", title: "Trending", videoIds: trendingIds },
   { id: "auto-favorites", title: "Favorites", videoIds: favIds },
+  { id: "auto-downloaded", title: "Top Downloaded", videoIds: dlIds },
 ].filter((b) => b.videoIds.length);
 
 // "Year of <Y>" — a DYNAMIC year rule (no telemetry: the store computes everything released this year at
