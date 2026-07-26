@@ -41,7 +41,7 @@
 //   STATS_URL=… STATS_KEY=… node harvester/auto-playlists.mjs        # generate + apply
 //   DRY=1 …                                                          # print what it would write, no write
 import fs from "node:fs";
-import { openCorpus, loadZemerPlaylists, applyZemerPlaylists, applyHomeRank, ZEMER_PLAYLISTS_PATH, ZEMER_PLAYLISTS_AUTO_PATH, ACAPELLA_AUTO_PATH, AUTO_HISTORY_PATH } from "../corpus/store.mjs";
+import { openCorpus, loadZemerPlaylists, applyZemerPlaylists, applyHomeRank, setMeta, ZEMER_PLAYLISTS_PATH, ZEMER_PLAYLISTS_AUTO_PATH, ACAPELLA_AUTO_PATH, AUTO_HISTORY_PATH } from "../corpus/store.mjs";
 import { dupKey, dedupRanked } from "./dedup.mjs";
 import { pickBaseline, windowCleanOfSeason, exposureMult, exposureGate, EXPOSURE_DEFAULTS, baselineReach, cappedLookup } from "./trending.mjs";
 import { hebDate, inThreeWeeks, seasonActive } from "../corpus/season.mjs";
@@ -496,11 +496,19 @@ await (async () => {
     if (!DRY && Object.keys(homeOut).length) applyHomeRank(db, homeOut);
     console.log(`home-rows: ${topAlbums.length} albums, ${topVideos.length} videos, ${topArtists.length} artists (${HOME_WINDOW_DAYS}d live reach)`
       + `${Object.keys(homeOut).length ? "" : " — no data, last-good left untouched"}${DRY ? "  [DRY]" : ""}`);
+    // Make the "stats had rows but none survived filtering" case VISIBLE — otherwise a mismatch between the
+    // /stats id space and the corpus (e.g. topArtists ids that aren't corpus artist PKs, an empty devices
+    // field) would silently produce an empty row with no error. A warning here is the tripwire for that.
+    for (const [key, statRows, built] of [["albums", rows(home, "topSources").filter((x) => x.source?.startsWith("album:")), topAlbums],
+                                          ["videos", rows(home, "topPlays"), topVideos],
+                                          ["artists", rows(home, "topArtists"), topArtists]]) {
+      if (statRows.length && !built.length) console.warn(`home-rows: ${key} — /stats had ${statRows.length} rows but 0 survived corpus/filter matching (id-space mismatch?)`);
+    }
   } catch (e) { console.warn(`home-rows: skipped (${e.message}) — playlists unaffected.`); }
 })();
 
 if (DRY) process.exit(0);
-if (!changed) { recordHistory(true); process.exit(0); } // no-op: the published ordering == this one — safe to record
+if (!changed) { recordHistory(true); setMeta(db, "auto_applied_at", Date.now()); process.exit(0); } // no-op: ranking confirmed current from healthy /stats — stamp freshness
 
 // Apply FIRST, commit the auto file only on success — if applyZemerPlaylists throws (e.g. a bad hand-curated
 // entry), the DB rolls back AND the auto file is left unchanged, so the next run retries (no silent file/DB
@@ -520,6 +528,7 @@ const tmp = `${ZEMER_PLAYLISTS_AUTO_PATH}.tmp-${process.pid}`;
 fs.writeFileSync(tmp, nextJson);
 fs.renameSync(tmp, ZEMER_PLAYLISTS_AUTO_PATH);
 recordHistory(true); // orderings recorded only now — after the apply actually succeeded
+setMeta(db, "auto_applied_at", Date.now()); // freshness for /health — only on a successful apply
 
 console.log(`applied: ${r.playlists} playlist(s), ${r.items} item(s) → corpus.db (API reloads on its next tick)`);
 if (r.missing.length) console.warn(`⚠ ${r.missing.length} id(s) not in the corpus yet (they'll serve once harvested).`);

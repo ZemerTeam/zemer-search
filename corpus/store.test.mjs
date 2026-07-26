@@ -10,7 +10,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistList, communityKeptCounts, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, tracksNeedingDate, setTrackUploadDate, recentAlbums, recentTracks, setFemaleSet, applyZemerPlaylists, zemerPlaylistList, zemerPlaylistDetail, applyHomeRank, homeRows } from "./store.mjs";
+import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistList, communityKeptCounts, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, tracksNeedingDate, setTrackUploadDate, recentAlbums, recentTracks, setFemaleSet, applyZemerPlaylists, zemerPlaylistList, zemerPlaylistDetail, applyHomeRank, homeRows, setMeta, getMeta } from "./store.mjs";
 import { parseDurationSec, parsePlays } from "../harness/browse.mjs";
 
 const seed = (db) => upsertArtistCatalog(db, { id: "UCmusic", name: "Test Artist" }, {
@@ -736,4 +736,17 @@ test("home rows: applyHomeRank dedups a row keeping the FIRST (best) position", 
   assert.equal(n, 2, "duplicate not counted");
   const h = homeRows(db, {}, null);
   assert.deepEqual(h.topAlbums.map((a) => a.id), ["MPRE_album", "MPRE_single"], "first position wins, dup dropped");
+});
+
+test("auto-playlist freshness: stats exposes applied-at + age, null until stamped", () => {
+  const db = openCorpus(":memory:"); seed(db);
+  let s = stats(db);
+  assert.equal(s.autoPlaylistsAppliedAt, null, "null before the generator ever runs");
+  assert.equal(s.autoPlaylistsAgeSec, null);
+  const t = Date.now() - 90000; // 90s ago
+  setMeta(db, "auto_applied_at", t);
+  assert.equal(getMeta(db, "auto_applied_at"), String(t));
+  s = stats(db);
+  assert.equal(s.autoPlaylistsAppliedAt, t);
+  assert.ok(s.autoPlaylistsAgeSec >= 89 && s.autoPlaylistsAgeSec <= 95, "age ≈ 90s");
 });

@@ -162,6 +162,10 @@ export function openCorpus(file = DB_PATH) {
       PRIMARY KEY (row, refId)
     );
     CREATE INDEX IF NOT EXISTS idx_home_rank_row ON home_rank(row, pos);
+    -- tiny key/value for operational timestamps (server-side only, never ships). Today: auto_applied_at =
+    -- epoch ms of the last SUCCESSFUL auto-playlists apply/no-op (freshness of the auto-* trending/top rows,
+    -- surfaced on /health so a wedged-but-nonempty generator is observable).
+    CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
   `);
   // Migrate existing DBs (CREATE TABLE IF NOT EXISTS won't add a new column to an existing table).
   if (!db.prepare("PRAGMA table_info(artist)").all().some((c) => c.name === "regularChannelId"))
@@ -505,6 +509,11 @@ export function applyZemerPlaylists(db, doc = loadZemerPlaylists(), { dry = fals
   else db.transaction(() => { db.prepare("DELETE FROM zemer_playlist_item").run(); db.prepare("DELETE FROM zemer_playlist").run(); pass(); })();
   return { playlists: pls.length, items, missing };
 }
+
+// Operational key/value (see the `meta` table). Values are strings; callers coerce.
+export const setMeta = (db, key, value) =>
+  db.prepare("INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(key, String(value));
+export const getMeta = (db, key) => db.prepare("SELECT value FROM meta WHERE key=?").get(key)?.value ?? null;
 
 // Write the telemetry-ranked home rows (harvester/auto-playlists.mjs). `rows` = { <rowKey>: [ { kind,
 // refId, artistId } , … in rank order ] }. Replaces ONLY the row-keys PRESENT in `rows`, each in one
@@ -941,13 +950,22 @@ export function pruneBlocklisted(db, bl = blocklist(), { dry = false } = {}) {
   tx();
   return { tracks, artists, playlists };
 }
-export const stats = (db) => ({
-  tracks: db.prepare("SELECT COUNT(*) c FROM track").get().c,
-  artists: db.prepare("SELECT COUNT(*) c FROM artist").get().c,
-  videos: db.prepare("SELECT COUNT(*) c FROM track WHERE isVideo=1").get().c,
-  albums: db.prepare("SELECT COUNT(*) c FROM album WHERE type!='single'").get().c,
-  singles: db.prepare("SELECT COUNT(*) c FROM album WHERE type='single'").get().c,
-  playlists: db.prepare("SELECT COUNT(*) c FROM playlist").get().c,
-  communityPlaylists: db.prepare("SELECT COUNT(*) c FROM community_playlist").get().c,
-  zemerPlaylists: db.prepare("SELECT COUNT(*) c FROM zemer_playlist").get().c,
-});
+export const stats = (db) => {
+  // Freshness of the auto-* playlists (Top 50 / Trending) — epoch ms of the last successful auto-apply,
+  // read ONCE. Null until the generator has run. Lets /health flag a wedged-but-nonempty generator (the
+  // count stays green while the ranking goes stale); the count alone can't show that.
+  const appliedRaw = getMeta(db, "auto_applied_at");
+  const autoPlaylistsAppliedAt = appliedRaw ? Number(appliedRaw) : null;
+  return {
+    tracks: db.prepare("SELECT COUNT(*) c FROM track").get().c,
+    artists: db.prepare("SELECT COUNT(*) c FROM artist").get().c,
+    videos: db.prepare("SELECT COUNT(*) c FROM track WHERE isVideo=1").get().c,
+    albums: db.prepare("SELECT COUNT(*) c FROM album WHERE type!='single'").get().c,
+    singles: db.prepare("SELECT COUNT(*) c FROM album WHERE type='single'").get().c,
+    playlists: db.prepare("SELECT COUNT(*) c FROM playlist").get().c,
+    communityPlaylists: db.prepare("SELECT COUNT(*) c FROM community_playlist").get().c,
+    zemerPlaylists: db.prepare("SELECT COUNT(*) c FROM zemer_playlist").get().c,
+    autoPlaylistsAppliedAt,
+    autoPlaylistsAgeSec: autoPlaylistsAppliedAt ? Math.round((Date.now() - autoPlaylistsAppliedAt) / 1000) : null,
+  };
+};

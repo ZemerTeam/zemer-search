@@ -50,6 +50,13 @@ zemer_playlist_item (
   playlistId TEXT, kind TEXT, refId TEXT,   -- kind 'track'|'album'; refId = videoId | album browseId
   pos INTEGER, PRIMARY KEY(playlistId, kind, refId)
 )
+-- Telemetry-ranked HOME ROWS (served by /home-rows), written twice-daily by harvester/auto-playlists.mjs.
+home_rank (row TEXT, kind TEXT, refId TEXT,  -- row 'top-albums'|'top-videos'|'top-artists'|'top-community';
+           artistId TEXT, pos INTEGER, score REAL,  -- kind album|video|artist; refId = browseId|videoId|channelId
+           PRIMARY KEY(row, refId))
+-- Operational key/value (server-side only). auto_applied_at = epoch ms of the last SUCCESSFUL auto-apply,
+-- surfaced as autoPlaylistsAppliedAt/AgeSec on /health so a wedged-but-nonempty generator is observable.
+meta (key TEXT PRIMARY KEY, value TEXT)
 ```
 
 > **Purity is NOT enforced in these tables — it's enforced at SERVE time.** Opening any playlist hits
