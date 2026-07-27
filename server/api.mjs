@@ -25,9 +25,10 @@ import cluster from "node:cluster";
 import os from "node:os";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, homeRows, artistDetail, albumDetail, tracksByIds, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, BLOCKED_IDS_PATH, AUTO_HISTORY_PATH } from "../corpus/store.mjs";
+import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, homeRows, artistDetail, albumDetail, tracksByIds, trackAlbumInfo, allAlbumTracks, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, loadRadioGraph, BLOCKED_IDS_PATH, RADIO_GRAPH_PATH, AUTO_HISTORY_PATH } from "../corpus/store.mjs";
 import { pickAnchor, applyBadges, applyRanks, chartedBefore, formulaOf, chartWeek } from "./chart-badges.mjs";
 import { buildCategories, searchCategories } from "../index/categories.mjs";
+import { buildRadioIndex, radio } from "../index/radio.mjs";
 import { buildFemaleMatcher, collectFemaleVideoIds } from "../index/credits.mjs";
 import { loadDefaultSynonyms } from "../index/synonyms.mjs";
 import { postBrowse, parsePlaylistPage, parseArtistItemsContinuation } from "../harness/browse.mjs";
@@ -83,6 +84,10 @@ const contentFlags = (sp) => ({
 // Server-curated id override (Firestore blockedContentIds → cats.blocked): `global` ids dropped always,
 // `female` ids when female is blocked. Matches a result's videoId / playlistId / channelId / browseId.
 const idDropped = (id, blocked, allowFemale) => !!id && (blocked.global.has(id) || (allowFemale === false && blocked.female.has(id)));
+// /radio continuation: an opaque, self-contained token (kind+seed+flags+rngSeed+offset) — no server session
+// state, so it survives the cluster + restarts. Not signed: it only scopes a user's OWN queue, no authority.
+const encTok = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+const decTok = (t) => { try { const d = JSON.parse(Buffer.from(String(t), "base64url").toString("utf8")); return (d && ["artist", "album", "song", "shuffle"].includes(d.k)) ? d : null; } catch { return null; } };
 
 if (cluster.isPrimary && WORKERS > 1) {
   console.log(`zsearch primary (pid ${process.pid}) → forking ${WORKERS} workers on :${PORT}`);
@@ -157,7 +162,7 @@ async function startServer() {
     // chart's formula change must not blank another's badges.
     return pickAnchor(anchorCache.runs, Date.now(), playlistId);
   };
-  let cats, indexedCount = 0, indexedAt = 0, whitelistTotal = 0;
+  let cats, radioIndex, indexedCount = 0, indexedAt = 0, whitelistTotal = 0;
   let lastSig = null;
   // Rebuild the in-memory index ONLY when the corpus actually changed (a fresh corpus.db is synced, or a
   // local harvest wrote to the WAL). The periodic tick then just stats the files — cheap — so a steady
@@ -169,7 +174,8 @@ async function startServer() {
       const a = fs.statSync(DB_PATH);
       let w = 0; try { w = fs.statSync(DB_PATH + "-wal").mtimeMs; } catch { /* no -wal */ }
       let bi = 0; try { bi = fs.statSync(BLOCKED_IDS_PATH).mtimeMs; } catch { /* no blocked-ids.json */ }
-      sig = `${a.mtimeMs}:${a.size}:${w}:${bi}`; // a fresh override fetch (its own timer) re-applies on the next tick
+      let rg = 0; try { rg = fs.statSync(RADIO_GRAPH_PATH).mtimeMs; } catch { /* no radio-graph.json */ }
+      sig = `${a.mtimeMs}:${a.size}:${w}:${bi}:${rg}`; // a fresh override/graph fetch (own timers) re-applies on the next tick
     } catch { /* stat failed → fall through and rebuild */ }
     if (!force && sig && sig === lastSig) return indexedCount; // unchanged → keep the current index
     const tracks = allTracks(liveDb);
@@ -186,6 +192,9 @@ async function startServer() {
     // Artist-owned playlists and community-discovered playlists are indexed separately → separate chips.
     cats = buildCategories({ tracks, artists, albums: allAlbums(liveDb), playlists: allPlaylists(liveDb), community: allCommunityPlaylists(liveDb) }, loadDefaultSynonyms(), matcher);
     cats.blocked = blocked; // consumed by searchCategories; also reused by the detail endpoints (dropId)
+    // Zemer Radio index — co-occurrence graph (data/radio-graph.json, its own fetch timer) + corpus, reusing
+    // the same female matcher + blocked-ids so radio filters identically. Missing graph → same-artist+pop fallback.
+    radioIndex = buildRadioIndex({ tracks, artists, albumTracks: allAlbumTracks(liveDb), graph: loadRadioGraph(), matcher, blocked });
     indexedCount = tracks.length; indexedAt = Date.now();
     whitelistTotal = countWhitelist();
     cache.clear();
@@ -456,6 +465,38 @@ async function startServer() {
         const d = id && !idDropped(id, cats.blocked, cf.allowFemale) && albumDetail(liveDb, id, cf);
         if (d) d.tracks = d.tracks.filter((t) => !idDropped(t.videoId, cats.blocked, cf.allowFemale));
         return d ? cacheSet(req.url, send(res, 200, d)) : send(res, 404, { error: "album not found" });
+      }
+      if (u.pathname === "/radio") {
+        // Zemer Radio — corpus-native "what plays next" (index/radio.mjs). Either a fresh seed
+        // (kind + seed) or an opaque `continuation` token (kind+seed+flags+rngSeed+offset) → deterministic
+        // slice, so the queue is endless with no server session state. Whitelist-pure + filtered in-engine.
+        const cont = u.searchParams.get("continuation");
+        let p;
+        if (cont) {
+          const d = decTok(cont);
+          if (!d) return send(res, 400, { error: "bad continuation" });
+          p = { kind: d.k, seed: d.s, allowFemale: !!d.af, blockVideos: !!d.bv, kidZoneOnly: !!d.kz, rngSeed: d.r | 0, offset: Math.max(0, d.o | 0) };
+        } else {
+          const kind = u.searchParams.get("kind") || "shuffle";
+          if (!["artist", "album", "song", "shuffle"].includes(kind)) return send(res, 400, { error: "bad kind" });
+          const seed = u.searchParams.get("seed") || null;
+          if (kind !== "shuffle" && !seed) return send(res, 400, { error: "missing seed" });
+          const cf = contentFlags(u.searchParams);
+          p = { kind, seed, allowFemale: cf.allowFemale, blockVideos: cf.blockVideos, kidZoneOnly: cf.kidZoneOnly, rngSeed: (Math.random() * 0x7fffffff) | 0, offset: 0 };
+        }
+        const limN = Number(u.searchParams.get("limit")); // non-numeric → NaN → fall back to 25 (not a dead page)
+        const limit = Math.min(50, Math.max(1, Number.isFinite(limN) ? limN : 25));
+        // album seed may arrive as a playlistId → resolve to the corpus albumId the engine indexes by
+        let rseed = p.seed;
+        if (p.kind === "album" && rseed && !radioIndex.albumTrackIds.has(rseed)) {
+          const row = liveDb.prepare("SELECT id FROM album WHERE playlistId=?").get(rseed);
+          if (row) rseed = row.id;
+        }
+        const { ids, nextOffset } = radio(radioIndex, { ...p, seed: rseed, limit });
+        const ai = trackAlbumInfo(liveDb, ids);
+        const tracks = ids.map((v) => { const t = radioIndex.byId.get(v), a = ai.get(v); return { videoId: v, title: t.title, artist: t.artistName, artistId: t.artistId, thumbnail: a?.thumbnail ?? null, durationSec: t.durationSec, explicit: t.explicit, isVideo: t.isVideo, releaseDate: t.releaseDate, album: a ? { id: a.albumId, name: a.albumName } : null }; });
+        const continuation = nextOffset == null ? null : encTok({ k: p.kind, s: p.seed, af: p.allowFemale ? 1 : 0, bv: p.blockVideos ? 1 : 0, kz: p.kidZoneOnly ? 1 : 0, r: p.rngSeed, o: nextOffset });
+        return send(res, 200, { tracks, continuation });
       }
       if (u.pathname === "/playlist") {
         const id = u.searchParams.get("id");

@@ -23,5 +23,12 @@ ExecCondition=/usr/bin/env node harness/shabbat.mjs
 # Regenerates data/zemer-playlists-auto.json (gitignored) + applies the merged (auto + curated) doc. It is a
 # no-op when the generated ids are unchanged, and ABORTS without touching the file/DB if /stats is down. The
 # API picks the change up on its next reload tick (corpus.db mtime is in the reload gate) — NO restart.
-ExecStart=/usr/bin/env node harvester/auto-playlists.mjs
+# Leading '-': the two jobs are INDEPENDENT — a non-zero exit from auto-playlists (it's fail-safe/exit-0 by
+# design, but defense-in-depth) must NOT abort the oneshot before the radio-graph refresh runs. auto-playlists
+# failures stay observable via its own logs + /health's autoPlaylistsAppliedAt staleness.
+ExecStart=-/usr/bin/env node harvester/auto-playlists.mjs
+# Same cadence + creds + Shabbat gate: refresh the Zemer Radio co-occurrence graph (fetch zemer-stats
+# /radio-graph → corpus-intersect → data/radio-graph.json, gitignored). No-op when unchanged; leaves the
+# last-good graph if /radio-graph is down. The API reload gate watches radio-graph.json mtime — NO restart.
+ExecStart=/usr/bin/env node harvester/radio-graph.mjs
 TimeoutStartSec=5m

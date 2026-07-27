@@ -1,6 +1,11 @@
 # Zemer Radio — feasibility research
 
-**Status:** research only, nothing implemented. Assesses two distinct products:
+> **UPDATE (2026-07-26): per-user radio is now SHIPPED — see [radio.md](radio.md).** The `/radio` endpoint
+> implements product #1 below with a co-occurrence blend validated to beat popularity ~7× on held-out
+> next-track prediction. This feasibility doc is kept for the reasoning + the **Zemer Stations** (synchronized
+> broadcast, product #2), which remains future work.
+
+**Status:** research. Product #1 (per-user radio) is implemented; product #2 (stations) is not. Assesses:
 1. **Per-user radio** — a seed (song/artist) → an endless, whitelist-pure, related queue (like today's radio, but recommended *from* the corpus instead of filtered *down* from YouTube).
 2. **Zemer Stations** — a **synchronized broadcast**: one server-programmed stream where every listener hears the same track at the same wall-clock moment (a real station, not personalized radio, and deliberately **not** a loop of the auto-playlists).
 

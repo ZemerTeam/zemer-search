@@ -469,6 +469,17 @@ export const AUTO_HISTORY_PATH = process.env.AUTO_HISTORY || ZEMER_PLAYLISTS_AUT
 export const ACAPELLA_AUTO_PATH = process.env.ACAPELLA_AUTO || path.resolve(HERE, "../data/acapella-auto.json");
 const readPls = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")).playlists || []; } catch { return []; } };
 const readAcapellaAuto = () => { try { return JSON.parse(fs.readFileSync(ACAPELLA_AUTO_PATH, "utf8")).videoIds || []; } catch { return []; } };
+
+// Co-occurrence graph for /radio — gitignored + VPS-local, fetched from zemer-stats /radio-graph and
+// corpus-intersected by harvester/radio-graph.mjs (same pattern as the auto-playlists artifact). Shape:
+// {builtAt, pop:{id:reach}, lib:{id:[[nbr,score]]}, sess:{id:[[nbr,score]]}}. Missing/corrupt → {} (the
+// engine falls back to same-artist + popularity, so radio still works with no graph).
+export const RADIO_GRAPH_PATH = process.env.RADIO_GRAPH || path.resolve(HERE, "../data/radio-graph.json");
+export function loadRadioGraph() { try { const g = JSON.parse(fs.readFileSync(RADIO_GRAPH_PATH, "utf8")); return { pop: g.pop || {}, lib: g.lib || {}, sess: g.sess || {}, builtAt: g.builtAt || 0 }; } catch { return { pop: {}, lib: {}, sess: {}, builtAt: 0 }; } }
+
+// Album membership (albumId, videoId, pos) for the whole corpus — the radio engine's album-seed opening run
+// and the on-device subset both need the flat mapping. One row per membership; a track can be in >1 album.
+export function allAlbumTracks(db) { return db.prepare("SELECT albumId, videoId, pos FROM album_track ORDER BY albumId, pos").all(); }
 export function loadZemerPlaylists() {
   // auto-* blocks first (flagship prominence), then curated. The `auto-` id namespace is RESERVED for the
   // generator: any `auto-*` id in the hand-curated file is dropped so it can never collide with a generated
