@@ -11,8 +11,9 @@ artist (
   id TEXT PRIMARY KEY,           -- YouTube MUSIC channel id (UC…), == whitelist id
   name TEXT, thumbnail TEXT,
   regularChannelId TEXT,         -- the artist's REGULAR upload channel (channel map; see harvester.md)
-  isFemale INTEGER, isChasid INTEGER, isKidZone INTEGER   -- content-filter flags (denormalized to here)
-)
+  isFemale INTEGER, isChasid INTEGER, isKidZone INTEGER,  -- content-filter flags (denormalized to here)
+  refreshedAt INTEGER            -- epoch ms of the last catalog (re)harvest; drives demand-driven on-open
+)                                --   refresh (claimArtistRefresh); bumped by upsertArtistCatalog; see corpus-freshness.md
 track (
   videoId TEXT PRIMARY KEY, title TEXT, artistId TEXT REFERENCES artist(id),
   isVideo INTEGER, explicit INTEGER, harvestedAt INTEGER,

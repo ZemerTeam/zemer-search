@@ -173,6 +173,11 @@ export function openCorpus(file = DB_PATH) {
   // Migrate existing DBs (CREATE TABLE IF NOT EXISTS won't add a new column to an existing table).
   if (!db.prepare("PRAGMA table_info(artist)").all().some((c) => c.name === "regularChannelId"))
     db.exec("ALTER TABLE artist ADD COLUMN regularChannelId TEXT");
+  // Last time this artist's catalog was (re)harvested — drives demand-driven on-open refresh (the API
+  // enqueues a background re-harvest when a viewed artist is stale). Bumped by every harvest via
+  // upsertArtistCatalog; NULL = never recorded (treated as stale).
+  if (!db.prepare("PRAGMA table_info(artist)").all().some((c) => c.name === "refreshedAt"))
+    db.exec("ALTER TABLE artist ADD COLUMN refreshedAt INTEGER");
   // album.uploadDate: the release's REAL date (ISO-8601), dated via one /player on a sample track (see
   // harvester/releases.mjs). Browse pages only carry a year; this is what makes New Releases accurate.
   if (!db.prepare("PRAGMA table_info(album)").all().some((c) => c.name === "uploadDate"))
@@ -231,10 +236,10 @@ export function upsertArtistCatalog(db, artist, catalog, ts = Date.now()) {
     albumTracks = albumTracks.filter((at) => !bl.videoIds.has(at.videoId));
   }
   const upArtist = db.prepare(
-    `INSERT INTO artist(id,name,thumbnail,regularChannelId,isFemale,isChasid,isKidZone) VALUES(@id,@name,@thumbnail,@regularChannelId,@isFemale,@isChasid,@isKidZone)
+    `INSERT INTO artist(id,name,thumbnail,regularChannelId,isFemale,isChasid,isKidZone,refreshedAt) VALUES(@id,@name,@thumbnail,@regularChannelId,@isFemale,@isChasid,@isKidZone,@refreshedAt)
      ON CONFLICT(id) DO UPDATE SET name=excluded.name, thumbnail=COALESCE(excluded.thumbnail, artist.thumbnail),
        regularChannelId=COALESCE(excluded.regularChannelId, artist.regularChannelId),
-       isFemale=excluded.isFemale, isChasid=excluded.isChasid, isKidZone=excluded.isKidZone`);
+       isFemale=excluded.isFemale, isChasid=excluded.isChasid, isKidZone=excluded.isKidZone, refreshedAt=excluded.refreshedAt`);
   const insTrack = db.prepare(
     `INSERT INTO track(videoId,title,artistId,isVideo,explicit,harvestedAt,durationSec,playCount) VALUES(@videoId,@title,@artistId,@isVideo,@explicit,@harvestedAt,@durationSec,@playCount)
      ON CONFLICT(videoId) DO UPDATE SET title=excluded.title, isVideo=MAX(track.isVideo, excluded.isVideo),
@@ -250,7 +255,7 @@ export function upsertArtistCatalog(db, artist, catalog, ts = Date.now()) {
     `INSERT INTO album_track(albumId,videoId,pos) VALUES(@albumId,@videoId,@pos)
      ON CONFLICT(albumId,videoId) DO UPDATE SET pos=excluded.pos`);
   const tx = db.transaction(() => {
-    upArtist.run({ id: artist.id, name: artist.name ?? null, thumbnail, regularChannelId, isFemale: artist.isFemale ? 1 : 0, isChasid: artist.isChasid ? 1 : 0, isKidZone: artist.isKidZone ? 1 : 0 });
+    upArtist.run({ id: artist.id, name: artist.name ?? null, thumbnail, regularChannelId, isFemale: artist.isFemale ? 1 : 0, isChasid: artist.isChasid ? 1 : 0, isKidZone: artist.isKidZone ? 1 : 0, refreshedAt: ts });
     for (const t of tracks) insTrack.run({ videoId: t.videoId, title: t.title, artistId: artist.id, isVideo: t.isVideo ? 1 : 0, explicit: t.explicit ? 1 : 0, harvestedAt: ts, durationSec: t.durationSec ?? null, playCount: t.playCount ?? null });
     for (const al of albums) insAlbum.run({ id: al.id, playlistId: al.playlistId ?? null, title: al.title, artistId: artist.id, type: al.type || "album", year: al.year ?? null, thumbnail: al.thumbnail ?? null });
     for (const pl of playlists) insPlaylist.run({ id: pl.id, title: pl.title, artistId: artist.id, thumbnail: pl.thumbnail ?? null });
@@ -258,6 +263,16 @@ export function upsertArtistCatalog(db, artist, catalog, ts = Date.now()) {
   });
   tx();
   return { tracks: tracks.length, albums: albums.length, playlists: playlists.length };
+}
+
+// Demand-driven refresh claim (cross-worker atomic): if `artistId` is stale (refreshedAt older than
+// `cutoffMs`, or NULL), bump refreshedAt to `now` and return true — meaning THIS caller won the claim and
+// should trigger the background re-harvest. If another API worker (or a recent harvest) already refreshed it,
+// the UPDATE matches 0 rows and returns false, so we never double-trigger. One tiny write on the single-writer
+// DB; the caller wraps it so a transient SQLITE_BUSY (a maintenance write in flight) just skips this tick.
+export function claimArtistRefresh(db, artistId, cutoffMs, now = Date.now()) {
+  const info = db.prepare("UPDATE artist SET refreshedAt=? WHERE id=? AND (refreshedAt IS NULL OR refreshedAt < ?)").run(now, artistId, cutoffMs);
+  return info.changes === 1;
 }
 
 // All tracks in the denormalized shape the index/bench/subset already expect.

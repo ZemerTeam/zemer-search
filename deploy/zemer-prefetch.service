@@ -1,0 +1,25 @@
+[Unit]
+Description=zemer-search feed-driven pre-harvest (new releases browsable near-real-time, album-aware)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# --- EDIT WorkingDirectory for your deployment (match the API's) ---
+WorkingDirectory=/opt/zemer-search
+# RELEASES_FEED defaults to the flipphoneguy recent-releases feed; override in .env if it moves.
+EnvironmentFile=-/opt/zemer-search/.env
+# Fast-but-IP-safe pacing for the (usually 0–few) targeted harvests this triggers.
+Environment=CONCURRENCY=5
+Environment=MIN_INTERVAL_MS=200
+# Stay out of the API's + refresh's way.
+Nice=10
+IOSchedulingClass=idle
+# Shabbat handled IN CODE (skips 20 min before candle lighting until havdalah, Brooklyn zmanim).
+ExecCondition=/usr/bin/env node harness/shabbat.mjs
+# Under the maintenance flock: the harvest writes the single-writer DB, so it must NEVER overlap maintain.sh
+# or the sweep. `-n` = non-blocking, `-E 0` = if a full run holds the lock, skip THIS tick cleanly (exit 0);
+# the feed is re-checked on the next tick, so nothing is lost. A real anti-bot block still exits 75 (child
+# exit codes pass through flock) so it surfaces as a failure.
+ExecStart=/usr/bin/flock -n -E 0 /tmp/zemer-maintain.lock /usr/bin/env node harvester/prefetch-releases.mjs
+TimeoutStartSec=10m

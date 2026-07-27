@@ -1,0 +1,25 @@
+[Unit]
+Description=zemer-search frequent all-artist shallow refresh (new-release floor across ALL artists)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# --- EDIT WorkingDirectory for your deployment (match the API's) ---
+WorkingDirectory=/opt/zemer-search
+EnvironmentFile=-/opt/zemer-search/.env
+# Landing-only, re-fetch anything older than 5h (so a ~6h cadence re-checks every artist each run). Just the
+# shallow re-harvest — NOT the full maintain.sh pipeline (whitelist/onboard/prune/blocked/subset are covered
+# by mirror-sync + the daily run); this exists only to catch new releases across every artist faster than daily.
+Environment=SHALLOW=1
+Environment=MAX_AGE_H=5
+Environment=CONCURRENCY=5
+Environment=MIN_INTERVAL_MS=200
+Nice=10
+IOSchedulingClass=idle
+# Shabbat handled IN CODE.
+ExecCondition=/usr/bin/env node harness/shabbat.mjs
+# Under the maintenance flock (-n -E 0: skip cleanly if a full run holds it). A full paced sweep of all
+# ~1,600 artists is ~6–7 min of landing fetches — IP-cheap (~0.14 req/s averaged over a 6h cadence).
+ExecStart=/usr/bin/flock -n -E 0 /tmp/zemer-maintain.lock /usr/bin/env node harvester/refresh.mjs
+TimeoutStartSec=30m

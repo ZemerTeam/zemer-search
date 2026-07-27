@@ -25,7 +25,8 @@ import cluster from "node:cluster";
 import os from "node:os";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, homeRows, artistDetail, albumDetail, tracksByIds, trackAlbumInfo, allAlbumTracks, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, loadRadioGraph, BLOCKED_IDS_PATH, RADIO_GRAPH_PATH, AUTO_HISTORY_PATH } from "../corpus/store.mjs";
+import { spawn } from "node:child_process";
+import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, homeRows, artistDetail, albumDetail, tracksByIds, trackAlbumInfo, allAlbumTracks, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, loadRadioGraph, claimArtistRefresh, BLOCKED_IDS_PATH, RADIO_GRAPH_PATH, AUTO_HISTORY_PATH } from "../corpus/store.mjs";
 import { pickAnchor, applyBadges, applyRanks, chartedBefore, formulaOf, chartWeek } from "./chart-badges.mjs";
 import { buildCategories, searchCategories } from "../index/categories.mjs";
 import { buildRadioIndex, radio } from "../index/radio.mjs";
@@ -34,6 +35,9 @@ import { loadDefaultSynonyms } from "../index/synonyms.mjs";
 import { postBrowse, parsePlaylistPage, parseArtistItemsContinuation } from "../harness/browse.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+const REPO = path.resolve(HERE, ".."); // repo root — cwd for the on-open refresh spawn (harvester/refresh-one.mjs)
+const ZEMER_LOCK = process.env.ZEMER_LOCK || "/tmp/zemer-maintain.lock"; // same maintenance flock maintain.sh uses
+const REFRESH_STALE_MS = Number(process.env.REFRESH_STALE_H || 6) * 3600 * 1000; // demand-driven: re-harvest a viewed artist at most this often
 const PORT = Number(process.env.PORT || 7700);
 const HOST = process.env.HOST || "0.0.0.0"; // set HOST=127.0.0.1 in production (behind a reverse proxy)
 const RELOAD_MS = Number(process.env.RELOAD_MS || 30000);
@@ -205,6 +209,22 @@ async function startServer() {
   // Stagger reloads across workers so only one rebuilds (and briefly stalls) at a time.
   const wIndex = Number(process.env.WORKER_INDEX || 0);
   setTimeout(() => setInterval(reload, RELOAD_MS).unref(), Math.floor((RELOAD_MS * wIndex) / Math.max(1, WORKERS)));
+
+  // Demand-driven freshness: when a viewed artist/album is STALE, kick a background single-artist re-harvest so
+  // the next view is current (the response itself is served immediately from the corpus — never blocked). The
+  // claim is atomic across cluster workers (only one triggers), and the harvest runs as a detached child under
+  // the maintenance flock (`flock -n -E 0`) so it never contends with maintain.sh on the single-writer DB and
+  // is IP-safe (net.mjs). A burst of opens collapses to one harvest per artist per REFRESH_STALE window.
+  function maybeRefreshArtist(artistId) {
+    if (!artistId) return;
+    try {
+      if (!claimArtistRefresh(liveDb, artistId, Date.now() - REFRESH_STALE_MS)) return; // fresh, or another worker already claimed
+      const child = spawn("flock", ["-n", "-E", "0", ZEMER_LOCK, process.execPath, "harvester/refresh-one.mjs", artistId],
+        { cwd: REPO, detached: true, stdio: "ignore" });
+      child.on("error", () => {}); // flock/node missing → ignore (the sweep + feed pre-harvest still cover it)
+      child.unref();
+    } catch { /* SQLITE_BUSY (a maintenance write in flight) or spawn failure → skip; other layers cover it */ }
+  }
 
   // Fetch the releases feed, cached ~5 min; on any failure keep serving the last-good copy (null until first success).
   let feedCache = { at: 0, data: null };
@@ -458,12 +478,14 @@ async function startServer() {
         const id = u.searchParams.get("id"), cf = contentFlags(u.searchParams);
         const d = id && !idDropped(id, cats.blocked, cf.allowFemale) && artistDetail(liveDb, id, cf);
         if (d) for (const key of ["songs", "videos", "albums", "singles", "playlists"]) d[key] = d[key].filter((it) => !idDropped(it.videoId || it.id, cats.blocked, cf.allowFemale));
+        if (id) maybeRefreshArtist(id); // demand-driven freshness (background; response served now)
         return d ? cacheSet(req.url, send(res, 200, d)) : send(res, 404, { error: "artist not found" });
       }
       if (u.pathname === "/album") {
         const id = u.searchParams.get("id"), cf = contentFlags(u.searchParams);
         const d = id && !idDropped(id, cats.blocked, cf.allowFemale) && albumDetail(liveDb, id, cf);
         if (d) d.tracks = d.tracks.filter((t) => !idDropped(t.videoId, cats.blocked, cf.allowFemale));
+        if (d) maybeRefreshArtist(liveDb.prepare("SELECT artistId FROM album WHERE id=?").get(id)?.artistId); // refresh the album's artist
         return d ? cacheSet(req.url, send(res, 200, d)) : send(res, 404, { error: "album not found" });
       }
       if (u.pathname === "/radio") {

@@ -1,0 +1,14 @@
+# Frequent all-artist shallow refresh every ~6h (00:30/06:30/12:30/18:30 UTC — offset off the 03:00 daily and
+# 04:30 dating). Drops the all-artist new-release ceiling from ~24h (daily) to ~6h for content the releases
+# feed didn't already catch near-real-time. Shabbat is handled IN CODE (service ExecCondition).
+[Unit]
+Description=Frequent all-artist shallow refresh (~6h) — new-release floor for every artist
+
+[Timer]
+Unit=zemer-refresh-sweep.service
+OnCalendar=*-*-* 00/6:30:00
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

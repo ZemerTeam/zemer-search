@@ -97,6 +97,12 @@ sudo cp deploy/zemer-refresh-daily.timer deploy/zemer-refresh-weekly.timer /etc/
 sudo systemctl daemon-reload
 sudo systemctl enable --now zemer-refresh-daily.timer zemer-refresh-weekly.timer
 systemctl list-timers 'zemer-refresh*'     # next-run times   ·   journalctl -u 'zemer-refresh@*' -f
+
+# Freshness (see docs/corpus-freshness.md) — near-real-time new releases + an all-artist floor:
+sudo cp deploy/zemer-prefetch.service deploy/zemer-prefetch.timer /etc/systemd/system/
+sudo cp deploy/zemer-refresh-sweep.service deploy/zemer-refresh-sweep.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now zemer-prefetch.timer zemer-refresh-sweep.timer   # feed pre-harvest ~10min · all-artist shallow sweep ~6h
 ```
 
 **Community-playlist discovery** runs on its own weekly timer (separate from `maintain.sh`; browse+search

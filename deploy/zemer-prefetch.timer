@@ -1,0 +1,15 @@
+# Pre-harvest new releases from the feed every ~10 min, so Latest Releases / /new / /album are browsable
+# (tracklist + playable) within minutes of a drop, not on the daily-harvest delay. Cheap when nothing is new
+# (one feed GET + a corpus check → exit 0). Shabbat is handled IN CODE (the service's ExecCondition), so this
+# runs all week and no-ops through Shabbat.
+[Unit]
+Description=Pre-harvest new releases from the feed every ~10 min (near-real-time browsable Latest Releases)
+
+[Timer]
+Unit=zemer-prefetch.service
+OnCalendar=*-*-* *:0/10:00
+RandomizedDelaySec=90
+Persistent=false
+
+[Install]
+WantedBy=timers.target
