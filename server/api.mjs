@@ -484,8 +484,8 @@ async function startServer() {
           const cf = contentFlags(u.searchParams);
           p = { kind, seed, allowFemale: cf.allowFemale, blockVideos: cf.blockVideos, kidZoneOnly: cf.kidZoneOnly, rngSeed: (Math.random() * 0x7fffffff) | 0, offset: 0 };
         }
-        const limN = Number(u.searchParams.get("limit")); // non-numeric → NaN → fall back to 25 (not a dead page)
-        const limit = Math.min(50, Math.max(1, Number.isFinite(limN) ? limN : 25));
+        // absent → Number(null)=0, non-numeric → NaN; `|| 25` maps both (and an explicit 0) to the default
+        const limit = Math.min(50, Math.max(1, Number(u.searchParams.get("limit")) || 25));
         // album seed may arrive as a playlistId → resolve to the corpus albumId the engine indexes by
         let rseed = p.seed;
         if (p.kind === "album" && rseed && !radioIndex.albumTrackIds.has(rseed)) {
