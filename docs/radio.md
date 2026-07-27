@@ -78,10 +78,16 @@ tailored) before the first fetch.
 
 ## The endpoint
 
-`GET /radio?kind=artist|album|song|shuffle&seed=<id>&allowFemale=&blockVideos=&kidZone=&limit=` →
+`GET /radio?kind=artist|album|song|shuffle|playlist&seed=<id>&allowFemale=&blockVideos=&kidZone=&limit=` →
 `{tracks:[ZemerTrack], continuation}`; `GET /radio?continuation=<token>` pages it. Full contract in
 [api.md](api.md). Content flags + blocked-ids are applied **in-engine**, identical to `/search` (a
 female-blocked queue never contains a female-involved track; verified).
+
+**`kind=playlist`** expands from the playlist's *member* tracks (the same seed-set mechanism as `kind=album`):
+the server resolves membership — **community** playlists carry it stored (`community_playlist_track`, pure
+corpus), any other playlist resolves via one IP-safe live fetch (as `/playlist` does) — and the engine
+aggregates the members' co-occurrence neighbors. Non-corpus members are dropped in-engine, so it stays
+whitelist-pure. This is the last radio surface (playlist menu "Start radio").
 
 ## Quality
 

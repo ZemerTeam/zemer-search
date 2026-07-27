@@ -91,7 +91,7 @@ const idDropped = (id, blocked, allowFemale) => !!id && (blocked.global.has(id) 
 // /radio continuation: an opaque, self-contained token (kind+seed+flags+rngSeed+offset) — no server session
 // state, so it survives the cluster + restarts. Not signed: it only scopes a user's OWN queue, no authority.
 const encTok = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
-const decTok = (t) => { try { const d = JSON.parse(Buffer.from(String(t), "base64url").toString("utf8")); return (d && ["artist", "album", "song", "shuffle"].includes(d.k)) ? d : null; } catch { return null; } };
+const decTok = (t) => { try { const d = JSON.parse(Buffer.from(String(t), "base64url").toString("utf8")); return (d && ["artist", "album", "song", "shuffle", "playlist"].includes(d.k)) ? d : null; } catch { return null; } };
 
 if (cluster.isPrimary && WORKERS > 1) {
   console.log(`zsearch primary (pid ${process.pid}) → forking ${WORKERS} workers on :${PORT}`);
@@ -500,7 +500,7 @@ async function startServer() {
           p = { kind: d.k, seed: d.s, allowFemale: !!d.af, blockVideos: !!d.bv, kidZoneOnly: !!d.kz, rngSeed: d.r | 0, offset: Math.max(0, d.o | 0) };
         } else {
           const kind = u.searchParams.get("kind") || "shuffle";
-          if (!["artist", "album", "song", "shuffle"].includes(kind)) return send(res, 400, { error: "bad kind" });
+          if (!["artist", "album", "song", "shuffle", "playlist"].includes(kind)) return send(res, 400, { error: "bad kind" });
           const seed = u.searchParams.get("seed") || null;
           if (kind !== "shuffle" && !seed) return send(res, 400, { error: "missing seed" });
           const cf = contentFlags(u.searchParams);
@@ -514,7 +514,15 @@ async function startServer() {
           const row = liveDb.prepare("SELECT id FROM album WHERE playlistId=?").get(rseed);
           if (row) rseed = row.id;
         }
-        const { ids, nextOffset } = radio(radioIndex, { ...p, seed: rseed, limit });
+        // kind=playlist: aggregate the cooc neighbors of the playlist's MEMBER tracks. Community playlists
+        // have stored (whitelisted) membership → pure corpus; anything else (artist-owned) → one IP-safe live
+        // fetch (cached), same as /playlist. Non-corpus members are dropped in-engine, so radio stays pure.
+        let seedTracks = null;
+        if (p.kind === "playlist" && p.seed) {
+          seedTracks = liveDb.prepare("SELECT videoId FROM community_playlist_track WHERE playlistId=? ORDER BY pos").all(p.seed).map((r) => r.videoId);
+          if (!seedTracks.length) { const songs = await fetchPlaylistTracks(p.seed); if (songs) seedTracks = songs.map((s) => s.videoId); }
+        }
+        const { ids, nextOffset } = radio(radioIndex, { ...p, seed: rseed, seedTracks, limit });
         const ai = trackAlbumInfo(liveDb, ids);
         const tracks = ids.map((v) => { const t = radioIndex.byId.get(v), a = ai.get(v); return { videoId: v, title: t.title, artist: t.artistName, artistId: t.artistId, thumbnail: a?.thumbnail ?? null, durationSec: t.durationSec, explicit: t.explicit, isVideo: t.isVideo, releaseDate: t.releaseDate, album: a ? { id: a.albumId, name: a.albumName } : null }; });
         const continuation = nextOffset == null ? null : encTok({ k: p.kind, s: p.seed, af: p.allowFemale ? 1 : 0, bv: p.blockVideos ? 1 : 0, kz: p.kidZoneOnly ? 1 : 0, r: p.rngSeed, o: nextOffset });

@@ -113,6 +113,19 @@ test("paging is deterministic, dup-free across pages, and endless", () => {
   assert.deepEqual(a, b);
 });
 
+test("playlist seed expands from its member tracks' co-occurrence", () => {
+  const idx = mk();
+  const { ids } = radio(idx, { kind: "playlist", seed: "PLxyz", seedTracks: ["a1"], limit: 8 });
+  assert.ok(ids.length > 0);
+  assert.ok(ids.includes("b1"), "a1's session neighbor surfaces via playlist expansion");
+});
+
+test("playlist with no resolvable members falls back to popularity, never empty", () => {
+  const idx = mk();
+  const { ids } = radio(idx, { kind: "playlist", seed: "PLempty", seedTracks: [], limit: 5 });
+  assert.ok(ids.length > 0);
+});
+
 test("shuffle needs no seed and varies with rngSeed", () => {
   const idx = mk();
   const a = radio(idx, { kind: "shuffle", rngSeed: 1, limit: 8 }).ids;

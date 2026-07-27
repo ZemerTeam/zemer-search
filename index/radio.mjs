@@ -31,6 +31,7 @@ const W = { SESS: 2.0, LIB: 1.25, ART: 0.2 };
 const JIT_TIE = 0.03;         // within-tier variety across sessions (seeded kinds)
 const JIT_SHUFFLE = 0.35;     // stronger for kind=shuffle → popularity-weighted walk, not a fixed Top-N
 const ARTIST_SEED_TOPK = 8;   // artist / cold-song fallback: use the artist's top-K tracks as cooc seeds
+const PLAYLIST_SEED_CAP = 50; // kind=playlist: cap member tracks used as cooc seeds (bounds the aggregation)
 const SHUFFLE_POOL = 3000;    // shuffle weights over the meaningful head, then extends by popularity
 const STATION = 500;          // canonical (diversified) station length — offset-independent so paging is a
                               // pure prefix slice; a 500-track queue is ~30h, extended beyond only if paged past
@@ -79,7 +80,7 @@ function diversify(ids, byId) {
 
 // Returns { ids: [videoId] for this page, nextOffset: number|null }. Deterministic for a given
 // (kind, seed, flags, rngSeed) → paging is a pure slice of the same ordering (stateless continuation).
-export function radio(idx, { kind = "shuffle", seed = null, allowFemale = true, blockVideos = false, kidZoneOnly = false, rngSeed = 0, offset = 0, limit = 25 } = {}) {
+export function radio(idx, { kind = "shuffle", seed = null, seedTracks = null, allowFemale = true, blockVideos = false, kidZoneOnly = false, rngSeed = 0, offset = 0, limit = 25 } = {}) {
   const { byId, graph: g, artistTracks, albumTrackIds, popSorted, blocked } = idx;
   const pass = (v) => {
     const t = byId.get(v); if (!t) return false;
@@ -104,6 +105,11 @@ export function radio(idx, { kind = "shuffle", seed = null, allowFemale = true, 
     for (const v of opening) exclude.add(v);
     seedArtist = opening.length ? byId.get(opening[0]).artistId : null;
     seedSet = opening.slice(0, ARTIST_SEED_TOPK);
+  } else if (kind === "playlist") {
+    // Radio EXPANDS from the playlist's taste: aggregate the cooc neighbors of its member tracks (the server
+    // resolves membership → seedTracks). No single seedArtist (mixed), no opening run. Members can reappear
+    // (they're on-taste); cold/empty → popularity fallback like any other kind.
+    seedSet = (seedTracks || []).filter((v) => byId.has(v)).slice(0, PLAYLIST_SEED_CAP);
   } // kind === "shuffle" → no seed
 
   // ---- score candidates from the co-occurrence blend + same-artist ----
