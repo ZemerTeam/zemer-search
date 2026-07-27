@@ -53,7 +53,7 @@ node harvester/refresh.mjs                                  # incremental mainte
 npm test                                                    # unit tests
 npm run bench                                               # vs the app's LIKE search (sampled)
 node index/query.mjs "kevakarat"                            # ad-hoc query
-node index/build-subset.mjs                                 # → data/subset.json.gz (ship to the app)
+node index/build-subset.mjs                                 # → data/subset/ (sharded on-device snapshot; served at /subset, app pulls only changed shards)
 npm run api                                                 # GET /search?q=...&allowFemale=0&kidZone=1&blockVideos=1&k=10  (POST /reload after a refresh)
 ```
 Env: `CORPUS_DB`, `PORT`, `MIN_INTERVAL_MS`/`JITTER_MS` (harvest pacing), `MAX_AGE_H` (refresh TTL).

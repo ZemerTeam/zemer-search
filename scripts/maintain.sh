@@ -82,5 +82,9 @@ fi
 # 4) Refresh existing artists for new releases (the network-heavy step; runs last).
 if node harvester/refresh.mjs; then log "refresh ($MODE): done"; else rc=$?; [ "$rc" = 75 ] && log "WARN refresh anti-bot block (exit 75)" || log "WARN refresh exited $rc"; fi
 
+# Rebuild the on-device fallback snapshot from the freshly-refreshed corpus (offline; atomic swap). Best-effort:
+# a failure here never fails the maintenance run; the app pulls only the shards whose hash changed.
+if node index/build-subset.mjs; then log "subset: rebuilt"; else log "WARN subset build failed (last-good snapshot kept)"; fi
+
 log "=== maintain ($MODE) end (rc=$rc) ==="
 exit "$rc"

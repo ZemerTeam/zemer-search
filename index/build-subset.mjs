@@ -8,42 +8,77 @@
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version. See the LICENSE file for details.
 
-// Build the on-device fallback artifact (the "least MB" download): a compact, gzipped index scoped to a
-// user's content config. Artist names are interned (id→name map) instead of repeated per row; thumbnails
-// are derived from the videoId on-device (i.ytimg.com/vi/<id>/...), so they are NOT stored. The app ships
-// this file the same way it ships player_configs.json and loads it into the pure-Kotlin in-memory index.
+// Build the on-device fallback SNAPSHOT — full server parity MINUS audio playback — as content-addressed,
+// gzipped SHARDS + a manifest. The app mirrors the whole read layer offline (search + artist/album/home/
+// new/zemer/community) and, on update, pulls ONLY changed shards (so a daily refresh is kilobytes, not the
+// whole file). The two big tables (tracks, album_track, albums) are hash-bucketed so one new release dirties
+// only a shard or two; small/volatile tables (home_rank, zemer, community…) are one shard each. Served by
+// server/api.mjs: GET /subset/manifest + GET /subset/<shard>. See handoff zemer-app-ondevice-fallback-subset.md.
 //
-//   ALLOW_FEMALE=0 KIDZONE=1 node index/build-subset.mjs
+//   node index/build-subset.mjs                 # → data/subset/{manifest.json, *.json.gz}
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { openCorpus, allTracks } from "../corpus/store.mjs";
+import { openCorpus, loadBlockedIds, DB_PATH } from "../corpus/store.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const DATA = path.resolve(HERE, "../data");
-const tracks = allTracks(openCorpus());
+// Default OUT = <corpus-dir>/subset — the SAME derivation server/api.mjs uses for SUBSET_DIR, so a
+// CORPUS_DB override can never make the build write where the server doesn't read. SUBSET_OUT overrides (tests).
+const OUT = process.env.SUBSET_OUT ? path.resolve(process.env.SUBSET_OUT) : path.join(path.dirname(DB_PATH), "subset");
+const db = openCorpus();
 
-// Scope by content config (mirrors WhitelistCache.isAllowed + KidZone). Default: allow all whitelisted.
-const allowFemale = process.env.ALLOW_FEMALE !== "0";
-const kidZoneOnly = process.env.KIDZONE === "1";
-const scoped = tracks.filter((t) => (allowFemale || !t.isFemale) && (!kidZoneOnly || t.isKidZone));
+// hash-bucket a big table so a single-row change re-hashes to the SAME shard name (deterministic on the key),
+// dirtying only that shard's content — the app re-downloads just it. Buckets sized so each stays small.
+const NB = { tracks: 16, albumtracks: 16, albums: 8 };
+const bucket = (id, n) => { let h = 0; const s = String(id); for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) >>> 0; return h % n; };
 
-// Intern artist id -> name; pack flags into one byte. Row = [videoId, title, artistId, flags].
-const F_VIDEO = 1, F_EXPLICIT = 2, F_FEMALE = 4, F_KIDZONE = 8;
-const artists = {};
-const rows = scoped.map((t) => {
-  artists[t.artistId] = t.artistName;
-  const flags = (t.isVideo ? F_VIDEO : 0) | (t.explicit ? F_EXPLICIT : 0) | (t.isFemale ? F_FEMALE : 0) | (t.isKidZone ? F_KIDZONE : 0);
-  return [t.videoId, t.title, t.artistId, flags];
-});
+const shards = {};
+const one = (name, payload) => { shards[name] = payload; };
+const sharded = (prefix, rows, n, keyOf) => {
+  const b = Array.from({ length: n }, () => []);
+  for (const r of rows) b[bucket(keyOf(r), n)].push(r);
+  b.forEach((rows, i) => (shards[`${prefix}-${i}`] = rows));
+};
 
-const payload = { v: 1, builtForCorpus: tracks.length, artists, tracks: rows };
-const json = JSON.stringify(payload);
-const gz = zlib.gzipSync(json, { level: 9 });
-const out = path.join(DATA, "subset.json.gz");
-fs.writeFileSync(out, gz);
+// Raw column-scoped reads (full control over the on-device payload; independent of the denormalized allX shapes).
+one("artists", db.prepare("SELECT id,name,thumbnail,isFemale,isChasid,isKidZone FROM artist").all()
+  .map((a) => [a.id, a.name, a.thumbnail ?? null, (a.isFemale ? 1 : 0) | (a.isChasid ? 2 : 0) | (a.isKidZone ? 4 : 0)]));
+sharded("tracks", db.prepare("SELECT videoId,title,artistId,isVideo,explicit,durationSec,playCount,uploadDate FROM track").all()
+  .map((t) => [t.videoId, t.title, t.artistId, (t.isVideo ? 1 : 0) | (t.explicit ? 2 : 0), t.durationSec ?? null, t.playCount ?? null, t.uploadDate ?? null]), NB.tracks, (r) => r[0]);
+sharded("albums", db.prepare("SELECT id,playlistId,title,artistId,type,year,thumbnail,uploadDate FROM album").all()
+  .map((al) => [al.id, al.playlistId ?? null, al.title, al.artistId, al.type, al.year ?? null, al.thumbnail ?? null, al.uploadDate ?? null]), NB.albums, (r) => r[0]);
+sharded("albumtracks", db.prepare("SELECT albumId,videoId,pos FROM album_track").all()
+  .map((r) => [r.albumId, r.videoId, r.pos]), NB.albumtracks, (r) => r[0]);
+one("playlists", db.prepare("SELECT id,title,artistId,thumbnail FROM playlist").all()
+  .map((p) => [p.id, p.title, p.artistId, p.thumbnail ?? null]));
+one("community", db.prepare("SELECT id,title,author,thumbnail,total,whitelisted,viewCount FROM community_playlist").all()
+  .map((c) => [c.id, c.title, c.author ?? null, c.thumbnail ?? null, c.total, c.whitelisted, c.viewCount ?? null]));
+one("communitytracks", db.prepare("SELECT playlistId,videoId,pos,artistId FROM community_playlist_track").all()
+  .map((r) => [r.playlistId, r.videoId, r.pos, r.artistId ?? null]));
+one("zemer", { playlists: db.prepare("SELECT id,title,pos,year FROM zemer_playlist").all(),
+               items: db.prepare("SELECT playlistId,kind,refId,pos FROM zemer_playlist_item").all() });
+one("homerank", db.prepare("SELECT row,kind,refId,artistId,pos,score FROM home_rank").all());
+const bl = loadBlockedIds();
+one("blocked", { global: [...bl.global], female: [...bl.female] });
 
-console.log(`subset: ${rows.length}/${tracks.length} tracks (allowFemale=${allowFemale} kidZoneOnly=${kidZoneOnly}), ${Object.keys(artists).length} artists`);
-console.log(`  raw ${(json.length / 1024).toFixed(1)} KB  →  gzipped ${(gz.length / 1024).toFixed(1)} KB  (${(gz.length / Math.max(1, rows.length)).toFixed(1)} bytes/track)`);
-console.log(`  extrapolated to 100k tracks: ~${(gz.length / Math.max(1, rows.length) * 100000 / 1024 / 1024).toFixed(1)} MB  ->  data/subset.json.gz`);
+// Emit: each shard gzipped, content-hashed (the version key — unchanged content ⇒ same hash ⇒ app skips it).
+// Build into a TMP dir then swap, so a live server never serves a half-built/torn set (manifest written last
+// into TMP; the swap window is a single rm+rename, ~ms, and the server serves its last-good cache across it).
+const TMP = OUT + ".tmp";
+fs.rmSync(TMP, { recursive: true, force: true });
+fs.mkdirSync(TMP, { recursive: true });
+const manifest = { v: 2, builtAt: new Date().toISOString(), shards: [] };
+for (const [name, payload] of Object.entries(shards).sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+  const gz = zlib.gzipSync(JSON.stringify(payload), { level: 9 });
+  const hash = crypto.createHash("sha256").update(gz).digest("hex").slice(0, 16);
+  fs.writeFileSync(path.join(TMP, `${name}.json.gz`), gz);
+  manifest.shards.push({ name, hash, bytes: gz.length });
+}
+fs.writeFileSync(path.join(TMP, "manifest.json"), JSON.stringify(manifest)); // manifest last = TMP is complete before the swap
+fs.rmSync(OUT, { recursive: true, force: true });
+fs.renameSync(TMP, OUT);
+const total = manifest.shards.reduce((s, x) => s + x.bytes, 0);
+console.log(`subset: ${manifest.shards.length} shards, ${(total / 1024 / 1024).toFixed(2)} MB gzipped → data/subset/`);
+for (const s of manifest.shards) console.log(`  ${s.name.padEnd(16)} ${(s.bytes / 1024).toFixed(1).padStart(8)} KB  ${s.hash}`);

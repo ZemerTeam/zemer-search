@@ -16,8 +16,9 @@ data/.httpcache/
 data/whitelist.json
 data/blocked-ids.json
 
-# derived on-device search subset — rebuilt via `node index/build-subset.mjs`
+# derived on-device fallback snapshot (sharded) — rebuilt via `node index/build-subset.mjs`, served at /subset
 data/subset.json.gz
+data/subset/
 
 # data-driven auto playlists (Top 50 / Trending / Favorites) — regenerated on the VPS by
 # harvester/auto-playlists.mjs from usage telemetry; the hand-curated zemer-playlists.json stays committed

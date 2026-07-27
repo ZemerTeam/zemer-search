@@ -44,6 +44,26 @@ const CACHE_MAX = Number(process.env.CACHE_MAX || 5000);
 // rank-history sidecar — the source of the auto playlists' chart-movement badges. The path is exported
 // by corpus/store.mjs so this reader and the harvester writer can never diverge (separate systemd units).
 const HISTORY_PATH = AUTO_HISTORY_PATH;
+const SUBSET_DIR = path.join(path.dirname(DB_PATH), "subset"); // on-device fallback shards (build-subset.mjs)
+// In-memory cache of the on-device snapshot, keyed on manifest.json mtime: load shards + their (build-time)
+// manifest hashes once per build, then serve from memory — no per-request disk read or re-hash. Serves the
+// last-good cache across a build's brief rm+rename swap (manifest momentarily absent). null until first build.
+let _subsetCache = null;
+function subset() {
+  let mtime;
+  try { mtime = fs.statSync(path.join(SUBSET_DIR, "manifest.json")).mtimeMs; }
+  catch { return _subsetCache; } // manifest gone mid-swap → last-good (null if never built)
+  if (_subsetCache && _subsetCache.mtime === mtime) return _subsetCache;
+  try {
+    const manifestBuf = fs.readFileSync(path.join(SUBSET_DIR, "manifest.json"));
+    const shards = new Map();
+    for (const s of (JSON.parse(manifestBuf).shards || [])) {
+      try { shards.set(s.name, { buf: fs.readFileSync(path.join(SUBSET_DIR, `${s.name}.json.gz`)), hash: s.hash }); } catch { /* skip a missing shard */ }
+    }
+    _subsetCache = { mtime, manifestBuf, shards };
+  } catch { /* torn/half-written manifest → keep last-good */ }
+  return _subsetCache;
+}
 // WORKERS=0/"auto" → one per core; default 1 (dev). Production: set to the core count.
 const WORKERS = process.env.WORKERS === "auto" ? os.availableParallelism() : Number(process.env.WORKERS || 1);
 const CORS = { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json; charset=utf-8" };
@@ -271,6 +291,29 @@ async function startServer() {
       }
       if (u.pathname === "/health") return send(res, 200, { ok: true, ...stats(liveDb), indexed: indexedCount, indexedAt, worker: wIndex, whitelistTotal, maintenance: maintenance() });
       if (u.pathname === "/reload" && req.method === "POST") return send(res, 200, { ok: true, tracks: reload(true) });
+
+      // On-device fallback snapshot (build-subset.mjs → SUBSET_DIR). The manifest lists content-hashed shards;
+      // the app diffs hashes and fetches only changed shards (incremental — replace-not-merge, so adds AND
+      // removes propagate). Served from an in-memory cache keyed on manifest mtime: shards + their manifest
+      // hashes are loaded once per build (no per-request read or re-hash), and the last-good cache is served
+      // across a build's brief atomic swap. ETag = the manifest hash. See docs/corpus-freshness.md / handoff.
+      if (u.pathname === "/subset/manifest") {
+        const c = subset();
+        if (!c) return send(res, 404, { error: "no subset built" });
+        res.writeHead(200, { ...CORS, "content-type": "application/json; charset=utf-8", "cache-control": "no-cache" });
+        return res.end(c.manifestBuf);
+      }
+      if (u.pathname.startsWith("/subset/")) {
+        const name = u.pathname.slice(8); // after "/subset/"; path-safety: lowercase alnum + hyphen only
+        if (!/^[a-z0-9-]+$/.test(name)) return send(res, 400, { error: "bad shard name" });
+        const c = subset();
+        const sh = c && c.shards.get(name);
+        if (!sh) return send(res, 404, { error: "no such shard" });
+        const inm = (req.headers["if-none-match"] || "").replace(/"/g, ""); // tolerate quoted or raw manifest hash
+        if (inm === sh.hash) { res.writeHead(304, { ...CORS, etag: `"${sh.hash}"` }); return res.end(); }
+        res.writeHead(200, { "Access-Control-Allow-Origin": "*", "content-type": "application/gzip", "cache-control": "public, max-age=3600", etag: `"${sh.hash}"` });
+        return res.end(sh.buf);
+      }
 
       // LRU cache for the hot read endpoints (cleared on reload, so never stale beyond one cycle).
       if (req.method === "GET" && CACHEABLE.has(u.pathname)) {
