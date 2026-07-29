@@ -276,7 +276,10 @@ async function startServer() {
   // dark hues were). Stable per id → a cover never changes color when playlists are added/removed (no stale
   // caches). Known lists get fixed colors; any other id hashes into the same distinct set.
   const COVER_COLORS = ["#1f66c2", "#d13b3a", "#c93f86", "#5b41c7", "#d9591f", "#0b7a43", "#0a9d8f", "#b5860f"]; // blue red magenta violet orange green teal gold
-  const FIXED_COLOR = { "auto-top-50": "#1f66c2", "auto-trending": "#d13b3a", "auto-favorites": "#c93f86", "auto-downloaded": "#0e8a8a", "auto-acapella-top-50": "#5b41c7", "acapella": "#d9591f" };
+  // ONE color system for every generated cover — playlists AND stations share this map + palette (same
+  // stability rule: keyed to the id, never collides within its surface, never shifts when the set changes).
+  const FIXED_COLOR = { "auto-top-50": "#1f66c2", "auto-trending": "#d13b3a", "auto-favorites": "#c93f86", "auto-downloaded": "#0e8a8a", "auto-acapella-top-50": "#5b41c7", "acapella": "#d9591f",
+    "station:chasidish": "#5b41c7", "station:dj": "#d9591f", "station:israeli": "#1f66c2" };
   const darken = (hex, f) => "#" + hex.slice(1).match(/../g).map((x) => Math.round(parseInt(x, 16) * (1 - f)).toString(16).padStart(2, "0")).join("");
   function coverColor(id) {
     if (FIXED_COLOR[id]) return FIXED_COLOR[id];
@@ -314,13 +317,12 @@ async function startServer() {
   }
   const zemerCoverUrl = (id) => `/zemer-playlists/cover?id=${encodeURIComponent(id)}`;
 
-  // Station cover — SAME design language as the playlist covers (deterministic vivid color from the
-  // validated palette, fixed-size wrapped white title, ZEMER wordmark) but a BROADCAST composition:
-  // concentric on-air waves + a LIVE dot instead of the ♪ disc, so a station card reads as radio at a
-  // glance. Fixed colors per station id (stable across regenerations); unknown ids hash into the palette.
-  const STATION_COLOR = { chasidish: "#5b41c7", dj: "#d9591f", israeli: "#1f66c2" };
+  // Station cover — SAME design language AND the same color rules as the playlist covers (the shared
+  // coverColor(): FIXED_COLOR entries under "station:<id>", validated palette, id-keyed hash for any
+  // future station) but a BROADCAST composition: concentric on-air waves + the red beacon instead of the
+  // ♪ disc, so a station card reads as radio at a glance.
   function stationCoverSvg(id, title) {
-    const base = STATION_COLOR[id] || coverColor("station-" + id);
+    const base = coverColor("station:" + id);
     const c1 = darken(base, 0.38), c2 = base;
     const FS = 56, LH = 66, WRAP = 12;
     const words = String(title).trim().split(/\s+/);
