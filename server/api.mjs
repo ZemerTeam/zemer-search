@@ -331,18 +331,29 @@ async function startServer() {
       if (lines.length && (lines[lines.length - 1] + " " + w).length <= WRAP) lines[lines.length - 1] += " " + w;
       else lines.push(w);
     }
-    const startY = 286 - Math.round(((lines.length - 1) * LH) / 2);
+    const startY = 300 - Math.round(((lines.length - 1) * LH) / 2);
     const font = "font-family=\"'Segoe UI',Roboto,'Helvetica Neue','Noto Sans Hebrew',Arial,sans-serif\"";
     const text = lines.map((l, i) => `<text x="256" y="${startY + i * LH}" ${font} font-size="${FS}" font-weight="800" fill="#ffffff" text-anchor="middle" filter="url(#ts)">${xmlEsc(l)}</text>`).join("");
-    const waves = [64, 104, 144].map((r, i) => `<path d="M ${256 - r} 150 A ${r} ${r} 0 0 1 ${256 + r} 150" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" opacity="${0.55 - i * 0.15}"/>`).join("");
+    // a drawn RADIO (pure vector, self-contained): rounded body with speaker + dial + tuning knob, slanted
+    // antenna whose tip carries the red on-air light with two small broadcast arcs
+    const radio =
+      `<g filter="url(#ts)" stroke="#ffffff" stroke-width="7" stroke-linecap="round" fill="none">` +
+      `<line x1="298" y1="136" x2="346" y2="80"/>` +                                            // antenna
+      `<rect x="160" y="136" width="192" height="86" rx="15" fill="#ffffff" fill-opacity="0.12"/>` + // body
+      `<circle cx="206" cy="179" r="26"/>` +                                                    // speaker
+      `<line x1="252" y1="163" x2="326" y2="163"/>` +                                           // dial bar
+      `<circle cx="318" cy="196" r="10"/>` +                                                    // tuning knob
+      `<line x1="252" y1="196" x2="286" y2="196" opacity="0.7"/>` +                             // band switch
+      `</g>` +
+      `<path d="M 330 60 A 26 26 0 0 1 366 64" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round" opacity="0.55"/>` +
+      `<path d="M 322 44 A 42 42 0 0 1 378 51" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round" opacity="0.35"/>` +
+      `<circle cx="346" cy="80" r="9" fill="#ff5252" stroke="#ffffff" stroke-width="3" filter="url(#ts)"/>`; // on-air light
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">` +
       `<defs><linearGradient id="g" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient>` +
       `<filter id="ts" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000000" flood-opacity="0.5"/></filter></defs>` +
       `<rect width="512" height="512" fill="url(#g)"/>` +
       `<circle cx="70" cy="70" r="160" fill="#ffffff" opacity="0.07"/>` +
-      waves +
-      // the transmitter beacon IS the on-air light — red, ringed, at the waves' origin
-      `<circle cx="256" cy="150" r="13" fill="#ff5252" stroke="#ffffff" stroke-width="3" filter="url(#ts)"/>` +
+      radio +
       text +
       // single quiet wordmark line — "ZEMER LIVE". The +4 x-offset compensates the TRAILING
       // letter-spacing (an anchored-middle text box includes it, shifting glyphs visually left).
