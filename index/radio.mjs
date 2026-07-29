@@ -96,10 +96,15 @@ export function radio(idx, { kind = "shuffle", seed = null, seedTracks = null, a
   let seedSet = [], opening = [], seedArtist = null;
   const exclude = new Set();
   if (kind === "song" && byId.has(seed)) {
-    seedArtist = byId.get(seed).artistId; exclude.add(seed);
+    seedArtist = byId.get(seed).artistId;
+    if (pass(seed)) { opening = [seed]; exclude.add(seed); } // THE seed song plays first, then radio-continue
     seedSet = hasCooc(seed) ? [seed] : [seed, ...(artistTracks.get(seedArtist) || []).slice(0, ARTIST_SEED_TOPK)]; // cold song → artist-level cooc
   } else if (kind === "artist") {
-    seedArtist = seed; seedSet = (artistTracks.get(seed) || []).slice(0, ARTIST_SEED_TOPK);
+    seedArtist = seed;
+    const own = (artistTracks.get(seed) || []).filter(pass);
+    // lead with one of the ARTIST'S OWN songs (popularity-leaning, jittered so it varies by session), then expand
+    if (own.length) { const lead = own.reduce((a, b) => (shrink(idx.reach(b)) + JIT_SHUFFLE * h01(b, rngSeed) > shrink(idx.reach(a)) + JIT_SHUFFLE * h01(a, rngSeed) ? b : a)); opening = [lead]; exclude.add(lead); }
+    seedSet = own.slice(0, ARTIST_SEED_TOPK);
   } else if (kind === "album") {
     opening = (albumTrackIds.get(seed) || []).filter(pass); // the album plays through first
     for (const v of opening) exclude.add(v);

@@ -37,13 +37,19 @@ const graph = {
 };
 const mk = (blocked = { global: new Set(), female: new Set() }) => buildRadioIndex({ tracks, artists, albumTracks, graph, blocked });
 
-test("song seed: co-occurrence neighbors rank first, whitelist-pure, non-empty", () => {
+test("song seed plays THAT song first, then co-occurrence expansion", () => {
   const idx = mk();
   const { ids } = radio(idx, { kind: "song", seed: "a1", limit: 12 });
-  assert.ok(ids.length > 0);
-  assert.ok(!ids.includes("a1"), "seed excluded");
-  assert.equal(ids[0], "b1", "strongest signal (session cooc) leads");
+  assert.equal(ids[0], "a1", "the seed song goes first");
+  assert.equal(ids.filter((v) => v === "a1").length, 1, "and appears only once");
+  assert.ok(ids.includes("b1"), "then its co-occurrence neighbors follow");
   assert.ok(ids.indexOf("b2") < ids.indexOf("c2"), "cooc neighbor beats a non-neighbor");
+});
+
+test("artist seed leads with one of the artist's OWN songs", () => {
+  const idx = mk();
+  const { ids } = radio(idx, { kind: "artist", seed: "A", limit: 12 });
+  assert.equal(idx.byId.get(ids[0]).artistId, "A", "first track is by the seed artist");
 });
 
 test("cold song (no cooc) falls back to the seed's artist, never empty", () => {
