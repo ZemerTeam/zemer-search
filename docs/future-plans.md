@@ -21,6 +21,21 @@ this list periodically (and whenever the telemetry corpus grows meaningfully).
 | 6 | **Weight/param validation.** The loved-score weights (`backPlay/livePlay/favorite/download`), the shrinkage `PRIOR`, and the trending skip penalty are reasoned, not tuned against outcomes. | Needs enough click/play-through data to measure which weighting best predicts engagement. Revisit alongside #1. | Medium. |
 | 7 | ~~**Spotify-style chart movement**~~ **SHIPPED 2026-07-24** (`server/chart-badges.mjs`, unit-pinned): `/zemer-playlists?id=auto-*` detail rows carry additive `prevRank`/`delta`/`new` (+ `playlist.anchorDate`), computed on RAW chart ranks (viewer content filters can't fabricate movement) against a fixed weekly anchor — the first applied sidecar ordering of the last completed UTC week, rolling Sundays; young history falls back to the series start. Web UI renders ▲/▼/–/NEW on the new **Zemer Playlists** chip. **App badges still need an app-side update** (fields are waiting in the API; handoff doc on request, never in this repo). | Done (server+web). |
 
+## Zemer Radio (shipped 2026-07-26; deferred follow-ups from the 2026-07-29 improvement review)
+
+Shipped that review's top block (skip dock, feedback-loop guard, `radioDaily` KPI). Deferred, in rough
+priority order (see [radio.md](radio.md) for the shipped design):
+
+| # | Improvement | Why deferred / what unblocks it | Effort |
+|---|-------------|--------------------------------|--------|
+| R1 | **Directional session transitions** — ordered A→B edges ("what plays after X") instead of symmetric same-session co-presence. | Needs denser session data (session graph is the thinner of the two); revisit when session seed nodes grow ~3×. Same pipeline, better edge. | Medium |
+| R2 | **Variant dedup in the queue** — reuse `dedup.mjs` signatures in the diversifier so "Song / Song (Acapella) / Song (Live)" don't stack in one station. | Not yet observed as a real complaint; cheap whenever wanted. | Small |
+| R3 | **Personal context (`exclude=` recent ids)** — the app passes recently-heard videoIds so radio doesn't repeat across sessions; transient query param, server stays anonymous. | Needs an app-side change; bundle with their next radio pass. | Small (server) |
+| R4 | **Collab/feat graph for the zero-telemetry tail** — artist↔artist edges parsed from feat./collab credits (`credits.mjs`), covering the ~800 artists with no telemetry at all. | Worth building when tail-seed radio gets real usage; no data dependency. | Medium |
+| R5 | **Discovery slots** — occasionally inject a related artist's NEW release (ties radio to the freshness system). | Product call. | Small |
+| R6 | **Learned weights** — replace the hand blend (2/1.25/0.2/0.08) with weights tuned on the bench + live skip outcomes. | Needs the release-fleet `radioDaily` signal (below) + more data; pairs with auto-playlists #6. | Medium |
+| R7 | **Zemer Stations** — the synchronized broadcast (everyone hears the same thing at the same wall-clock moment; see [radio-feasibility.md](radio-feasibility.md) product #2). | The big unbuilt product; needs a product decision + schedule design. | Large |
+
 ## Backfill ↔ live reconciliation roadmap (the long arc behind items #1/#2/#6)
 
 The standing rule never changes: **the raw tables stay segregated forever** (a zemer-stats hard
@@ -56,6 +71,9 @@ table is the thing to re-read whenever one of those fires.
 | **Chart badges in the app (#7)** | An app-side update rendering `prevRank`/`delta`/`new`, already served by `/zemer-playlists?id=auto-*`. The web UI and the tracking dashboard's **Chart movement** card (self-gating, shipped 2026-07-24) already show them. | App side |
 | ~~**CTR per surface**~~ **DROPPED from v1** (app-side review, 2026-07-24) | Not computable as designed: `play.source` is the *queue context*, not the row tapped — home taps report `zemer:…`/`playlist:…` (never a `home:*` surface), so featured surfaces would read ~0% CTR, and `radio` autoplay reports plays that were never shown at all. Needs a **separate `play.surface`** plumbed from the tapped UI row through queue construction — its own app-side request, not a free consequence of impressions. | Deferred |
 | **Weight validation (#6)** | Enough click/play-through data to measure which weighting predicts engagement. Pairs naturally with velocity now being live. | Us |
+| **Radio release verdict** | The Zemer-radio app build reaching a RELEASE (it's nightly-only as of 2026-07-29, so the `radioDaily` dashboard card currently measures the old `YouTube.next()` baseline, ~66–78% skip). At release: compare before/after on that card — the honest scoreboard for corpus-native radio — then revisit R6 (learned weights). | App ships, then us — verify |
+| **#108 regular-channel harvest** | Promised to the app (artist/album handoff): 63 of the 66 track-less whitelisted artists have a `regularChannelId` whose uploads we don't harvest. Needs a harvest pass over regular channels (scope: whitelist-purity rules already exist — `ownsRow`). Closes the empty-`/artist` gap. | Us |
+| **NY-align the non-dashboard day boundaries** | Deliberately deferred (operator call, 2026-07-29 — dashboards were the priority and are done): the home-row daily rotation flips at midnight UTC (= 7–8pm NY) and the chart week rolls Sunday 00:00 UTC (= Motzei Shabbos NY). Flip both to America/New_York midnights if the evening flip ever bothers users. | You (say go), then us |
 | **Per-genre auto lists (#5)** | A product decision + a genre/mood tag per track or artist to slice on. | You |
 | **Next season's acapella cold-start** | Next year's 17 Tammuz. This season's window (1,598 plays / 97 devices, 2026) sits in the stats DB — seed the initial order from it if the early-season window is thin. | Us, next year |
 
