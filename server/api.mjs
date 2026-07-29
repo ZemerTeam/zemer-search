@@ -358,6 +358,7 @@ async function startServer() {
       `<rect width="512" height="512" fill="url(#g)"/>` +
       `<circle cx="432" cy="84" r="190" fill="#ffffff" opacity="0.10"/>` +
       `<circle cx="56" cy="450" r="150" fill="#000000" opacity="0.14"/>` +
+      `<text x="428" y="158" ${font} font-size="150" fill="#ffffff" opacity="0.16" text-anchor="middle">♪</text>` + // same faint note as the playlist covers
       radio +
       text +
       // single quiet wordmark line — "ZEMER LIVE". The +4 x-offset compensates the TRAILING
