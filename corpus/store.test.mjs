@@ -10,7 +10,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, trackAlbumInfo, tracksByIds, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistList, communityKeptCounts, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, tracksNeedingDate, setTrackUploadDate, recentAlbums, recentTracks, setFemaleSet, applyZemerPlaylists, zemerPlaylistList, zemerPlaylistDetail, applyHomeRank, homeRows, setMeta, getMeta } from "./store.mjs";
+import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, trackAlbumInfo, tracksByIds, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistList, communityKeptCounts, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, tracksNeedingDate, setTrackUploadDate, recentAlbums, recentTracks, setFemaleSet, applyZemerPlaylists, zemerPlaylistList, zemerPlaylistDetail, applyHomeRank, homeRows, setMeta, getMeta, createUserPlaylist, getUserPlaylist, countUserPlaylistsByDevice } from "./store.mjs";
 import { parseDurationSec, parsePlays } from "../harness/browse.mjs";
 
 const seed = (db) => upsertArtistCatalog(db, { id: "UCmusic", name: "Test Artist" }, {
@@ -841,4 +841,18 @@ test("auto-playlist freshness: stats exposes applied-at + age, null until stampe
   s = stats(db);
   assert.equal(s.autoPlaylistsAppliedAt, t);
   assert.ok(s.autoPlaylistsAgeSec >= 89 && s.autoPlaylistsAgeSec <= 95, "age ≈ 90s");
+});
+
+test("user-shared playlists: immutable snapshot round-trip + device rate counter", () => {
+  const db = openCorpus(":memory:");
+  const dev = "11111111-2222-3333-4444-555555555555";
+  createUserPlaylist(db, { id: "AbC123xYz9Qw", title: "Kumzitz mix", tracks: ["aaaaaaaaaaa", "bbbbbbbbbbb"], device: dev, createdAt: 1000 });
+  const up = getUserPlaylist(db, "AbC123xYz9Qw");
+  assert.equal(up.title, "Kumzitz mix");
+  assert.deepEqual(up.tracks, ["aaaaaaaaaaa", "bbbbbbbbbbb"], "order preserved");
+  assert.equal(getUserPlaylist(db, "nope12345678"), null);
+  assert.equal(countUserPlaylistsByDevice(db, dev, 0), 1);
+  assert.equal(countUserPlaylistsByDevice(db, dev, 2000), 0, "windowed");
+  // duplicate id must throw (capability ids are unique)
+  assert.throws(() => createUserPlaylist(db, { id: "AbC123xYz9Qw", title: "x", tracks: ["c"] }));
 });

@@ -178,6 +178,20 @@ export function openCorpus(file = DB_PATH) {
   // upsertArtistCatalog; NULL = never recorded (treated as stale).
   if (!db.prepare("PRAGMA table_info(artist)").all().some((c) => c.name === "refreshedAt"))
     db.exec("ALTER TABLE artist ADD COLUMN refreshedAt INTEGER");
+  // User-SHARED playlists (issue zemer-app#176): person-to-person link sharing — a user shares a playlist
+  // from the app, gets an unguessable search.zemer.io/user_playlist/<id> URL, the recipient deep-links into
+  // the app. NOT a public index (no browse/search surface — reachable only by knowing the link), so no
+  // moderation; members are corpus-validated at submission (whitelist-pure by construction) and content
+  // filters + blocked-ids apply per-request at serve time. Immutable snapshots: re-sharing after an edit
+  // mints a new id (no auth/edit surface to secure).
+  db.exec(`CREATE TABLE IF NOT EXISTS user_playlist (
+    id TEXT PRIMARY KEY,          -- unguessable base62 (the capability)
+    title TEXT NOT NULL,
+    tracks TEXT NOT NULL,         -- JSON array of corpus videoIds, order preserved
+    device TEXT,                  -- sharer's anonymous device uuid (rate limiting/ops only, never served)
+    createdAt INTEGER NOT NULL
+  )`);
+
   // Style/curation tags from the whitelist (2026-07-29): DJ / American-vs-Israeli / famous — stamped from
   // whitelist.json on every harvest upsert (same flow as isFemale/isChasid/isKidZone). Consumers: radio's
   // style affinity + DJ handling + famous cold-start prior, and the on-device subset. NULL/0 = false.
@@ -271,6 +285,19 @@ export function upsertArtistCatalog(db, artist, catalog, ts = Date.now()) {
   tx();
   return { tracks: tracks.length, albums: albums.length, playlists: playlists.length };
 }
+
+// User-shared playlists (link sharing, zemer-app#176). Create = insert an immutable snapshot; read = the
+// row (member enrichment/filtering happens in the API against the live corpus).
+export function createUserPlaylist(db, { id, title, tracks, device = null, createdAt = Date.now() }) {
+  db.prepare("INSERT INTO user_playlist(id,title,tracks,device,createdAt) VALUES(?,?,?,?,?)")
+    .run(id, title, JSON.stringify(tracks), device, createdAt);
+}
+export function getUserPlaylist(db, id) {
+  const r = db.prepare("SELECT id,title,tracks,createdAt FROM user_playlist WHERE id=?").get(id);
+  return r ? { id: r.id, title: r.title, tracks: JSON.parse(r.tracks), createdAt: r.createdAt } : null;
+}
+export const countUserPlaylistsByDevice = (db, device, sinceMs) =>
+  db.prepare("SELECT COUNT(*) c FROM user_playlist WHERE device=? AND createdAt>=?").get(device, sinceMs).c;
 
 // Demand-driven refresh claim (cross-worker atomic): if `artistId` is stale (refreshedAt older than
 // `cutoffMs`, or NULL), bump refreshedAt to `now` and return true — meaning THIS caller won the claim and

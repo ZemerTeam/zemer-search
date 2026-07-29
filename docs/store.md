@@ -17,6 +17,12 @@ artist (
                                  --   consumers: radio style affinity / DJ handling / famous cold-start prior)
   refreshedAt INTEGER            -- epoch ms of the last catalog (re)harvest; drives demand-driven on-open
 )                                --   refresh (claimArtistRefresh); bumped by upsertArtistCatalog; see corpus-freshness.md
+
+user_playlist (                  -- user-SHARED playlists (zemer-app#176): person-to-person link sharing
+  id TEXT PRIMARY KEY,           --   unguessable base62 capability (the link IS the access control)
+  title TEXT, tracks TEXT,       --   immutable snapshot; tracks = JSON videoId array, order preserved
+  device TEXT, createdAt INTEGER --   sharer's anonymous uuid (rate limiting only, never served)
+)                                --   members corpus-validated at create; filters applied at serve
 track (
   videoId TEXT PRIMARY KEY, title TEXT, artistId TEXT REFERENCES artist(id),
   isVideo INTEGER, explicit INTEGER, harvestedAt INTEGER,

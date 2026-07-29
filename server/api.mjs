@@ -26,7 +26,7 @@ import os from "node:os";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, homeRows, artistDetail, albumDetail, tracksByIds, trackAlbumInfo, allAlbumTracks, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, loadRadioGraph, claimArtistRefresh, BLOCKED_IDS_PATH, RADIO_GRAPH_PATH, STATIONS_PATH, AUTO_HISTORY_PATH } from "../corpus/store.mjs";
+import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, homeRows, artistDetail, albumDetail, tracksByIds, trackAlbumInfo, allAlbumTracks, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, loadRadioGraph, claimArtistRefresh, createUserPlaylist, getUserPlaylist, countUserPlaylistsByDevice, BLOCKED_IDS_PATH, RADIO_GRAPH_PATH, STATIONS_PATH, AUTO_HISTORY_PATH } from "../corpus/store.mjs";
 import { pickAnchor, applyBadges, applyRanks, chartedBefore, firstCharted, formulaOf, chartWeek } from "./chart-badges.mjs";
 import { buildCategories, searchCategories } from "../index/categories.mjs";
 import { buildRadioIndex, radio } from "../index/radio.mjs";
@@ -557,6 +557,75 @@ async function startServer() {
         if (d) d.tracks = d.tracks.filter((t) => !idDropped(t.videoId, cats.blocked, cf.allowFemale));
         if (d) maybeRefreshArtist(liveDb.prepare("SELECT artistId FROM album WHERE id=?").get(id)?.artistId); // refresh the album's artist
         return d ? cacheSet(req.url, send(res, 200, d)) : send(res, 404, { error: "album not found" });
+      }
+      if (u.pathname === "/user-playlist" && req.method === "POST") {
+        // Create a SHARED user playlist (zemer-app#176): the app posts {title, videoIds, device?} and gets
+        // back an unguessable link. Person-to-person capability, NOT a public index — no browse surface,
+        // no moderation; members are validated against the corpus (whitelist-pure by construction).
+        const chunks = []; let bytes = 0;
+        req.on("data", (c) => { bytes += c.length; if (bytes > 262144) req.destroy(); else chunks.push(c); });
+        req.on("end", () => {
+          let j; try { j = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { return send(res, 400, { error: "bad json" }); }
+          const title = String(j.title || "").trim().slice(0, 120);
+          if (!title) return send(res, 400, { error: "missing title" });
+          if (!Array.isArray(j.videoIds) || !j.videoIds.length || j.videoIds.length > 500) return send(res, 400, { error: "videoIds must be 1..500" });
+          const device = typeof j.device === "string" && /^[0-9a-f-]{36}$/i.test(j.device) ? j.device.toLowerCase() : null;
+          if (device && countUserPlaylistsByDevice(liveDb, device, Date.now() - 86400000) >= 50) return send(res, 429, { error: "daily share limit reached" });
+          // keep only corpus members, order preserved — the link can never carry a non-whitelisted track
+          const valid = j.videoIds.filter((v) => typeof v === "string" && /^[\w-]{11}$/.test(v) && radioIndex.byId.has(v));
+          if (!valid.length) return send(res, 400, { error: "no whitelisted tracks in playlist" });
+          const id = crypto.randomBytes(12).toString("base64url").replace(/[-_]/g, "").slice(0, 14); // unguessable capability
+          try { createUserPlaylist(liveDb, { id, title, tracks: valid, device }); }
+          catch (e) { console.error("user-playlist create failed:", e.message); return send(res, 500, { error: "server error" }); }
+          const host = req.headers["x-forwarded-host"] || req.headers.host || "search.zemer.io";
+          return send(res, 200, { id, url: `https://${host}/user_playlist/${id}`, kept: valid.length, dropped: j.videoIds.length - valid.length });
+        });
+        return;
+      }
+      if (u.pathname.startsWith("/user_playlist")) {
+        // Open a shared playlist. JSON for the app; a branded HTML landing for browsers (the same URL the
+        // app deep-links on). Receiver's content flags + blocked-ids apply per-request; members that left
+        // the corpus since sharing are silently dropped (whitelist purity outlives the snapshot).
+        const id = u.pathname.startsWith("/user_playlist/") ? u.pathname.slice(15) : (u.searchParams.get("id") || "");
+        if (!/^[A-Za-z0-9]{8,20}$/.test(id)) return send(res, 400, { error: "bad id" });
+        const up = getUserPlaylist(liveDb, id);
+        if (!up) return send(res, 404, { error: "playlist not found" });
+        const cf = contentFlags(u.searchParams);
+        const kept = up.tracks.filter((v) => {
+          const t = radioIndex.byId.get(v);
+          if (!t) return false;
+          if (!cf.allowFemale && t.femaleInvolved) return false;
+          if (cf.kidZoneOnly && !t.isKidZone) return false;
+          if (cf.blockVideos && t.isVideo) return false;
+          return !idDropped(v, cats.blocked, cf.allowFemale);
+        });
+        const wantsHtml = String(req.headers.accept || "").includes("text/html") && u.searchParams.get("format") !== "json";
+        const ai = trackAlbumInfo(liveDb, kept);
+        const rows = kept.map((v) => { const t = radioIndex.byId.get(v), a = ai.get(v); return { videoId: v, title: t.title, artist: t.artistName, artistId: t.artistId, thumbnail: a?.thumbnail ?? null, durationSec: t.durationSec, explicit: t.explicit, isVideo: t.isVideo }; });
+        if (!wantsHtml) return send(res, 200, { playlist: { id: up.id, title: up.title, createdAt: up.createdAt, trackCount: rows.length }, tracks: rows, source: "zemer-user" });
+        const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+        const items = rows.slice(0, 200).map((t, i) => `<li><span class="n">${i + 1}</span><span class="t">${esc(t.title)}</span><span class="a">${esc(t.artist || "")}</span></li>`).join("");
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" });
+        return res.end(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(up.title)} · Zemer</title><style>
+body{margin:0;font-family:'Segoe UI',Roboto,Arial,sans-serif;background:linear-gradient(135deg,#132a4d,#1f66c2);color:#fff;min-height:100vh}
+.wrap{max-width:560px;margin:0 auto;padding:32px 20px 60px}
+h1{font-size:1.7rem;margin:18px 0 4px}.sub{opacity:.75;margin-bottom:18px}
+.open{display:block;text-align:center;background:#fff;color:#1f66c2;font-weight:700;text-decoration:none;border-radius:12px;padding:14px;margin:18px 0 26px;font-size:1.05rem}
+ol{list-style:none;margin:0;padding:0}li{display:flex;gap:10px;align-items:baseline;padding:9px 2px;border-bottom:1px solid rgba(255,255,255,.12)}
+.n{opacity:.5;min-width:22px;text-align:right}.t{flex:1;font-weight:600}.a{opacity:.7;font-size:.85rem}
+.brand{margin-top:30px;text-align:center;letter-spacing:6px;font-weight:600;opacity:.8;font-size:.85rem}</style></head><body><div class="wrap">
+<div class="brand">ZEMER</div><h1>${esc(up.title)}</h1><div class="sub">${rows.length} songs · shared playlist</div>
+<a class="open" href="https://${esc(req.headers["x-forwarded-host"] || req.headers.host || "search.zemer.io")}/user_playlist/${esc(up.id)}">Open in the Zemer app</a>
+<ol>${items}</ol><div class="brand">ZEMER</div></div></body></html>`);
+      }
+      if (u.pathname === "/.well-known/assetlinks.json") {
+        // Android App Links: lets a tap on search.zemer.io/user_playlist/<id> open the Zemer app directly.
+        // Content (package + signing-cert SHA256) comes from the app team → data/assetlinks.json; absent → 404.
+        try {
+          const body = fs.readFileSync(path.join(path.dirname(DB_PATH), "assetlinks.json"));
+          res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "public, max-age=3600", "Access-Control-Allow-Origin": "*" });
+          return res.end(body);
+        } catch { return send(res, 404, { error: "not configured" }); }
       }
       if (u.pathname === "/stations/cover") {
         // Branded broadcast-style SVG cover for one station (same palette/design language as the
