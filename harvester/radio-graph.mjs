@@ -43,16 +43,21 @@ catch (e) { console.error(`radio-graph: fetch FAILED (${e.message}) — leaving 
 if (!g || typeof g !== "object" || !g.pop || !g.lib) { console.error("radio-graph: empty/short response — leaving existing artifact untouched"); process.exit(0); }
 
 // Corpus intersection — the whitelist authority lives here, not in zemer-stats.
-const inCorpus = new Set(allTracks(openCorpus()).map((t) => t.videoId));
+const db = openCorpus();
+const inCorpus = new Set(allTracks(db).map((t) => t.videoId));
 const keepList = (arr) => (arr || []).filter(([id]) => inCorpus.has(id));
 const pop = {}; for (const id of Object.keys(g.pop)) if (inCorpus.has(id)) pop[id] = g.pop[id];
 const lib = {}, sess = {};
 for (const id of Object.keys(g.lib)) { if (!inCorpus.has(id)) continue; const n = keepList(g.lib[id]); if (n.length) lib[id] = n; }
 for (const id of Object.keys(g.sess)) { if (!inCorpus.has(id)) continue; const n = keepList(g.sess[id]); if (n.length) sess[id] = n; }
+// artist-level graph (the coverage tier) — intersect against the corpus ARTIST roster the same way
+const inArtists = new Set(db.prepare("SELECT id FROM artist").all().map((r) => r.id));
+const art = {};
+for (const id of Object.keys(g.art || {})) { if (!inArtists.has(id)) continue; const n = (g.art[id] || []).filter(([a]) => inArtists.has(a)); if (n.length) art[id] = n; }
 
-const out = { builtAt: g.builtAt || Date.now(), source: "zemer-stats", devices: g.devices ?? null, pop, lib, sess };
+const out = { builtAt: g.builtAt || Date.now(), source: "zemer-stats", devices: g.devices ?? null, pop, lib, sess, art };
 const libN = Object.keys(lib).length, sessN = Object.keys(sess).length, popN = Object.keys(pop).length;
-console.log(`radio-graph: corpus-intersected — pop ${popN} (was ${Object.keys(g.pop).length}), lib seeds ${libN} (was ${Object.keys(g.lib).length}), sess seeds ${sessN}`);
+console.log(`radio-graph: corpus-intersected — pop ${popN} (was ${Object.keys(g.pop).length}), lib seeds ${libN} (was ${Object.keys(g.lib).length}), sess seeds ${sessN}, artist seeds ${Object.keys(art).length}`);
 if (!popN || !libN) { console.error("radio-graph: nothing survived corpus intersection — leaving existing artifact untouched"); process.exit(0); }
 
 const nextJson = JSON.stringify(out);

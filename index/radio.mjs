@@ -27,7 +27,12 @@
 import { buildFemaleMatcher, isFemaleInvolved } from "./credits.mjs";
 
 const PRIOR = 3;
-const W = { SESS: 2.0, LIB: 1.25, ART: 0.2 };
+// RELART (the artist-level coverage tier) must stay BELOW ART: bench-measured (zemer-stats bench/radio-eval),
+// sub-same-artist weights are safe on every cut and lift the no-track-cooc fallback zone; higher weights
+// drown the seed artist's own catalog and collapse it.
+const W = { SESS: 2.0, LIB: 1.25, ART: 0.2, RELART: 0.08 };
+const RELART_TOPK = 15;       // related artists considered per seed artist
+const RELART_TRACKS = 5;      // top tracks pulled per related artist
 const JIT_TIE = 0.03;         // within-tier variety across sessions (seeded kinds)
 const JIT_SHUFFLE = 0.35;     // stronger for kind=shuffle → popularity-weighted walk, not a fixed Top-N
 const ARTIST_SEED_TOPK = 8;   // artist / cold-song fallback: use the artist's top-K tracks as cooc seeds
@@ -45,7 +50,7 @@ function h01(id, seed) { let x = (2166136261 ^ (seed >>> 0)) >>> 0; const s = St
 
 export function buildRadioIndex({ tracks = [], artists = [], albumTracks = [], graph = {}, matcher = null, blocked = null }) {
   const m = matcher || buildFemaleMatcher(artists);
-  const g = { pop: graph.pop || {}, lib: graph.lib || {}, sess: graph.sess || {} };
+  const g = { pop: graph.pop || {}, lib: graph.lib || {}, sess: graph.sess || {}, art: graph.art || {} };
   const byId = new Map();
   for (const t of tracks) {
     const fi = t.femaleInvolved !== undefined ? t.femaleInvolved : isFemaleInvolved(t.title, t.artistName, t.isFemale, m);
@@ -125,6 +130,10 @@ export function radio(idx, { kind = "shuffle", seed = null, seedTracks = null, a
     for (const [b, sc] of (g.lib[sv] || [])) bump(b, W.LIB * sc);
   }
   if (seedArtist) for (const v of (artistTracks.get(seedArtist) || [])) bump(v, W.ART * shrink(idx.reach(v)));
+  // artist-level coverage tier: RELATED artists' top tracks (below same-artist) — gives the ~2.4×-wider
+  // artist graph a voice where track-level cooc is thin, replacing popularity filler with related content.
+  if (seedArtist) for (const [ra, s] of (g.art[seedArtist] || []).slice(0, RELART_TOPK))
+    for (const v of (artistTracks.get(ra) || []).slice(0, RELART_TRACKS)) bump(v, W.RELART * s * shrink(idx.reach(v)));
 
   // ---- ordered head (scored, filtered, jittered); diversity is applied once to the whole station below ----
   const head = [...score.keys()].filter(pass).map((v) => [v, score.get(v) + JIT_TIE * h01(v, rngSeed)]);

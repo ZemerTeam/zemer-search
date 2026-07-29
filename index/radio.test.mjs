@@ -35,6 +35,8 @@ const graph = {
   sess: { a1: [["b1", 0.9]] },
   lib: { a1: [["b2", 0.5], ["c1", 0.45], ["f1", 0.4], ["v1", 0.35], ["a2", 0.3]] },
 };
+// artist-level tier: artist C (whose tracks have NO track-level cooc) is related to artist B
+graph.art = { C: [["B", 0.6]] };
 const mk = (blocked = { global: new Set(), female: new Set() }) => buildRadioIndex({ tracks, artists, albumTracks, graph, blocked });
 
 test("song seed plays THAT song first, then co-occurrence expansion", () => {
@@ -117,6 +119,15 @@ test("paging is deterministic, dup-free across pages, and endless", () => {
   const a = radio(idx, { kind: "song", seed: "a1", rngSeed: 7, offset: 0, limit: 5 }).ids;
   const b = radio(idx, { kind: "song", seed: "a1", rngSeed: 7, offset: 0, limit: 5 }).ids;
   assert.deepEqual(a, b);
+});
+
+test("artist tier: a no-track-cooc artist surfaces RELATED artists' tracks, below its own", () => {
+  const idx = mk();
+  const { ids } = radio(idx, { kind: "artist", seed: "C", limit: 12 }); // C has no track cooc; art: C→B
+  const own = ids.findIndex((v) => idx.byId.get(v).artistId === "C");
+  const rel = ids.findIndex((v) => idx.byId.get(v).artistId === "B");
+  assert.ok(own !== -1 && rel !== -1, "both own and related-artist tracks present");
+  assert.ok(own < rel, "own catalog ranks above the related artist");
 });
 
 test("playlist seed expands from its member tracks' co-occurrence", () => {

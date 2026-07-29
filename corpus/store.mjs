@@ -490,7 +490,7 @@ const readAcapellaAuto = () => { try { return JSON.parse(fs.readFileSync(ACAPELL
 // {builtAt, pop:{id:reach}, lib:{id:[[nbr,score]]}, sess:{id:[[nbr,score]]}}. Missing/corrupt → {} (the
 // engine falls back to same-artist + popularity, so radio still works with no graph).
 export const RADIO_GRAPH_PATH = process.env.RADIO_GRAPH || path.resolve(HERE, "../data/radio-graph.json");
-export function loadRadioGraph() { try { const g = JSON.parse(fs.readFileSync(RADIO_GRAPH_PATH, "utf8")); return { pop: g.pop || {}, lib: g.lib || {}, sess: g.sess || {}, builtAt: g.builtAt || 0 }; } catch { return { pop: {}, lib: {}, sess: {}, builtAt: 0 }; } }
+export function loadRadioGraph() { try { const g = JSON.parse(fs.readFileSync(RADIO_GRAPH_PATH, "utf8")); return { pop: g.pop || {}, lib: g.lib || {}, sess: g.sess || {}, art: g.art || {}, builtAt: g.builtAt || 0 }; } catch { return { pop: {}, lib: {}, sess: {}, art: {}, builtAt: 0 }; } }
 
 // Album membership (albumId, videoId, pos) for the whole corpus — the radio engine's album-seed opening run
 // and the on-device subset both need the flat mapping. One row per membership; a track can be in >1 album.

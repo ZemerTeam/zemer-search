@@ -22,7 +22,7 @@ Two axes, both decisive for *this* audience:
 Pure data (no DB, no platform deps — ports to Kotlin identically, like all of `index/`). Per candidate:
 
 ```
-score = 2.0·session-cooc  +  1.25·library-cooc  +  0.2·same-artist(shrunk-reach)   (+ small tie jitter)
+score = 2.0·session-cooc + 1.25·library-cooc + 0.2·same-artist(shrunk-reach) + 0.08·artist-tier   (+ tie jitter)
 ```
 
 - **library co-occurrence** — tracks that co-live in the same devices' libraries (plays ∪ backfilled history
@@ -31,6 +31,11 @@ score = 2.0·session-cooc  +  1.25·library-cooc  +  0.2·same-artist(shrunk-rea
 - **session co-occurrence** — tracks played in the same listening *session* (live plays, 30-min gap). The
   contextual "what actually plays next" signal; best at cross-artist coherence.
 - **same-artist** — a small shrunk-reach boost so the seed's own artist stays present without dominating.
+- **artist tier** (`graph.art`) — the *coverage* tier: **artist×artist** co-occurrence over device libraries,
+  far denser than track×track (~2× the artist coverage — an artist only needs 2 devices holding *anything*
+  of theirs), pulling related artists' top tracks into the queue. **Must stay below same-artist**
+  (bench-measured: sub-same-artist weights are safe on every cut and lift the no-track-cooc fallback zone;
+  bigger weights drown the seed artist's own catalog and collapse it).
 
 Both graphs are **cosine-normalized** with device-support ≥ 2 (a single device can't mint an edge), so a
 globally-popular track doesn't get recommended for everything. Then: a **diversity cap** (≤ 2 of one artist
@@ -43,9 +48,13 @@ never off-whitelist:
 
 1. **song, no cooc → artist-level cooc**: aggregate the co-listening neighbors of the seed *artist*'s other
    tracks (a fresh single by a known artist still gets real relatedness).
-2. **no artist signal → same-artist catalog**, then **era + content-class leaning popularity** (so the tail
-   still feels of-a-piece).
+2. **no track signal → the artist tier** (related artists' top tracks via `graph.art`), then **same-artist
+   catalog**, then **era + content-class leaning popularity** (so the tail still feels of-a-piece).
 3. **album** always opens with its own tracks (in order); **shuffle** never needs a seed.
+
+**The seed always leads the queue:** a `song` seed plays **that song** first, an `artist` seed leads with one
+of the **artist's own songs** (popularity-leaning, jittered per session), an `album` seed opens with the
+album's tracks in order — then the radio expansion follows.
 
 The unvalidated fallback tail (pure popularity) is the *only* part not backed by the measurement below; the
 co-occurrence head is.
