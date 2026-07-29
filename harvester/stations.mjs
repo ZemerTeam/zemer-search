@@ -72,7 +72,16 @@ doc.stations = {}; // rebuilt strictly from the catalog — a removed/renamed st
 const GUARD_MS = 10 * 60000;
 
 for (const st of STATIONS) {
-  if (st.requires && !artists.some((a) => a[st.requires])) { console.warn(`station ${st.id}: SKIPPED — required tag '${st.requires}' is unpopulated on this corpus`); continue; }
+  // Coverage THRESHOLD, not mere presence (review-caught: one tagged artist out of 1,600 would open the
+  // gate while `!isAmerican` admits every untagged artist — Israeli Radio would broadcast the whole
+  // roster on a partially-tagged corpus). And a skipped station CARRIES its previous schedule forward
+  // (review-caught: rebuilding doc.stations from scratch dropped the guard-window entries the design
+  // promises are immutable — live listeners would 404 mid-song).
+  if (st.requires && artists.filter((a) => a[st.requires]).length < artists.length * 0.3) {
+    console.warn(`station ${st.id}: SKIPPED — required tag '${st.requires}' below 30% coverage on this corpus; carrying previous schedule forward`);
+    if (prevStations[st.id]) doc.stations[st.id] = prevStations[st.id];
+    continue;
+  }
   const tagged = new Set(artists.filter(st.match).map((a) => a.id));
   // kosher-for-all pool: tagged artists, audio-only, no female-involved (auto-detected AND the curated
   // blocked-ids `female` overrides — the ids curation exists precisely because detection can't see them),
@@ -82,7 +91,8 @@ for (const st of STATIONS) {
     && !acapella.has(t.videoId) && !CLEAR_ACAP.test(t.title || ""))
     .map((t) => ({ videoId: t.videoId, artistId: t.artistId, durationSec: t.durationSec }));
   const prev = prevStations[st.id] || {};
-  const state = prev.state || { seed: (Math.imul(st.id.length * 2654435761, now & 0x7fffffff) ^ 0x9e3779b9) >>> 0, recentTracks: [], recentArtists: [] };
+  const idHash = [...st.id].reduce((h, ch) => (Math.imul(h ^ ch.charCodeAt(0), 16777619)) >>> 0, 2166136261); // per-ID stream (length-only collided)
+  const state = prev.state || { seed: (Math.imul(idHash, now & 0x7fffffff) ^ 0x9e3779b9) >>> 0, recentTracks: [], recentArtists: [] };
   // keep recent history + the immutable now/imminent window; DROP (rewrite) the un-aired future
   const entries = (prev.entries || []).filter(([, s, d]) => s + d * 1000 > now - KEEP_PAST_H * 3600000 && s <= now + GUARD_MS);
   // the persisted memory windows described the truncated tail — rebuild them from the KEPT entries so

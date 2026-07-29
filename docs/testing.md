@@ -12,8 +12,11 @@ the store's detail accessors + channel map + community-playlist round-trip/remov
 (`albumsNeedingDate`/`setAlbumUploadDate` + real-date ordering of New Releases), the community-playlist
 admission gate + seed builder + rejected-artist formatter (`harvester/`), **Zemer Radio**
 (`index/radio.test.mjs` — seed-leads-the-queue per kind, cold-seed fallback, filter/blocked purity,
-diversity cap, skip dock, artist tier, deterministic dup-free paging), and the chart badges
-(`server/chart-badges.test.mjs` — weekly anchor, formula reset, re-entry vs the ≤24h NEW window).
+diversity cap, skip dock, artist tier, deterministic dup-free paging), the chart badges
+(`server/chart-badges.test.mjs` — weekly anchor, formula reset, re-entry vs the ≤24h NEW window),
+**Zemer Stations** (`index/station.test.mjs` — contiguous/deterministic schedules, append-only extension,
+artist spacing, half-pool no-repeat, tiny-pool + ≤3-artist termination, cooc chaining, wall-clock lookup),
+and **user-shared playlists** (`corpus/store.test.mjs` — snapshot round-trip, device rate counter).
 
 **Radio ranking quality** has its own held-out bench in the sibling repo — `zemer-stats/bench/radio-eval.mjs`
 (next-track prediction vs popularity/same-artist baselines; mirrors the engine's shipped weights). Re-run it

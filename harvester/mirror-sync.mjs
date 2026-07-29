@@ -67,7 +67,13 @@ let wl;
 try { wl = await getJSON("/whitelist"); } catch (e) { console.error(`mirror-sync: /whitelist fetch failed (${e.message})`); process.exit(1); }
 if (!Array.isArray(wl) || wl.length === 0) { console.error(`mirror-sync: /whitelist empty (${wl?.length}) — refusing to wipe`); process.exit(1); }
 // Map to the exact shape harness/whitelist.mjs produces (onboard/prune read .id/.name; female matcher reads isFemale).
-const mapped = wl.map((a) => ({ id: a.id, name: a.name, isFemale: !!a.isFemale, isChasid: !!a.isChasid, isKidZone: !!a.isKidZone, isDJ: !!a.isDJ, isAmerican: !!a.isAmerican, isFamous: !!a.isFamous }));
+// Style tags fall back to the EXISTING whitelist.json entry when the mirror doesn't carry them yet
+// (review-caught: a lagging mirror would map them all to false and the next refresh sweep would zero the
+// real tags corpus-wide). Content flags stay mirror-authoritative — they gate content and must propagate.
+let prevWl = new Map();
+try { prevWl = new Map(JSON.parse(readMaybe(path.join(DATA, "whitelist.json")) || "[]").map((a) => [a.id, a])); } catch { /* none */ }
+const tag = (a, k) => (a[k] !== undefined ? !!a[k] : !!prevWl.get(a.id)?.[k]);
+const mapped = wl.map((a) => ({ id: a.id, name: a.name, isFemale: !!a.isFemale, isChasid: !!a.isChasid, isKidZone: !!a.isKidZone, isDJ: tag(a, "isDJ"), isAmerican: tag(a, "isAmerican"), isFamous: tag(a, "isFamous") }));
 
 if (DRY) { console.log(`[DRY] whitelist changed (gate ${state.gate ?? "-"} → ${gate}); ${mapped.length} entries; WOULD write data/whitelist.json + onboard + prune`); process.exit(0); }
 

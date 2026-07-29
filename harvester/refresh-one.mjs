@@ -33,7 +33,9 @@ if (!aid) { console.error("usage: node harvester/refresh-one.mjs <artistId>"); p
 if ((await shabbatQuiet()).quiet) { console.log(`refresh-one ${aid}: Shabbat window — skipping`); process.exit(0); }
 
 const db = openCorpus();
-const row = db.prepare("SELECT id,name,isFemale,isChasid,isKidZone,regularChannelId FROM artist WHERE id=?").get(aid);
+// ALL flag columns — upsertArtistCatalog overwrites every flag from this object, so a missing column here
+// would ZERO it in the corpus (review-caught: the style tags churned 0/1 on every on-open refresh).
+const row = db.prepare("SELECT id,name,isFemale,isChasid,isKidZone,isDJ,isAmerican,isFamous,regularChannelId FROM artist WHERE id=?").get(aid);
 let artist = row;
 if (!artist) { // not yet in corpus — fall back to the whitelist entry (a brand-new artist opened before onboard)
   try { const wl = JSON.parse(fs.readFileSync(path.join(DATA, "whitelist.json"), "utf8")); artist = wl.find((a) => a.id === aid); } catch { /* none */ }

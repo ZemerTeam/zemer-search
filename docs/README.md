@@ -12,6 +12,7 @@ quick orientation + the gotcha list; come here for the deep dives.
 | [harvester.md](harvester.md) | Harvesting a complete discography, the IP-safe net layer, the cache, the channel map, incremental refresh, issue #108. |
 | [store.md](store.md) | SQLite schema, the store API, migrations, track detail metadata (durations/plays/track numbers + album aggregates), why re-harvest is free. |
 | [api.md](api.md) | HTTP endpoints, the web UI, scaling (cluster + LRU cache + staggered reload), env config. |
+| [stations.md](stations.md) | **Zemer Stations** — the synchronized-broadcast radio (one shared wall-clock program per station): the append-only-guard-window scheduler, familiarity-first programming, kosher-for-all pools (no acapella), serve-time purity, tune-in clock math, ops watchdogs. |
 | [radio.md](radio.md) | **Zemer Radio** — the corpus-native, whitelist-pure `/radio` continuation that replaces `YouTube.next()`: the co-occurrence blend, cold-seed fallback, the aggregated graph artifact + privacy boundary, stateless continuation, and the held-out quality measurement (beats popularity ~7×). |
 | [testing.md](testing.md) | Every benchmark/test harness, what each measures, current numbers, how to read them. |
 | [deployment.md](deployment.md) | Running on a server, env vars, horizontal scaling, operational notes. |

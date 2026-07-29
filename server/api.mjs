@@ -46,6 +46,8 @@ const RELOAD_MS = Number(process.env.RELOAD_MS || 30000);
 // New Releases feed (real /player dates, maintained off-datacenter). Just for the web UI's New Releases
 // view to display; cached briefly, with a corpus fallback if unreachable.
 const RELEASES_FEED = process.env.RELEASES_FEED || "https://api.flipphoneguy.duckdns.org/zemer/recent-releases.json";
+// Public host for URLs we mint (share links). Fixed/env-configured — never derived from request headers.
+const PUBLIC_HOST = process.env.PUBLIC_HOST || "search.zemer.io";
 const FEED_TTL_MS = Number(process.env.FEED_TTL_MS || 300000); // ~5 min
 const CACHE_MAX = Number(process.env.CACHE_MAX || 5000);
 // rank-history sidecar — the source of the auto playlists' chart-movement badges. The path is exported
@@ -391,7 +393,12 @@ async function startServer() {
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache", ETag: UI_ETAG });
         return res.end(UI);
       }
-      if (u.pathname === "/health") return send(res, 200, { ok: true, ...stats(liveDb), indexed: indexedCount, indexedAt, worker: wIndex, whitelistTotal, maintenance: maintenance() });
+      if (u.pathname === "/health") {
+        // radioGraphAgeSec: freshness watchdog for the radio graph — the autoplaylists unit's ExecStarts are
+        // '-'-prefixed for step independence (never enters failed state), so staleness must be observable here.
+        let rgAge = null; try { rgAge = Math.round((Date.now() - fs.statSync(RADIO_GRAPH_PATH).mtimeMs) / 1000); } catch { /* no graph yet */ }
+        return send(res, 200, { ok: true, ...stats(liveDb), indexed: indexedCount, indexedAt, worker: wIndex, whitelistTotal, radioGraphAgeSec: rgAge, maintenance: maintenance() });
+      }
       if (u.pathname === "/reload" && req.method === "POST") return send(res, 200, { ok: true, tracks: reload(true) });
 
       // On-device fallback snapshot (build-subset.mjs → SUBSET_DIR). The manifest lists content-hashed shards;
@@ -571,22 +578,25 @@ async function startServer() {
         // back an unguessable link. Person-to-person capability, NOT a public index — no browse surface,
         // no moderation; members are validated against the corpus (whitelist-pure by construction).
         const chunks = []; let bytes = 0;
+        req.on("error", () => { /* client abort mid-body (ECONNRESET) — review-caught: unlistened, it crashed the worker */ });
         req.on("data", (c) => { bytes += c.length; if (bytes > 262144) req.destroy(); else chunks.push(c); });
         req.on("end", () => {
-          let j; try { j = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { return send(res, 400, { error: "bad json" }); }
-          const title = String(j.title || "").trim().slice(0, 120);
-          if (!title) return send(res, 400, { error: "missing title" });
-          if (!Array.isArray(j.videoIds) || !j.videoIds.length || j.videoIds.length > 500) return send(res, 400, { error: "videoIds must be 1..500" });
-          const device = typeof j.device === "string" && /^[0-9a-f-]{36}$/i.test(j.device) ? j.device.toLowerCase() : null;
-          if (device && countUserPlaylistsByDevice(liveDb, device, Date.now() - 86400000) >= 50) return send(res, 429, { error: "daily share limit reached" });
-          // keep only corpus members, order preserved — the link can never carry a non-whitelisted track
-          const valid = j.videoIds.filter((v) => typeof v === "string" && /^[\w-]{11}$/.test(v) && radioIndex.byId.has(v));
-          if (!valid.length) return send(res, 400, { error: "no whitelisted tracks in playlist" });
-          const id = crypto.randomBytes(12).toString("base64url").replace(/[-_]/g, "").slice(0, 14); // unguessable capability
-          try { createUserPlaylist(liveDb, { id, title, tracks: valid, device }); }
-          catch (e) { console.error("user-playlist create failed:", e.message); return send(res, 500, { error: "server error" }); }
-          const host = req.headers["x-forwarded-host"] || req.headers.host || "search.zemer.io";
-          return send(res, 200, { id, url: `https://${host}/user_playlist/${id}`, kept: valid.length, dropped: j.videoIds.length - valid.length });
+          try { // async escape hatch: a throw in here is outside the outer request try/catch
+            let j; try { j = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { return send(res, 400, { error: "bad json" }); }
+            const title = String(j.title || "").trim().slice(0, 120);
+            if (!title) return send(res, 400, { error: "missing title" });
+            if (!Array.isArray(j.videoIds) || !j.videoIds.length || j.videoIds.length > 500) return send(res, 400, { error: "videoIds must be 1..500" });
+            const device = typeof j.device === "string" && /^[0-9a-f-]{36}$/i.test(j.device) ? j.device.toLowerCase() : null;
+            // storage hygiene (not security): per-device + global daily brakes on permanent rows
+            if (device && countUserPlaylistsByDevice(liveDb, device, Date.now() - 86400000) >= 50) return send(res, 429, { error: "daily share limit reached" });
+            if (liveDb.prepare("SELECT COUNT(*) c FROM user_playlist WHERE createdAt>=?").get(Date.now() - 86400000).c >= 2000) return send(res, 429, { error: "busy, try later" });
+            // keep only corpus members, order preserved — the link can never carry a non-whitelisted track
+            const valid = j.videoIds.filter((v) => typeof v === "string" && /^[\w-]{11}$/.test(v) && radioIndex.byId.has(v));
+            if (!valid.length) return send(res, 400, { error: "no whitelisted tracks in playlist" });
+            const id = crypto.randomBytes(12).toString("base64url").replace(/[-_]/g, "").slice(0, 14); // unguessable capability
+            createUserPlaylist(liveDb, { id, title, tracks: valid, device });
+            return send(res, 200, { id, url: `https://${PUBLIC_HOST}/user_playlist/${id}`, kept: valid.length, dropped: j.videoIds.length - valid.length });
+          } catch (e) { console.error("user-playlist create failed:", e.message); try { send(res, 500, { error: "server error" }); } catch { /* res gone */ } }
         });
         return;
       }
@@ -623,7 +633,7 @@ ol{list-style:none;margin:0;padding:0}li{display:flex;gap:10px;align-items:basel
 .n{opacity:.5;min-width:22px;text-align:right}.t{flex:1;font-weight:600}.a{opacity:.7;font-size:.85rem}
 .brand{margin-top:30px;text-align:center;letter-spacing:6px;font-weight:600;opacity:.8;font-size:.85rem}</style></head><body><div class="wrap">
 <div class="brand">ZEMER</div><h1>${esc(up.title)}</h1><div class="sub">${rows.length} songs · shared playlist</div>
-<a class="open" href="https://${esc(req.headers["x-forwarded-host"] || req.headers.host || "search.zemer.io")}/user_playlist/${esc(up.id)}">Open in the Zemer app</a>
+<a class="open" href="https://${PUBLIC_HOST}/user_playlist/${esc(up.id)}">Open in the Zemer app</a>
 <ol>${items}</ol><div class="brand">ZEMER</div></div></body></html>`);
       }
       if (u.pathname === "/.well-known/assetlinks.json") {

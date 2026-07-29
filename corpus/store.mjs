@@ -190,7 +190,9 @@ export function openCorpus(file = DB_PATH) {
     tracks TEXT NOT NULL,         -- JSON array of corpus videoIds, order preserved
     device TEXT,                  -- sharer's anonymous device uuid (rate limiting/ops only, never served)
     createdAt INTEGER NOT NULL
-  )`);
+  );
+  CREATE INDEX IF NOT EXISTS idx_user_playlist_device ON user_playlist(device, createdAt);
+  CREATE INDEX IF NOT EXISTS idx_user_playlist_created ON user_playlist(createdAt)`);
 
   // Style/curation tags from the whitelist (2026-07-29): DJ / American-vs-Israeli / famous — stamped from
   // whitelist.json on every harvest upsert (same flow as isFemale/isChasid/isKidZone). Consumers: radio's
