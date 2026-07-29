@@ -337,6 +337,7 @@ async function startServer() {
     // a drawn RADIO (pure vector, self-contained): rounded body with speaker + dial + tuning knob, slanted
     // antenna whose tip carries the red on-air light with two small broadcast arcs
     const radio =
+      `<g transform="translate(0,-30)">` + // sit the set clearly above the title block
       `<g filter="url(#ts)" stroke="#ffffff" stroke-width="7" stroke-linecap="round" fill="none">` +
       `<line x1="298" y1="136" x2="346" y2="80"/>` +                                            // antenna
       `<rect x="160" y="136" width="192" height="86" rx="15" fill="#ffffff" fill-opacity="0.12"/>` + // body
@@ -347,7 +348,8 @@ async function startServer() {
       `</g>` +
       `<path d="M 330 60 A 26 26 0 0 1 366 64" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round" opacity="0.55"/>` +
       `<path d="M 322 44 A 42 42 0 0 1 378 51" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round" opacity="0.35"/>` +
-      `<circle cx="346" cy="80" r="9" fill="#ff5252" stroke="#ffffff" stroke-width="3" filter="url(#ts)"/>`; // on-air light
+      `<circle cx="346" cy="80" r="9" fill="#ff5252" stroke="#ffffff" stroke-width="3" filter="url(#ts)"/>` + // on-air light
+      `</g>`;
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">` +
       `<defs><linearGradient id="g" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient>` +
       `<filter id="ts" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000000" flood-opacity="0.5"/></filter></defs>` +
