@@ -10,7 +10,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pickAnchor, applyBadges, applyRanks, chartedBefore, LEGACY_FORMULA } from "./chart-badges.mjs";
+import { pickAnchor, applyBadges, applyRanks, chartedBefore, firstCharted, NEW_MAX_MS, LEGACY_FORMULA } from "./chart-badges.mjs";
 
 const D = 86400000;
 // Wed 2026-08-12 12:00 UTC → current week starts Sun Aug 9; last completed week starts Sun Aug 2.
@@ -150,4 +150,26 @@ test("applyRanks: the CHART position, not the row index — a filtered list show
   const off = [{ videoId: "zzz" }];
   applyRanks(off, ["a"]);
   assert.equal(off[0].rank, undefined);
+});
+
+test("NEW is a ≤24h freshness stamp: an older first-time entrant is UNBADGED until the anchor rolls", () => {
+  const anchorList = ["a", "b"];
+  const curList = ["fresh", "stale", "a", "b"]; // two first-timers on today's chart, absent from the anchor
+  const runs = [
+    run(NOW - 5 * D, { lists: { "auto-top-50": ["a", "b"] } }),                    // the anchor-era chart
+    run(NOW - 3 * D, { lists: { "auto-top-50": ["stale", "a", "b"] } }),           // "stale" entered 3d ago
+    run(NOW - 3600000, { lists: { "auto-top-50": ["fresh", "stale", "a", "b"] } }),// "fresh" entered 1h ago
+  ];
+  const first = firstCharted(runs, "auto-top-50", LEGACY_FORMULA);
+  assert.ok(NOW - first.get("fresh") <= NEW_MAX_MS && NOW - first.get("stale") > NEW_MAX_MS);
+  const tracks = [{ videoId: "fresh" }, { videoId: "stale" }, { videoId: "a" }];
+  applyBadges(tracks, curList, anchorList, new Set(), first, NOW);
+  assert.equal(tracks[0].new, true, "entered 1h ago → NEW");
+  assert.equal(tracks[1].new, undefined, "entered 3d ago → no NEW");
+  assert.equal(tracks[1].delta, undefined, "…and no fake arrow either — unbadged until Sunday");
+  assert.equal(tracks[2].delta, -2, "songs on the anchor keep normal deltas (1 → 3 = down 2)");
+  // without firstSeen the old all-week behavior is preserved (callers that don't pass it are unchanged)
+  const legacy = [{ videoId: "stale" }];
+  applyBadges(legacy, curList, anchorList, new Set());
+  assert.equal(legacy[0].new, true);
 });

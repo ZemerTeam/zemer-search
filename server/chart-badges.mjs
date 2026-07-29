@@ -98,6 +98,23 @@ export function chartedBefore(runs, playlistId, anchorMs, formula) {
   return seen;
 }
 
+// videoId → EARLIEST time (ms) it appeared on this playlist, across applied same-formula runs. Drives the
+// 24h NEW window in applyBadges — the sticky-NEW fix: with a fixed weekly anchor, "absent from the anchor"
+// stays true all week, so a Monday entrant read NEW for days. NEW is a freshness stamp, not a movement
+// measure, so it gets its own clock: first charted ≤24h ago.
+export function firstCharted(runs, playlistId, formula) {
+  const first = new Map();
+  for (const r of Array.isArray(runs) ? runs : []) {
+    if (!r || !r.applied || !r.lists || typeof r.lists !== "object" || typeof r.t !== "string") continue;
+    const t = Date.parse(r.t);
+    if (!Number.isFinite(t) || formulaOf(r, playlistId) !== formula) continue;
+    const list = r.lists[playlistId];
+    if (!Array.isArray(list)) continue;
+    for (const v of list) if (!first.has(v) || t < first.get(v)) first.set(v, t);
+  }
+  return first;
+}
+
 // Stamp each row with its 1-based position on the RAW chart. Separate from the movement badges because
 // it is knowable whenever the chart has a stored ordering, anchor or not — and because the row's index in
 // a response is NOT the chart position: content filters remove rows server-side, so a filtered viewer's
@@ -114,9 +131,13 @@ export function applyRanks(tracks, curOrder) {
 // Annotate `tracks` (the detail rows, possibly content-filtered) with prevRank/delta/new/reentry for ONE
 // playlist. `curOrder`/`prevOrder` = the RAW videoId orderings (current stored chart / anchor chart).
 // delta > 0 = climbed. `everCharted` (optional, from chartedBefore) splits an absent-from-anchor song into
-// a true first appearance (`new`) and a return (`reentry`) — visually distinct, and not inferable from a
-// delta. Mutates + returns tracks; missing data → tracks untouched (fields stay absent).
-export function applyBadges(tracks, curOrder, prevOrder, everCharted = null) {
+// a true first appearance and a return (`reentry`) — visually distinct, and not inferable from a delta.
+// `firstSeen` (optional, from firstCharted) time-limits the NEW label to NEW_MAX_MS after the song's first
+// appearance: a first-time entrant older than that shows NO badge until the weekly anchor rolls and gives it
+// a real arrow (NEW is "just arrived", not "arrived at some point this week"). Without `firstSeen` the old
+// all-week NEW behavior is preserved. Mutates + returns tracks; missing data → tracks untouched.
+export const NEW_MAX_MS = 24 * 3600 * 1000;
+export function applyBadges(tracks, curOrder, prevOrder, everCharted = null, firstSeen = null, nowMs = Date.now()) {
   if (!Array.isArray(tracks) || !Array.isArray(curOrder) || !Array.isArray(prevOrder) || !prevOrder.length) return tracks;
   const cur = new Map(curOrder.map((v, i) => [v, i + 1]));
   const prev = new Map(prevOrder.map((v, i) => [v, i + 1]));
@@ -126,7 +147,9 @@ export function applyBadges(tracks, curOrder, prevOrder, everCharted = null) {
     const p = prev.get(t.videoId);
     if (p) { t.prevRank = p; t.delta = p - c; }
     else if (everCharted && everCharted.has(t.videoId)) t.reentry = true; // charted before, fell off, back
-    else t.new = true;                                                    // never charted under this formula
+    else if (!firstSeen || !firstSeen.has(t.videoId) || nowMs - firstSeen.get(t.videoId) <= NEW_MAX_MS)
+      t.new = true; // never charted under this formula AND first seen ≤24h ago (unknown first-seen = just arrived)
+    // else: first-time entrant older than the NEW window — unbadged until the anchor rolls (Sunday)
   }
   return tracks;
 }

@@ -27,7 +27,7 @@ import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, homeRows, artistDetail, albumDetail, tracksByIds, trackAlbumInfo, allAlbumTracks, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, loadRadioGraph, claimArtistRefresh, BLOCKED_IDS_PATH, RADIO_GRAPH_PATH, AUTO_HISTORY_PATH } from "../corpus/store.mjs";
-import { pickAnchor, applyBadges, applyRanks, chartedBefore, formulaOf, chartWeek } from "./chart-badges.mjs";
+import { pickAnchor, applyBadges, applyRanks, chartedBefore, firstCharted, formulaOf, chartWeek } from "./chart-badges.mjs";
 import { buildCategories, searchCategories } from "../index/categories.mjs";
 import { buildRadioIndex, radio } from "../index/radio.mjs";
 import { buildFemaleMatcher, collectFemaleVideoIds } from "../index/credits.mjs";
@@ -441,9 +441,11 @@ async function startServer() {
             if (raw.length) applyRanks(d.tracks, raw);
             const anchor = chartAnchor(id);
             if (raw.length && anchor?.lists?.[id]) {
-              // everCharted separates a first-ever entry (`new`) from a song returning (`reentry`)
+              // everCharted separates a first-ever entry from a returning one (`reentry`); firstCharted
+              // time-limits NEW to ≤24h after first appearance (older first-timers stay unbadged till Sunday)
               applyBadges(d.tracks, raw, anchor.lists[id],
-                chartedBefore(anchorCache.runs, id, Date.parse(anchor.t), formulaOf(anchor, id)));
+                chartedBefore(anchorCache.runs, id, Date.parse(anchor.t), formulaOf(anchor, id)),
+                firstCharted(anchorCache.runs, id, formulaOf(anchor, id)));
               d.playlist.anchorDate = anchor.t.slice(0, 10); // "movement since" — for UI labeling
             }
           }
