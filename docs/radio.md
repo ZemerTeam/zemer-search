@@ -121,15 +121,16 @@ whitelist-pure. This is the last radio surface (playlist menu "Start radio").
 Measured by `zemer-stats/bench/radio-eval.mjs` — **held-out next-track prediction**: build the graph on 80% of
 devices, then on the remaining held-out device sessions ask "given the track playing, does the model rank the
 one the user *actually* played next in the top 20?" Popularity-debiased (rare gold) and cross-artist reported
-too. Representative run (grows/tightens as telemetry accumulates):
+too. Latest run (2026-07-29, deliberate-session gold under the feedback-loop-guard semantics; grows/tightens
+as telemetry accumulates — re-run rather than trust these):
 
 | model | hit@20 (all) | hit@20 (cross-artist) | hit@20 (rare, debiased) |
 |---|---|---|---|
-| popularity (naive shuffle) | ~4–5% | ~6–8% | **0%** |
-| same-artist | ~23% | ~1% | ~11% |
-| **co-occurrence blend** | **~35%** | ~12% | **~22%** |
+| popularity (naive shuffle) | ~4% | ~7% | **0%** |
+| same-artist | ~28% | ~1% | ~16% |
+| **blend + artist tier** | **~42%** | ~13% | **~32%** |
 
-The blend is ~7–9× popularity and wins on rare, non-hit tracks (where popularity scores 0) — i.e. it surfaces
+The blend is ~10× popularity and wins on rare, non-hit tracks (where popularity scores 0) — i.e. it surfaces
 genuinely related material, not the same handful of hits. **Re-run this bench as data grows**; a good radio
 should hold well above popularity. The engine weights and the bench's blend are kept in sync (the bench
 comment flags it).

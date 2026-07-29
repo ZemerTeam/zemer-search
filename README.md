@@ -66,8 +66,11 @@ Env: `CORPUS_DB`, `PORT`, `MIN_INTERVAL_MS`/`JITTER_MS` (harvest pacing), `MAX_A
   `refresh.mjs` (incremental). IP-safe: cached, paced, **aborts on the first anti-bot block**.
 - `corpus/store.mjs` — **SQLite** source-of-truth (normalized artist/track, WAL, per-artist upserts).
 - `index/` — `normalize.mjs` (skeleton + Damerau), `search.mjs` (bigram/binary-search in-memory engine),
-  `synonyms.mjs`, tests, `query.mjs`, `build-subset.mjs`.
-- `server/api.mjs` — HTTP search API (SQLite → in-memory matcher; content-filter scoping; `/reload`).
+  `synonyms.mjs`, `radio.mjs` (**Zemer Radio** — corpus-native co-occurrence "what plays next"), tests,
+  `query.mjs`, `build-subset.mjs` (the sharded on-device snapshot).
+- `server/api.mjs` — the HTTP API (SQLite → in-memory matcher; content-filter scoping): `/search`,
+  `/artist`, `/album`, `/playlist`, `/new`, `/community`, `/zemer-playlists`, `/home-rows`, `/radio`,
+  `/subset/*`, `/reload`. See `docs/api.md` for the full contracts.
 - `bench/` — `bench.mjs` (vs `LIKE`), `diag-typos.mjs`.
 - `data/` — `corpus.db`, `whitelist.json`, the gzipped HTTP cache (`.httpcache/`, prunable).
 

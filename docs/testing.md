@@ -9,8 +9,15 @@ Pinned regression tests, one or more per **gotcha** (see [gotchas.md](gotchas.md
 you've reintroduced a known bug. Covers: cross-script alignment, Damerau transposition, no-false-
 positives, synonyms, begins-with > contains, skeleton-collapse, fuzzy-no-affinity, apostrophe-join, IDF,
 the store's detail accessors + channel map + community-playlist round-trip/removal + release dating
-(`albumsNeedingDate`/`setAlbumUploadDate` + real-date ordering of New Releases), and the community-playlist
-admission gate + seed builder + rejected-artist formatter (`harvester/`).
+(`albumsNeedingDate`/`setAlbumUploadDate` + real-date ordering of New Releases), the community-playlist
+admission gate + seed builder + rejected-artist formatter (`harvester/`), **Zemer Radio**
+(`index/radio.test.mjs` — seed-leads-the-queue per kind, cold-seed fallback, filter/blocked purity,
+diversity cap, skip dock, artist tier, deterministic dup-free paging), and the chart badges
+(`server/chart-badges.test.mjs` — weekly anchor, formula reset, re-entry vs the ≤24h NEW window).
+
+**Radio ranking quality** has its own held-out bench in the sibling repo — `zemer-stats/bench/radio-eval.mjs`
+(next-track prediction vs popularity/same-artist baselines; mirrors the engine's shipped weights). Re-run it
+whenever the blend weights or graph semantics change; numbers live in [radio.md](radio.md#quality).
 
 ## `relevance` — track ranking quality
 
