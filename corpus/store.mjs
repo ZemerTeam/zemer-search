@@ -498,6 +498,9 @@ const readAcapellaAuto = () => { try { return JSON.parse(fs.readFileSync(ACAPELL
 // {builtAt, pop:{id:reach}, lib:{id:[[nbr,score]]}, sess:{id:[[nbr,score]]}}. Missing/corrupt → {} (the
 // engine falls back to same-artist + popularity, so radio still works with no graph).
 export const RADIO_GRAPH_PATH = process.env.RADIO_GRAPH || path.resolve(HERE, "../data/radio-graph.json");
+// Zemer Stations schedule — gitignored + VPS-local, written by harvester/stations.mjs (append-only
+// synchronized wall-clock program per station), served by /stations + /station. See docs/stations.md.
+export const STATIONS_PATH = process.env.STATIONS || path.resolve(HERE, "../data/stations.json");
 export function loadRadioGraph() { try { const g = JSON.parse(fs.readFileSync(RADIO_GRAPH_PATH, "utf8")); return { pop: g.pop || {}, lib: g.lib || {}, sess: g.sess || {}, art: g.art || {}, skip: g.skip || {}, builtAt: g.builtAt || 0 }; } catch { return { pop: {}, lib: {}, sess: {}, art: {}, skip: {}, builtAt: 0 }; } }
 
 // Album membership (albumId, videoId, pos) for the whole corpus — the radio engine's album-seed opening run

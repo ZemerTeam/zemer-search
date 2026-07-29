@@ -26,10 +26,11 @@ import os from "node:os";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, homeRows, artistDetail, albumDetail, tracksByIds, trackAlbumInfo, allAlbumTracks, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, loadRadioGraph, claimArtistRefresh, BLOCKED_IDS_PATH, RADIO_GRAPH_PATH, AUTO_HISTORY_PATH } from "../corpus/store.mjs";
+import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, homeRows, artistDetail, albumDetail, tracksByIds, trackAlbumInfo, allAlbumTracks, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, loadRadioGraph, claimArtistRefresh, BLOCKED_IDS_PATH, RADIO_GRAPH_PATH, STATIONS_PATH, AUTO_HISTORY_PATH } from "../corpus/store.mjs";
 import { pickAnchor, applyBadges, applyRanks, chartedBefore, firstCharted, formulaOf, chartWeek } from "./chart-badges.mjs";
 import { buildCategories, searchCategories } from "../index/categories.mjs";
 import { buildRadioIndex, radio } from "../index/radio.mjs";
+import { scheduleAt } from "../index/station.mjs";
 import { buildFemaleMatcher, collectFemaleVideoIds } from "../index/credits.mjs";
 import { loadDefaultSynonyms } from "../index/synonyms.mjs";
 import { postBrowse, parsePlaylistPage, parseArtistItemsContinuation } from "../harness/browse.mjs";
@@ -69,6 +70,17 @@ function subset() {
   } catch { /* torn/half-written manifest → keep last-good */ }
   return _subsetCache;
 }
+// Zemer Stations schedule (data/stations.json, written atomically by harvester/stations.mjs) — cached on
+// mtime like the subset; a torn/missing file keeps last-good so a generator swap never 500s a tune-in.
+let _stationsCache = null;
+function stationsDoc() {
+  let mtime;
+  try { mtime = fs.statSync(STATIONS_PATH).mtimeMs; } catch { return _stationsCache; }
+  if (_stationsCache && _stationsCache.mtime === mtime) return _stationsCache;
+  try { _stationsCache = { mtime, doc: JSON.parse(fs.readFileSync(STATIONS_PATH, "utf8")) }; } catch { /* keep last-good */ }
+  return _stationsCache;
+}
+
 // WORKERS=0/"auto" → one per core; default 1 (dev). Production: set to the core count.
 const WORKERS = process.env.WORKERS === "auto" ? os.availableParallelism() : Number(process.env.WORKERS || 1);
 const CORS = { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json; charset=utf-8" };
@@ -302,6 +314,41 @@ async function startServer() {
   }
   const zemerCoverUrl = (id) => `/zemer-playlists/cover?id=${encodeURIComponent(id)}`;
 
+  // Station cover — SAME design language as the playlist covers (deterministic vivid color from the
+  // validated palette, fixed-size wrapped white title, ZEMER wordmark) but a BROADCAST composition:
+  // concentric on-air waves + a LIVE dot instead of the ♪ disc, so a station card reads as radio at a
+  // glance. Fixed colors per station id (stable across regenerations); unknown ids hash into the palette.
+  const STATION_COLOR = { chasidish: "#5b41c7", dj: "#d9591f", israeli: "#1f66c2" };
+  function stationCoverSvg(id, title) {
+    const base = STATION_COLOR[id] || coverColor("station-" + id);
+    const c1 = darken(base, 0.38), c2 = base;
+    const FS = 56, LH = 66, WRAP = 12;
+    const words = String(title).trim().split(/\s+/);
+    const lines = [];
+    for (const w of words) {
+      if (lines.length && (lines[lines.length - 1] + " " + w).length <= WRAP) lines[lines.length - 1] += " " + w;
+      else lines.push(w);
+    }
+    const startY = 286 - Math.round(((lines.length - 1) * LH) / 2);
+    const font = "font-family=\"'Segoe UI',Roboto,'Helvetica Neue','Noto Sans Hebrew',Arial,sans-serif\"";
+    const text = lines.map((l, i) => `<text x="256" y="${startY + i * LH}" ${font} font-size="${FS}" font-weight="800" fill="#ffffff" text-anchor="middle" filter="url(#ts)">${xmlEsc(l)}</text>`).join("");
+    const waves = [64, 104, 144].map((r, i) => `<path d="M ${256 - r} 150 A ${r} ${r} 0 0 1 ${256 + r} 150" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" opacity="${0.55 - i * 0.15}"/>`).join("");
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">` +
+      `<defs><linearGradient id="g" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient>` +
+      `<filter id="ts" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000000" flood-opacity="0.5"/></filter></defs>` +
+      `<rect width="512" height="512" fill="url(#g)"/>` +
+      `<circle cx="70" cy="70" r="160" fill="#ffffff" opacity="0.07"/>` +
+      waves +
+      `<circle cx="256" cy="150" r="14" fill="#ffffff" filter="url(#ts)"/>` +
+      text +
+      // quiet, editorial LIVE mark: a small steady dot + wide-tracked capitals, no pill, no glow
+      `<g ${font}><circle cx="211" cy="425" r="5" fill="#ff5252"/>` +
+      `<text x="224" y="432" font-size="19" font-weight="600" letter-spacing="6" fill="#ffffff" opacity="0.92">LIVE</text></g>` +
+      `<rect x="216" y="452" width="80" height="2.5" rx="1.25" fill="#ffffff" opacity="0.5"/>` +
+      `<text x="256" y="488" ${font} font-size="21" font-weight="600" letter-spacing="8" fill="#ffffff" opacity="0.85" text-anchor="middle">ZEMER</text>` +
+      `</svg>`;
+  }
+
 
   const send = (res, code, obj) => { const body = JSON.stringify(obj); res.writeHead(code, CORS); res.end(body); return body; };
   const cacheSet = (key, body) => { cache.set(key, body); if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value); };
@@ -492,6 +539,52 @@ async function startServer() {
         if (d) d.tracks = d.tracks.filter((t) => !idDropped(t.videoId, cats.blocked, cf.allowFemale));
         if (d) maybeRefreshArtist(liveDb.prepare("SELECT artistId FROM album WHERE id=?").get(id)?.artistId); // refresh the album's artist
         return d ? cacheSet(req.url, send(res, 200, d)) : send(res, 404, { error: "album not found" });
+      }
+      if (u.pathname === "/stations/cover") {
+        // Branded broadcast-style SVG cover for one station (same palette/design language as the
+        // playlist covers; LIVE badge + on-air waves). Stable per id; unknown id → 404.
+        const id = u.searchParams.get("id");
+        const st = stationsDoc()?.doc?.stations?.[id];
+        if (!st) return send(res, 404, { error: "station not found" });
+        res.writeHead(200, { "Content-Type": "image/svg+xml; charset=utf-8", "Cache-Control": "public, max-age=3600", "Access-Control-Allow-Origin": "*" });
+        return res.end(stationCoverSvg(id, st.title));
+      }
+      if (u.pathname === "/stations" || u.pathname === "/station") {
+        // Zemer Stations — SYNCHRONIZED broadcast (one shared wall-clock program per station; every
+        // listener hears the same track at the same moment). Schedule is the append-only artifact from
+        // harvester/stations.mjs; this endpoint only does clock math + track enrichment. docs/stations.md.
+        const sc = stationsDoc();
+        const nowMs = Date.now();
+        const enrich = (vid, startMs, durSec) => {
+          const t = radioIndex.byId.get(vid);
+          const ai = trackAlbumInfo(liveDb, [vid]).get(vid);
+          return { videoId: vid, title: t?.title ?? null, artist: t?.artistName ?? null, artistId: t?.artistId ?? null,
+                   thumbnail: ai?.thumbnail ?? null, durationSec: durSec, startMs, endMs: startMs + durSec * 1000 };
+        };
+        const stationNow = (id, s) => {
+          const i = scheduleAt(s.entries || [], nowMs);
+          if (i < 0) return null;
+          const [vid, startMs, durSec] = s.entries[i];
+          return { i, now: { ...enrich(vid, startMs, durSec), offsetMs: nowMs - startMs } };
+        };
+        if (u.pathname === "/stations") {
+          const out = [];
+          for (const [id, s] of Object.entries(sc?.doc?.stations || {})) {
+            const cur = stationNow(id, s);
+            out.push({ id, title: s.title, thumbnail: `/stations/cover?id=${encodeURIComponent(id)}`, live: !!cur, nowPlaying: cur ? { title: cur.now.title, artist: cur.now.artist, thumbnail: cur.now.thumbnail } : null });
+          }
+          return send(res, 200, { count: out.length, stations: out, serverTimeMs: nowMs });
+        }
+        const id = u.searchParams.get("id");
+        const s = sc?.doc?.stations?.[id];
+        if (!s) return send(res, 404, { error: "station not found" });
+        const cur = stationNow(id, s);
+        if (!cur) return send(res, 503, { error: "station offline" }); // schedule ran out — generator down; app hides the card
+        const upcoming = (s.entries || []).slice(cur.i + 1, cur.i + 1 + Math.min(10, Math.max(1, Number(u.searchParams.get("next")) || 5)))
+          .map(([v, st, d]) => enrich(v, st, d));
+        const lastE = s.entries[s.entries.length - 1];
+        return send(res, 200, { station: { id, title: s.title, thumbnail: `/stations/cover?id=${encodeURIComponent(id)}` }, serverTimeMs: nowMs,
+          horizonMs: lastE ? lastE[1] + lastE[2] * 1000 - nowMs : 0, now: cur.now, next: upcoming });
       }
       if (u.pathname === "/radio") {
         // Zemer Radio — corpus-native "what plays next" (index/radio.mjs). Either a fresh seed

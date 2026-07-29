@@ -34,7 +34,7 @@ priority order (see [radio.md](radio.md) for the shipped design):
 | R4 | **Collab/feat graph for the zero-telemetry tail** — artist↔artist edges parsed from feat./collab credits (`credits.mjs`), covering the ~800 artists with no telemetry at all. | Worth building when tail-seed radio gets real usage; no data dependency. | Medium |
 | R5 | **Discovery slots** — occasionally inject a related artist's NEW release (ties radio to the freshness system). | Product call. | Small |
 | R6 | **Learned weights** — replace the hand blend (2/1.25/0.2/0.08) with weights tuned on the bench + live skip outcomes. | Needs the release-fleet `radioDaily` signal (below) + more data; pairs with auto-playlists #6. | Medium |
-| R7 | **Zemer Stations** — the synchronized broadcast (everyone hears the same thing at the same wall-clock moment; see [radio-feasibility.md](radio-feasibility.md) product #2). | The big unbuilt product; needs a product decision + schedule design. | Large |
+| R7 | ~~**Zemer Stations**~~ **SHIPPED (server) 2026-07-29** — synchronized broadcast, 3 stations (chasidish / dj / israeli) driven by the whitelist style tags: append-only wall-clock schedules, familiarity-first programming (87/72/83% listener-validated slots), skip-dock self-improvement, `/stations` + `/station` + broadcast-style covers. See [stations.md](stations.md). **Remaining: the app side** (Zemer Radio home row + tune-in playback — handoff doc delivered). | Done (server) |
 
 ## Backfill ↔ live reconciliation roadmap (the long arc behind items #1/#2/#6)
 
