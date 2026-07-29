@@ -350,11 +350,14 @@ async function startServer() {
       `<path d="M 322 44 A 42 42 0 0 1 378 51" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round" opacity="0.35"/>` +
       `<circle cx="346" cy="80" r="9" fill="#ff5252" stroke="#ffffff" stroke-width="3" filter="url(#ts)"/>` + // on-air light
       `</g>`;
+    // background = EXACTLY the playlist-cover composition (same gradient direction, same light/dark
+    // accent circles) so the two cover families read as one system side by side on Home
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">` +
-      `<defs><linearGradient id="g" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient>` +
+      `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient>` +
       `<filter id="ts" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000000" flood-opacity="0.5"/></filter></defs>` +
       `<rect width="512" height="512" fill="url(#g)"/>` +
-      `<circle cx="70" cy="70" r="160" fill="#ffffff" opacity="0.07"/>` +
+      `<circle cx="432" cy="84" r="190" fill="#ffffff" opacity="0.10"/>` +
+      `<circle cx="56" cy="450" r="150" fill="#000000" opacity="0.14"/>` +
       radio +
       text +
       // single quiet wordmark line — "ZEMER LIVE". The +4 x-offset compensates the TRAILING
