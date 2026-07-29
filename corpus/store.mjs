@@ -178,6 +178,12 @@ export function openCorpus(file = DB_PATH) {
   // upsertArtistCatalog; NULL = never recorded (treated as stale).
   if (!db.prepare("PRAGMA table_info(artist)").all().some((c) => c.name === "refreshedAt"))
     db.exec("ALTER TABLE artist ADD COLUMN refreshedAt INTEGER");
+  // Style/curation tags from the whitelist (2026-07-29): DJ / American-vs-Israeli / famous — stamped from
+  // whitelist.json on every harvest upsert (same flow as isFemale/isChasid/isKidZone). Consumers: radio's
+  // style affinity + DJ handling + famous cold-start prior, and the on-device subset. NULL/0 = false.
+  for (const col of ["isDJ", "isAmerican", "isFamous"])
+    if (!db.prepare("PRAGMA table_info(artist)").all().some((c) => c.name === col))
+      db.exec(`ALTER TABLE artist ADD COLUMN ${col} INTEGER`);
   // album.uploadDate: the release's REAL date (ISO-8601), dated via one /player on a sample track (see
   // harvester/releases.mjs). Browse pages only carry a year; this is what makes New Releases accurate.
   if (!db.prepare("PRAGMA table_info(album)").all().some((c) => c.name === "uploadDate"))
@@ -236,10 +242,11 @@ export function upsertArtistCatalog(db, artist, catalog, ts = Date.now()) {
     albumTracks = albumTracks.filter((at) => !bl.videoIds.has(at.videoId));
   }
   const upArtist = db.prepare(
-    `INSERT INTO artist(id,name,thumbnail,regularChannelId,isFemale,isChasid,isKidZone,refreshedAt) VALUES(@id,@name,@thumbnail,@regularChannelId,@isFemale,@isChasid,@isKidZone,@refreshedAt)
+    `INSERT INTO artist(id,name,thumbnail,regularChannelId,isFemale,isChasid,isKidZone,isDJ,isAmerican,isFamous,refreshedAt) VALUES(@id,@name,@thumbnail,@regularChannelId,@isFemale,@isChasid,@isKidZone,@isDJ,@isAmerican,@isFamous,@refreshedAt)
      ON CONFLICT(id) DO UPDATE SET name=excluded.name, thumbnail=COALESCE(excluded.thumbnail, artist.thumbnail),
        regularChannelId=COALESCE(excluded.regularChannelId, artist.regularChannelId),
-       isFemale=excluded.isFemale, isChasid=excluded.isChasid, isKidZone=excluded.isKidZone, refreshedAt=excluded.refreshedAt`);
+       isFemale=excluded.isFemale, isChasid=excluded.isChasid, isKidZone=excluded.isKidZone,
+       isDJ=excluded.isDJ, isAmerican=excluded.isAmerican, isFamous=excluded.isFamous, refreshedAt=excluded.refreshedAt`);
   const insTrack = db.prepare(
     `INSERT INTO track(videoId,title,artistId,isVideo,explicit,harvestedAt,durationSec,playCount) VALUES(@videoId,@title,@artistId,@isVideo,@explicit,@harvestedAt,@durationSec,@playCount)
      ON CONFLICT(videoId) DO UPDATE SET title=excluded.title, isVideo=MAX(track.isVideo, excluded.isVideo),
@@ -255,7 +262,7 @@ export function upsertArtistCatalog(db, artist, catalog, ts = Date.now()) {
     `INSERT INTO album_track(albumId,videoId,pos) VALUES(@albumId,@videoId,@pos)
      ON CONFLICT(albumId,videoId) DO UPDATE SET pos=excluded.pos`);
   const tx = db.transaction(() => {
-    upArtist.run({ id: artist.id, name: artist.name ?? null, thumbnail, regularChannelId, isFemale: artist.isFemale ? 1 : 0, isChasid: artist.isChasid ? 1 : 0, isKidZone: artist.isKidZone ? 1 : 0, refreshedAt: ts });
+    upArtist.run({ id: artist.id, name: artist.name ?? null, thumbnail, regularChannelId, isFemale: artist.isFemale ? 1 : 0, isChasid: artist.isChasid ? 1 : 0, isKidZone: artist.isKidZone ? 1 : 0, isDJ: artist.isDJ ? 1 : 0, isAmerican: artist.isAmerican ? 1 : 0, isFamous: artist.isFamous ? 1 : 0, refreshedAt: ts });
     for (const t of tracks) insTrack.run({ videoId: t.videoId, title: t.title, artistId: artist.id, isVideo: t.isVideo ? 1 : 0, explicit: t.explicit ? 1 : 0, harvestedAt: ts, durationSec: t.durationSec ?? null, playCount: t.playCount ?? null });
     for (const al of albums) insAlbum.run({ id: al.id, playlistId: al.playlistId ?? null, title: al.title, artistId: artist.id, type: al.type || "album", year: al.year ?? null, thumbnail: al.thumbnail ?? null });
     for (const pl of playlists) insPlaylist.run({ id: pl.id, title: pl.title, artistId: artist.id, thumbnail: pl.thumbnail ?? null });
@@ -281,7 +288,7 @@ export function allTracks(db) {
     SELECT t.videoId, t.title, t.artistId, a.name AS artistName,
            t.isVideo, t.explicit, t.durationSec, t.playCount,
            COALESCE(t.uploadDate, MAX(al.uploadDate)) AS releaseDate,
-           a.isFemale, a.isChasid, a.isKidZone
+           a.isFemale, a.isChasid, a.isKidZone, a.isDJ, a.isAmerican, a.isFamous
     FROM track t JOIN artist a ON a.id = t.artistId
     LEFT JOIN album_track at ON at.videoId = t.videoId
     LEFT JOIN album al ON al.id = at.albumId
@@ -291,12 +298,13 @@ export function allTracks(db) {
     isVideo: !!r.isVideo, explicit: !!r.explicit, durationSec: r.durationSec ?? null, playCount: r.playCount ?? null,
     releaseDate: r.releaseDate || null,
     isFemale: !!r.isFemale, isChasid: !!r.isChasid, isKidZone: !!r.isKidZone,
+    isDJ: !!r.isDJ, isAmerican: !!r.isAmerican, isFamous: !!r.isFamous,
   }));
 }
 
 export const allArtists = (db) => db.prepare(
-  "SELECT id, name, thumbnail, isFemale, isChasid, isKidZone FROM artist WHERE name IS NOT NULL").all()
-  .map((r) => ({ id: r.id, name: r.name, thumbnail: r.thumbnail, isFemale: !!r.isFemale, isChasid: !!r.isChasid, isKidZone: !!r.isKidZone }));
+  "SELECT id, name, thumbnail, isFemale, isChasid, isKidZone, isDJ, isAmerican, isFamous FROM artist WHERE name IS NOT NULL").all()
+  .map((r) => ({ id: r.id, name: r.name, thumbnail: r.thumbnail, isFemale: !!r.isFemale, isChasid: !!r.isChasid, isKidZone: !!r.isKidZone, isDJ: !!r.isDJ, isAmerican: !!r.isAmerican, isFamous: !!r.isFamous }));
 
 export const allAlbums = (db) => db.prepare(`
   SELECT al.id, al.playlistId, al.title, al.artistId, al.type, al.year, al.thumbnail, al.uploadDate,

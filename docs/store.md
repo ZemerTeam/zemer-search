@@ -12,6 +12,9 @@ artist (
   name TEXT, thumbnail TEXT,
   regularChannelId TEXT,         -- the artist's REGULAR upload channel (channel map; see harvester.md)
   isFemale INTEGER, isChasid INTEGER, isKidZone INTEGER,  -- content-filter flags (denormalized to here)
+  isDJ INTEGER, isAmerican INTEGER, isFamous INTEGER,     -- style/curation tags (2026-07-29; whitelist-stamped;
+                                 --   isChasid+isAmerican crowd-verified via the SK-Music taggers → Firestore;
+                                 --   consumers: radio style affinity / DJ handling / famous cold-start prior)
   refreshedAt INTEGER            -- epoch ms of the last catalog (re)harvest; drives demand-driven on-open
 )                                --   refresh (claimArtistRefresh); bumped by upsertArtistCatalog; see corpus-freshness.md
 track (

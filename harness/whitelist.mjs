@@ -54,6 +54,12 @@ do {
       isFemale: !!f.isFemale?.booleanValue,
       isChasid: !!f.isChasid?.booleanValue,
       isKidZone: !!f.isKidZone?.booleanValue,
+      // style/curation tags (2026-07-29): isChasid + isAmerican are crowd-verified (SK-Music taggers,
+      // synced into Firestore); isDJ/isFamous owner-curated. Consumed by radio (style affinity, DJ
+      // handling, famous cold-start prior) + the on-device subset. Absent → false.
+      isDJ: !!f.isDJ?.booleanValue,
+      isAmerican: !!f.isAmerican?.booleanValue,
+      isFamous: !!f.isFamous?.booleanValue,
     });
   }
   pageToken = j.nextPageToken;

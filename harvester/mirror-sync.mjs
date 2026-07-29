@@ -67,7 +67,7 @@ let wl;
 try { wl = await getJSON("/whitelist"); } catch (e) { console.error(`mirror-sync: /whitelist fetch failed (${e.message})`); process.exit(1); }
 if (!Array.isArray(wl) || wl.length === 0) { console.error(`mirror-sync: /whitelist empty (${wl?.length}) — refusing to wipe`); process.exit(1); }
 // Map to the exact shape harness/whitelist.mjs produces (onboard/prune read .id/.name; female matcher reads isFemale).
-const mapped = wl.map((a) => ({ id: a.id, name: a.name, isFemale: !!a.isFemale, isChasid: !!a.isChasid, isKidZone: !!a.isKidZone }));
+const mapped = wl.map((a) => ({ id: a.id, name: a.name, isFemale: !!a.isFemale, isChasid: !!a.isChasid, isKidZone: !!a.isKidZone, isDJ: !!a.isDJ, isAmerican: !!a.isAmerican, isFamous: !!a.isFamous }));
 
 if (DRY) { console.log(`[DRY] whitelist changed (gate ${state.gate ?? "-"} → ${gate}); ${mapped.length} entries; WOULD write data/whitelist.json + onboard + prune`); process.exit(0); }
 

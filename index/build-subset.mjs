@@ -46,8 +46,8 @@ const sharded = (prefix, rows, n, keyOf) => {
 // shapes). Every read carries an explicit ORDER BY: SQLite scan order is unspecified, so without it a VACUUM
 // or a rebuild on a differently-ordered corpus copy would reshuffle rows and change a shard's content hash
 // with an identical row set — forcing the app to re-download shards that didn't actually change.
-one("artists", db.prepare("SELECT id,name,thumbnail,isFemale,isChasid,isKidZone FROM artist ORDER BY id").all()
-  .map((a) => [a.id, a.name, a.thumbnail ?? null, (a.isFemale ? 1 : 0) | (a.isChasid ? 2 : 0) | (a.isKidZone ? 4 : 0)]));
+one("artists", db.prepare("SELECT id,name,thumbnail,isFemale,isChasid,isKidZone,isDJ,isAmerican,isFamous FROM artist ORDER BY id").all()
+  .map((a) => [a.id, a.name, a.thumbnail ?? null, (a.isFemale ? 1 : 0) | (a.isChasid ? 2 : 0) | (a.isKidZone ? 4 : 0) | (a.isDJ ? 8 : 0) | (a.isAmerican ? 16 : 0) | (a.isFamous ? 32 : 0)]));
 sharded("tracks", db.prepare("SELECT videoId,title,artistId,isVideo,explicit,durationSec,playCount,uploadDate FROM track ORDER BY videoId").all()
   .map((t) => [t.videoId, t.title, t.artistId, (t.isVideo ? 1 : 0) | (t.explicit ? 2 : 0), t.durationSec ?? null, t.playCount ?? null, t.uploadDate ?? null]), NB.tracks, (r) => r[0]);
 sharded("albums", db.prepare("SELECT id,playlistId,title,artistId,type,year,thumbnail,uploadDate FROM album ORDER BY id").all()
