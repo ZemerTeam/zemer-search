@@ -342,11 +342,9 @@ async function startServer() {
       // the transmitter beacon IS the on-air light — red, ringed, at the waves' origin
       `<circle cx="256" cy="150" r="13" fill="#ff5252" stroke="#ffffff" stroke-width="3" filter="url(#ts)"/>` +
       text +
-      // quiet, centered LIVE → rule → ZEMER lockup. The +3/+4 x-offsets compensate the TRAILING
+      // single quiet wordmark line — "ZEMER LIVE". The +4 x-offset compensates the TRAILING
       // letter-spacing (an anchored-middle text box includes it, shifting glyphs visually left).
-      `<text x="259" y="430" ${font} font-size="19" font-weight="600" letter-spacing="6" fill="#ffffff" opacity="0.92" text-anchor="middle">LIVE</text>` +
-      `<rect x="216" y="450" width="80" height="2.5" rx="1.25" fill="#ffffff" opacity="0.5"/>` +
-      `<text x="260" y="486" ${font} font-size="21" font-weight="600" letter-spacing="8" fill="#ffffff" opacity="0.85" text-anchor="middle">ZEMER</text>` +
+      `<text x="260" y="472" ${font} font-size="21" font-weight="600" letter-spacing="8" fill="#ffffff" opacity="0.9" text-anchor="middle">ZEMER LIVE</text>` +
       `</svg>`;
   }
 
