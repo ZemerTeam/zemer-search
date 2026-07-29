@@ -52,7 +52,9 @@ weight = (shrunkReach^1.6 + 0.015) × skipMul × (1 + 3·cooc(prev)) × jitter
 
 A synchronized station cannot be personalized, so pools are pre-filtered to the strictest common
 denominator at build time: tagged artists only, **no female-involved tracks** (the `/search` featuring
-rule AND the curated blocked-ids `female` overrides), **no globally-blocked ids**, **audio only** (no
+rule AND the curated blocked-ids `female` overrides), **NO ACAPELLA** (product rule — the same master set
+that excludes acapella from Trending/Top Downloaded: curated `acapella` videoIds read un-gated +
+`acapella-auto` + the strict clear-label title marker), **no globally-blocked ids**, **audio only** (no
 videos), real durations (≥30s). Post-scheduling takedowns are three-layered: the **API drops blocked /
 out-of-corpus ids at SERVE time** (the ~10-min overrides-timer SLA, gotcha #7 — an unservable live entry
 makes the broadcast momentarily "between tracks": the next servable entry is served as `now` with a

@@ -59,6 +59,16 @@ Radio is the app's #1 play source, so two negative-signal protections apply:
 The production KPI is the **daily radio skip%** (`radioDaily` on the zemer-stats dashboards; ~70–78%
 during the YouTube.next() era — watch it fall as the corpus-native radio rolls out, and tune against it).
 
+### Acapella exclusion (product rule, 2026-07-29)
+
+Radio (all kinds, incl. shuffle) **never plays acapella** — the same master set that excludes acapella
+from Trending/Top Downloaded/stations (curated `acapella` videoIds read un-gated + `acapella-auto` + the
+strict clear-label title marker) — with exactly two exceptions:
+1. **The Three Weeks** (the Hebrew-calendar gate, `corpus/season.mjs#inThreeWeeks`, passed per-request as
+   `acapellaOk`) — in-season, acapella flows normally.
+2. **Acapella-intent seeds**: an acapella `song` seed, an `album`/`playlist` containing acapella, or a
+   **majority-acapella artist** (an acapella group's own radio must not exclude its own catalog).
+
 ### Cold seeds never fail
 
 A seed with no co-occurrence data (a brand-new release, an obscure track) degrades gracefully, never empty,

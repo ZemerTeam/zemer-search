@@ -26,11 +26,12 @@ import os from "node:os";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, homeRows, artistDetail, albumDetail, tracksByIds, trackAlbumInfo, allAlbumTracks, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, loadRadioGraph, claimArtistRefresh, createUserPlaylist, getUserPlaylist, countUserPlaylistsByDevice, BLOCKED_IDS_PATH, RADIO_GRAPH_PATH, STATIONS_PATH, AUTO_HISTORY_PATH } from "../corpus/store.mjs";
+import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, homeRows, artistDetail, albumDetail, tracksByIds, trackAlbumInfo, allAlbumTracks, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, loadRadioGraph, claimArtistRefresh, createUserPlaylist, getUserPlaylist, countUserPlaylistsByDevice, BLOCKED_IDS_PATH, RADIO_GRAPH_PATH, STATIONS_PATH, AUTO_HISTORY_PATH, ZEMER_PLAYLISTS_PATH, ACAPELLA_AUTO_PATH } from "../corpus/store.mjs";
 import { pickAnchor, applyBadges, applyRanks, chartedBefore, firstCharted, formulaOf, chartWeek } from "./chart-badges.mjs";
 import { buildCategories, searchCategories } from "../index/categories.mjs";
 import { buildRadioIndex, radio } from "../index/radio.mjs";
 import { scheduleAt } from "../index/station.mjs";
+import { inThreeWeeks } from "../corpus/season.mjs";
 import { buildFemaleMatcher, collectFemaleVideoIds } from "../index/credits.mjs";
 import { loadDefaultSynonyms } from "../index/synonyms.mjs";
 import { postBrowse, parsePlaylistPage, parseArtistItemsContinuation } from "../harness/browse.mjs";
@@ -210,7 +211,14 @@ async function startServer() {
     cats.blocked = blocked; // consumed by searchCategories; also reused by the detail endpoints (dropId)
     // Zemer Radio index — co-occurrence graph (data/radio-graph.json, its own fetch timer) + corpus, reusing
     // the same female matcher + blocked-ids so radio filters identically. Missing graph → same-artist+pop fallback.
-    radioIndex = buildRadioIndex({ tracks, artists, albumTracks: allAlbumTracks(liveDb), graph: loadRadioGraph(), matcher, blocked });
+    // Radio's acapella exclusion set (product rule — no acapella outside the Three Weeks / explicit seeds):
+    // the master curated set + auto-detected list + the strict clear-label title marker, same as stations.
+    const acapella = new Set();
+    try { for (const v of ((JSON.parse(fs.readFileSync(ZEMER_PLAYLISTS_PATH, "utf8")).playlists || []).find((p) => p?.id === "acapella")?.videoIds || [])) acapella.add(v); } catch { /* none */ }
+    try { for (const v of (JSON.parse(fs.readFileSync(ACAPELLA_AUTO_PATH, "utf8")).videoIds || [])) acapella.add(v); } catch { /* none */ }
+    const CLEAR_ACAP = /a[\s-]?c+app?ell?a|\bvocal\s+version\b|\(\s*vocal\s*\)|ווקאל|וואקאל|אקפלה/i;
+    for (const t of tracks) if (CLEAR_ACAP.test(t.title || "")) acapella.add(t.videoId);
+    radioIndex = buildRadioIndex({ tracks, artists, albumTracks: allAlbumTracks(liveDb), graph: loadRadioGraph(), matcher, blocked, acapella });
     indexedCount = tracks.length; indexedAt = Date.now();
     whitelistTotal = countWhitelist();
     cache.clear();
@@ -717,7 +725,7 @@ ol{list-style:none;margin:0;padding:0}li{display:flex;gap:10px;align-items:basel
           seedTracks = liveDb.prepare("SELECT videoId FROM community_playlist_track WHERE playlistId=? ORDER BY pos").all(p.seed).map((r) => r.videoId);
           if (!seedTracks.length) { const songs = await fetchPlaylistTracks(p.seed); if (songs) seedTracks = songs.map((s) => s.videoId); }
         }
-        const { ids, nextOffset } = radio(radioIndex, { ...p, seed: rseed, seedTracks, limit });
+        const { ids, nextOffset } = radio(radioIndex, { ...p, seed: rseed, seedTracks, limit, acapellaOk: inThreeWeeks() }); // acapella allowed in-season (or on acapella seeds, engine-side)
         const ai = trackAlbumInfo(liveDb, ids);
         const tracks = ids.map((v) => { const t = radioIndex.byId.get(v), a = ai.get(v); return { videoId: v, title: t.title, artist: t.artistName, artistId: t.artistId, thumbnail: a?.thumbnail ?? null, durationSec: t.durationSec, explicit: t.explicit, isVideo: t.isVideo, releaseDate: t.releaseDate, album: a ? { id: a.albumId, name: a.albumName } : null }; });
         const continuation = nextOffset == null ? null : encTok({ k: p.kind, s: p.seed, af: p.allowFemale ? 1 : 0, bv: p.blockVideos ? 1 : 0, kz: p.kidZoneOnly ? 1 : 0, r: p.rngSeed, o: nextOffset });

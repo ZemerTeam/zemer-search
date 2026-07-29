@@ -25,7 +25,7 @@
 //   node harvester/stations.mjs           # DRY=1 previews (no write)
 import fs from "node:fs";
 import path from "node:path";
-import { openCorpus, allTracks, allArtists, loadRadioGraph, loadBlockedIds, STATIONS_PATH } from "../corpus/store.mjs";
+import { openCorpus, allTracks, allArtists, loadRadioGraph, loadBlockedIds, STATIONS_PATH, ZEMER_PLAYLISTS_PATH, ACAPELLA_AUTO_PATH } from "../corpus/store.mjs";
 import { buildFemaleMatcher, collectFemaleVideoIds } from "../index/credits.mjs";
 import { extendSchedule } from "../index/station.mjs";
 
@@ -50,6 +50,14 @@ const artists = allArtists(db);
 const graph = loadRadioGraph();
 const blocked = loadBlockedIds();
 const female = collectFemaleVideoIds(tracks, buildFemaleMatcher(artists)); // same featuring rule as /search
+// NO STATION PLAYS ACAPELLA (product rule, 2026-07-29) — same master set that keeps acapella out of
+// Trending / Top Downloaded: the curated `acapella` playlist's videoIds (read UN-GATED, so the exclusion
+// holds year-round incl. off-season) + the auto-detected clearly-labeled list, plus the strict title
+// marker as a belt for anything not yet curated (CLEAR-label only — never excludes ambiguous titles).
+const acapella = new Set();
+try { for (const v of ((JSON.parse(fs.readFileSync(ZEMER_PLAYLISTS_PATH, "utf8")).playlists || []).find((p) => p?.id === "acapella")?.videoIds || [])) acapella.add(v); } catch { /* none */ }
+try { for (const v of (JSON.parse(fs.readFileSync(ACAPELLA_AUTO_PATH, "utf8")).videoIds || [])) acapella.add(v); } catch { /* none */ }
+const CLEAR_ACAP = /a[\s-]?c+app?ell?a|\bvocal\s+version\b|\(\s*vocal\s*\)|ווקאל|וואקאל|אקפלה/i;
 const now = Date.now();
 
 let doc = { stations: {} };
@@ -70,7 +78,8 @@ for (const st of STATIONS) {
   // blocked-ids `female` overrides — the ids curation exists precisely because detection can't see them),
   // no globally-blocked ids, real durations.
   const pool = tracks.filter((t) => tagged.has(t.artistId) && !t.isVideo && !female.has(t.videoId)
-    && !blocked.global.has(t.videoId) && !blocked.female.has(t.videoId) && (t.durationSec || 0) >= 30)
+    && !blocked.global.has(t.videoId) && !blocked.female.has(t.videoId) && (t.durationSec || 0) >= 30
+    && !acapella.has(t.videoId) && !CLEAR_ACAP.test(t.title || ""))
     .map((t) => ({ videoId: t.videoId, artistId: t.artistId, durationSec: t.durationSec }));
   const prev = prevStations[st.id] || {};
   const state = prev.state || { seed: (Math.imul(st.id.length * 2654435761, now & 0x7fffffff) ^ 0x9e3779b9) >>> 0, recentTracks: [], recentArtists: [] };

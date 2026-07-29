@@ -53,7 +53,7 @@ const yearOf = (iso) => { const y = iso && +String(iso).slice(0, 4); return y >=
 // fnv-1a(id) mixed with rngSeed → [0,1); deterministic (no Math.random → same page every recompute)
 function h01(id, seed) { let x = (2166136261 ^ (seed >>> 0)) >>> 0; const s = String(id); for (let i = 0; i < s.length; i++) { x ^= s.charCodeAt(i); x = Math.imul(x, 16777619) >>> 0; } return (x >>> 8) / 0x1000000; }
 
-export function buildRadioIndex({ tracks = [], artists = [], albumTracks = [], graph = {}, matcher = null, blocked = null }) {
+export function buildRadioIndex({ tracks = [], artists = [], albumTracks = [], graph = {}, matcher = null, blocked = null, acapella = null }) {
   const m = matcher || buildFemaleMatcher(artists);
   const g = { pop: graph.pop || {}, lib: graph.lib || {}, sess: graph.sess || {}, art: graph.art || {}, skip: graph.skip || {} };
   const byId = new Map();
@@ -74,7 +74,7 @@ export function buildRadioIndex({ tracks = [], artists = [], albumTracks = [], g
   for (const v of popSorted) { const a = byId.get(v).artistId; let arr = artistTracks.get(a); if (!arr) artistTracks.set(a, arr = []); arr.push(v); }
   const albumTrackIds = new Map(); // albumId -> [videoId] in pos order
   for (const r of albumTracks) { let arr = albumTrackIds.get(r.albumId); if (!arr) albumTrackIds.set(r.albumId, arr = []); arr.push(r.videoId); }
-  return { byId, graph: g, reach, skipMul, popSorted, artistTracks, albumTrackIds, blocked };
+  return { byId, graph: g, reach, skipMul, popSorted, artistTracks, albumTrackIds, blocked, acapella };
 }
 
 // Greedy diversity: never more than MAX_RUN of the same artist consecutively (skips ahead to the next
@@ -95,9 +95,22 @@ function diversify(ids, byId) {
 
 // Returns { ids: [videoId] for this page, nextOffset: number|null }. Deterministic for a given
 // (kind, seed, flags, rngSeed) → paging is a pure slice of the same ordering (stateless continuation).
-export function radio(idx, { kind = "shuffle", seed = null, seedTracks = null, allowFemale = true, blockVideos = false, kidZoneOnly = false, rngSeed = 0, offset = 0, limit = 25 } = {}) {
+export function radio(idx, { kind = "shuffle", seed = null, seedTracks = null, allowFemale = true, blockVideos = false, kidZoneOnly = false, acapellaOk = false, rngSeed = 0, offset = 0, limit = 25 } = {}) {
   const { byId, graph: g, artistTracks, albumTrackIds, popSorted, blocked } = idx;
+  // ACAPELLA EXCLUSION (product rule, 2026-07-29): radio never plays acapella EXCEPT (a) during the Three
+  // Weeks (the caller passes acapellaOk from the Hebrew-calendar gate) or (b) when the user's SEED shows
+  // acapella intent — an acapella song, an album/playlist containing acapella, or a majority-acapella
+  // artist (an acapella group's own radio must not exclude its own catalog).
+  const acap = idx.acapella;
+  let acapAllowed = acapellaOk || !acap;
+  if (!acapAllowed) {
+    if (kind === "song") acapAllowed = acap.has(seed);
+    else if (kind === "album") acapAllowed = (albumTrackIds.get(seed) || []).some((v) => acap.has(v));
+    else if (kind === "playlist") acapAllowed = (seedTracks || []).some((v) => acap.has(v));
+    else if (kind === "artist") { const own = artistTracks.get(seed) || []; acapAllowed = own.length > 0 && own.filter((v) => acap.has(v)).length * 2 > own.length; }
+  }
   const pass = (v) => {
+    if (!acapAllowed && acap && acap.has(v)) return false;
     const t = byId.get(v); if (!t) return false;
     if (!allowFemale && t.femaleInvolved) return false;
     if (kidZoneOnly && !t.isKidZone) return false;

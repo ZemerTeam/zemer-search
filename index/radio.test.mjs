@@ -153,6 +153,27 @@ test("skip dock: a heavily-skipped track ranks below an equal-signal listened tr
   assert.ok(ids.includes("b2"), "docked, never excluded");
 });
 
+test("acapella exclusion: never played EXCEPT in-season or on an acapella-intent seed", () => {
+  const mkA = () => buildRadioIndex({ tracks, artists, albumTracks, graph, blocked: { global: new Set(), female: new Set() }, acapella: new Set(["b1", "b2"]) });
+  const idx = mkA();
+  // normal seed → acapella tracks excluded everywhere (b1 is a1's strongest neighbor; still out)
+  const norm = radio(idx, { kind: "song", seed: "a1", limit: 12 }).ids;
+  assert.ok(!norm.includes("b1") && !norm.includes("b2"), "excluded off-season");
+  // in-season (acapellaOk) → allowed again
+  const season = radio(idx, { kind: "song", seed: "a1", acapellaOk: true, limit: 12 }).ids;
+  assert.ok(season.includes("b1"), "season restores acapella");
+  // acapella SEED → allowed (user intent), and the seed itself still leads
+  const seeded = radio(idx, { kind: "song", seed: "b1", limit: 12 }).ids;
+  assert.equal(seeded[0], "b1");
+  // majority-acapella ARTIST seed → its own catalog is not excluded
+  const idx2 = buildRadioIndex({ tracks, artists, albumTracks, graph, blocked: { global: new Set(), female: new Set() }, acapella: new Set(["b1", "b2", "b3"]) });
+  const art = radio(idx2, { kind: "artist", seed: "B", limit: 12 }).ids;
+  assert.ok(art.some((v) => ["b1", "b2", "b3"].includes(v)), "acapella group's own radio keeps its catalog");
+  // no set provided → old behavior untouched
+  const plain = radio(mk(), { kind: "song", seed: "a1", limit: 12 }).ids;
+  assert.ok(plain.includes("b1"));
+});
+
 test("shuffle needs no seed and varies with rngSeed", () => {
   const idx = mk();
   const a = radio(idx, { kind: "shuffle", rngSeed: 1, limit: 8 }).ids;
