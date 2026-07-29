@@ -30,8 +30,12 @@ ExecStart=-/usr/bin/env node harvester/auto-playlists.mjs
 # Same cadence + creds + Shabbat gate: refresh the Zemer Radio co-occurrence graph (fetch zemer-stats
 # /radio-graph → corpus-intersect → data/radio-graph.json, gitignored). No-op when unchanged; leaves the
 # last-good graph if /radio-graph is down. The API reload gate watches radio-graph.json mtime — NO restart.
-ExecStart=/usr/bin/env node harvester/radio-graph.mjs
-# Zemer Stations: extend each synchronized schedule to +48h (append-only — live listeners never jump) and
-# prune played-out history. Offline (corpus + radio-graph artifacts). 12h cadence vs 48h horizon = 4× margin.
-ExecStart=/usr/bin/env node harvester/stations.mjs
+# Leading '-': independent of the steps after it — radio-graph hard-exits when STATS creds are absent, and
+# without the '-' that would abort the oneshot before stations.mjs (which is fully offline and needs no
+# creds) ever ran, silently darkening all stations within 48h.
+ExecStart=-/usr/bin/env node harvester/radio-graph.mjs
+# Zemer Stations: rewrite the un-aired future + extend each synchronized schedule to +48h (the playing +
+# imminent 10-min window is immutable — live listeners never jump). Offline (corpus + radio-graph
+# artifacts). 12h cadence vs 48h horizon = 4× margin.
+ExecStart=-/usr/bin/env node harvester/stations.mjs
 TimeoutStartSec=5m

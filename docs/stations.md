@@ -12,13 +12,15 @@ Launch catalog (all driven by the whitelist style tags, see [store.md](store.md)
 
 ## How the broadcast works
 
-**A materialized, APPEND-ONLY schedule** (`data/stations.json`, gitignored) is the single source of truth:
+**A materialized schedule** (`data/stations.json`, gitignored) is the single source of truth:
 `[[videoId, startMs, durationSec], …]` per station, contiguous and gap-free. `harvester/stations.mjs`
-extends each schedule to **+48h** on the twice-daily `zemer-autoplaylists` timer (12h cadence = 4× safety
-margin) and prunes entries older than 6h. Append-only is the crucial invariant: **published entries are
-never rewritten, so a regeneration can never jump a live listener mid-song.** Selection is fully
-deterministic (an LCG carried in persisted state) — concurrent generator runs produce identical output,
-and every cluster worker serves the identical program.
+regenerates on the twice-daily `zemer-autoplaylists` timer (12h cadence vs a 48h horizon = 4× safety
+margin): it prunes entries older than 6h, keeps the **currently-playing + imminent entries (a 10-minute
+guard window) IMMUTABLE — a regeneration can never jump a live listener mid-song** — and **rewrites the
+un-aired future** under fresh pool filters before extending to +48h (so a newly-blocked id or
+de-whitelisted artist is purged from the program within one run, ≤12h). Selection is fully deterministic
+(an LCG carried in persisted state; the no-repeat/artist-spacing memories are rebuilt from the kept
+entries across the rewrite) and every cluster worker serves the identical program.
 
 **Serving is pure clock math** (`server/api.mjs` + `index/station.mjs#scheduleAt`): binary-search the
 entry containing `Date.now()`, return it with `offsetMs` + upcoming entries + `serverTimeMs` (so clients
@@ -49,11 +51,14 @@ weight = (shrunkReach^1.6 + 0.015) × skipMul × (1 + 3·cooc(prev)) × jitter
 ## Pool policy (a shared stream must be kosher for every listener)
 
 A synchronized station cannot be personalized, so pools are pre-filtered to the strictest common
-denominator at build time: tagged artists only, **no female-involved tracks** (same featuring rule as
-`/search`), **no globally-blocked ids**, **audio only** (no videos), real durations (≥30s). A track
-blocked *after* scheduling stands ≤12h (until the next run); the app also applies its own blocked list at
-play time (see the handoff doc). Stations are NOT kidZone-filtered — the app hides station cards in
-kidZone mode.
+denominator at build time: tagged artists only, **no female-involved tracks** (the `/search` featuring
+rule AND the curated blocked-ids `female` overrides), **no globally-blocked ids**, **audio only** (no
+videos), real durations (≥30s). Post-scheduling takedowns are three-layered: the **API drops blocked /
+out-of-corpus ids at SERVE time** (the ~10-min overrides-timer SLA, gotcha #7 — an unservable live entry
+makes the broadcast momentarily "between tracks": the next servable entry is served as `now` with a
+NEGATIVE `offsetMs`, i.e. "starts in |offset| ms"), the **generator purges them from the un-aired future**
+each run (≤12h), and the **app applies its own blocked list** at play time (handoff doc). Stations are NOT
+kidZone-filtered — the app hides station cards in kidZone mode.
 
 ## Endpoints
 
@@ -64,7 +69,9 @@ kidZone mode.
 - **`GET /station?id=<id>&next=<1..10>`** → `{station:{id,title,thumbnail}, serverTimeMs, horizonMs,
   now:{videoId,title,artist,artistId,thumbnail,durationSec,startMs,endMs,offsetMs}, next:[…]}` —
   tune-in: play `now.videoId` seeking to `offsetMs` (corrected by the client's measured skew vs
-  `serverTimeMs`), preload `next`. `404` unknown id; `503` = schedule exhausted (generator down —
+  `serverTimeMs`), preload `next`. `offsetMs` may be **negative** (a takedown gap — the served track
+  *starts in* |offset| ms; see content policy). Blocked/out-of-corpus ids never appear in
+  `now`/`next`/`nowPlaying`. `404` unknown id; `503` = schedule exhausted (generator down —
   fail-soft, the app hides the card).
 - Served from an mtime-cached artifact read; a torn/missing file keeps last-good (a generator swap can
   never 500 a tune-in).

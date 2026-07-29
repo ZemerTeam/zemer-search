@@ -10,15 +10,17 @@
 
 // Zemer Stations generator — extends each station's SYNCHRONIZED wall-clock schedule (see
 // index/station.mjs) out to HORIZON_H hours ahead and prunes played-out history. Offline (corpus +
-// radio-graph artifacts, zero network), APPEND-ONLY (published entries are never rewritten — a live
-// listener can never be jumped mid-song), atomic write. Runs with auto-playlists on the twice-daily
+// radio-graph artifacts, zero network), atomic write. The currently-playing + imminent entries (a 10-min
+// guard window) are IMMUTABLE — a live listener can never be jumped mid-song — while the un-aired future
+// is rewritten every run under fresh pool filters. Runs with auto-playlists on the twice-daily
 // zemer-autoplaylists timer (12h cadence vs a 48h horizon = 4× safety margin); also safe to run by hand.
 //
 // PROGRAMMING POLICY (a synchronized station is ONE shared stream — it cannot be personalized, so the
-// pool is pre-filtered to be kosher for every listener): tagged artists only, no female-involved tracks,
-// no globally-blocked ids, AUDIO only (no videos), real durations. A track blocked AFTER being scheduled
-// stands for ≤12h (until the next run regenerates future entries); the app additionally applies its own
-// blocked list at play time (see the handoff doc).
+// pool is pre-filtered to be kosher for every listener): tagged artists only, no female-involved tracks
+// (auto-detected + the curated blocked-ids `female` overrides), no globally-blocked ids, AUDIO only (no
+// videos), real durations. A track blocked AFTER being scheduled is purged from the un-aired future on
+// the next run (≤12h); the API additionally drops blocked/de-whitelisted ids at SERVE time, and the app
+// applies its own blocked list at play time (see the handoff doc) — three layers, no permanent exposure.
 //
 //   node harvester/stations.mjs           # DRY=1 previews (no write)
 import fs from "node:fs";
@@ -33,11 +35,13 @@ const KEEP_PAST_H = 6; // history kept for late joins/debug; pruned beyond
 
 // The station catalog — id/title are the app-facing contract; `match` slices the artist roster.
 // Israeli = NOT isAmerican: the axis is crowd-verified (SK-Music taggers) and fully populated, so the
-// complement is a real Israeli roster, not "untagged".
+// complement is a real Israeli roster, not "untagged" — `requires` guards exactly that: on a corpus whose
+// isAmerican column is still unpopulated (fresh deploy, pre-migration sync) the negation would match the
+// ENTIRE roster, so the station is skipped (fail-soft) rather than broadcasting the whole catalog.
 const STATIONS = [
   { id: "chasidish", title: "Chassidish Radio", match: (a) => a.isChasid },
   { id: "dj", title: "DJ / Remix Radio", match: (a) => a.isDJ },
-  { id: "israeli", title: "Israeli Radio", match: (a) => !a.isAmerican },
+  { id: "israeli", title: "Israeli Radio", match: (a) => !a.isAmerican, requires: "isAmerican" },
 ];
 
 const db = openCorpus();
@@ -50,17 +54,33 @@ const now = Date.now();
 
 let doc = { stations: {} };
 try { doc = JSON.parse(fs.readFileSync(STATIONS_PATH, "utf8")); } catch { /* first run */ }
-doc.stations = doc.stations || {};
+const prevStations = doc.stations || {};
+doc.stations = {}; // rebuilt strictly from the catalog — a removed/renamed station can't linger stale
+
+// The append-only guarantee protects LISTENERS, which only requires the currently-playing + imminent
+// entries to be immutable. Everything starting beyond this guard window is REWRITTEN each run, so fresh
+// pool filters (a newly-blocked id, a de-whitelisted artist, updated tags) purge scheduled-but-unaired
+// tracks within one run (≤12h), instead of standing for the whole 48h horizon.
+const GUARD_MS = 10 * 60000;
 
 for (const st of STATIONS) {
+  if (st.requires && !artists.some((a) => a[st.requires])) { console.warn(`station ${st.id}: SKIPPED — required tag '${st.requires}' is unpopulated on this corpus`); continue; }
   const tagged = new Set(artists.filter(st.match).map((a) => a.id));
+  // kosher-for-all pool: tagged artists, audio-only, no female-involved (auto-detected AND the curated
+  // blocked-ids `female` overrides — the ids curation exists precisely because detection can't see them),
+  // no globally-blocked ids, real durations.
   const pool = tracks.filter((t) => tagged.has(t.artistId) && !t.isVideo && !female.has(t.videoId)
-    && !blocked.global.has(t.videoId) && (t.durationSec || 0) >= 30)
+    && !blocked.global.has(t.videoId) && !blocked.female.has(t.videoId) && (t.durationSec || 0) >= 30)
     .map((t) => ({ videoId: t.videoId, artistId: t.artistId, durationSec: t.durationSec }));
-  const prev = doc.stations[st.id] || {};
+  const prev = prevStations[st.id] || {};
   const state = prev.state || { seed: (Math.imul(st.id.length * 2654435761, now & 0x7fffffff) ^ 0x9e3779b9) >>> 0, recentTracks: [], recentArtists: [] };
-  // prune history, keep everything still relevant; APPEND from the last published entry
-  const entries = (prev.entries || []).filter(([, s, d]) => s + d * 1000 > now - KEEP_PAST_H * 3600000);
+  // keep recent history + the immutable now/imminent window; DROP (rewrite) the un-aired future
+  const entries = (prev.entries || []).filter(([, s, d]) => s + d * 1000 > now - KEEP_PAST_H * 3600000 && s <= now + GUARD_MS);
+  // the persisted memory windows described the truncated tail — rebuild them from the KEPT entries so
+  // no-repeat/artist-spacing continue correctly across the rewrite
+  const artistOf = new Map(pool.map((p) => [p.videoId, p.artistId]));
+  state.recentArtists = entries.slice(-12).map(([v]) => artistOf.get(v)).filter(Boolean);
+  state.recentTracks = entries.slice(-Math.min(Math.floor(pool.length / 2) || 1, 4000)).map(([v]) => v);
   const before = entries.length;
   const out = extendSchedule({ pool, graph, entries, state, untilMs: now + HORIZON_H * 3600000, startAtMs: now });
   const horizon = out.entries.length ? (out.entries[out.entries.length - 1][1] + out.entries[out.entries.length - 1][2] * 1000 - now) / 3600000 : 0;

@@ -73,6 +73,15 @@ test("tiny pool never deadlocks (memory windows relax instead of hanging)", () =
   assert.ok(last[1] + last[2] * 1000 >= T0 + 4 * HOUR, "still covers the horizon");
 });
 
+test("≤ MIN_ARTIST_GAP distinct artists must still terminate (the confirmed-hang case)", () => {
+  for (const artists of [1, 2, 3]) {
+    const pool = mkPool(9, artists); // 9 tracks over 1–3 artists — spacing window alone would block forever
+    const { entries } = extendSchedule({ pool, entries: [], state: { seed: 11 }, untilMs: T0 + 3 * HOUR, startAtMs: T0 });
+    const last = entries[entries.length - 1];
+    assert.ok(last[1] + last[2] * 1000 >= T0 + 3 * HOUR, `covers horizon with ${artists} artist(s)`);
+  }
+});
+
 test("cooc bonus steers toward neighbors of the previous track", () => {
   // two disjoint 'clusters' wired by a lib graph; with a strong graph the schedule should chain within
   // clusters more often than the 50/50 base rate

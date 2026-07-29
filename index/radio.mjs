@@ -43,7 +43,12 @@ const STATION = 500;          // canonical (diversified) station length — offs
 const MAX_LEN = 5000;         // hard cap on one station's materialized length
 const MAX_RUN = 2;            // ≤ this many of the same artist in a row
 
-const shrink = (r) => (r > 0 ? r / (r + PRIOR) : 0);
+// Shared by the radio engine AND the station scheduler (index/station.mjs) — ONE tuned mechanism, not two
+// copies that could drift: the shrunk-reach curve and the skip dock (shrunk listen-through multiplier;
+// docked, never excluded — see docs/radio.md).
+export const shrinkReach = (r) => (r > 0 ? r / (r + PRIOR) : 0);
+export const makeSkipMul = (skip = {}) => (v) => { const s = skip[v]; if (!s) return 1; const rate = (s[0] + 2.5) / (s[1] + 5); return Math.max(0.35, Math.min(1, rate / 0.5)); };
+const shrink = shrinkReach;
 const yearOf = (iso) => { const y = iso && +String(iso).slice(0, 4); return y >= 1900 && y <= 2100 ? y : null; };
 // fnv-1a(id) mixed with rngSeed → [0,1); deterministic (no Math.random → same page every recompute)
 function h01(id, seed) { let x = (2166136261 ^ (seed >>> 0)) >>> 0; const s = String(id); for (let i = 0; i < s.length; i++) { x ^= s.charCodeAt(i); x = Math.imul(x, 16777619) >>> 0; } return (x >>> 8) / 0x1000000; }
@@ -61,7 +66,7 @@ export function buildRadioIndex({ tracks = [], artists = [], albumTracks = [], g
   // rate: (listened + K·0.5) / (total + K), K=5 — a thin sample can't tank a track. Average-or-better
   // (≥50% listen-through) keeps full score; worse docks proportionally, floored (never a hard exclusion —
   // exclusion is the content filters' job). Multiplier, so cooc/artist/popularity tiers all feel it equally.
-  const skipMul = (v) => { const s = g.skip[v]; if (!s) return 1; const rate = (s[0] + 2.5) / (s[1] + 5); return Math.max(0.35, Math.min(1, rate / 0.5)); };
+  const skipMul = makeSkipMul(g.skip);
   // popularity order: device reach first, YouTube playCount as tiebreak/tail (different scales, so reach
   // strictly dominates and playCount only orders the never-reached long tail).
   const popSorted = [...byId.keys()].sort((a, b) => (reach(b) - reach(a)) || (byId.get(b).playCount - byId.get(a).playCount));

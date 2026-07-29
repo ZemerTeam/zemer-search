@@ -554,36 +554,46 @@ async function startServer() {
         // harvester/stations.mjs; this endpoint only does clock math + track enrichment. docs/stations.md.
         const sc = stationsDoc();
         const nowMs = Date.now();
-        const enrich = (vid, startMs, durSec) => {
-          const t = radioIndex.byId.get(vid);
-          const ai = trackAlbumInfo(liveDb, [vid]).get(vid);
-          return { videoId: vid, title: t?.title ?? null, artist: t?.artistName ?? null, artistId: t?.artistId ?? null,
-                   thumbnail: ai?.thumbnail ?? null, durationSec: durSec, startMs, endMs: startMs + durSec * 1000 };
+        // SERVE-TIME purity (gotcha #7 applies to every result endpoint): a scheduled entry whose id has
+        // since been blocked (global OR curated-female — station pools are female-free by policy) or whose
+        // track left the corpus (de-whitelisted between generator runs) is skipped here, honoring the
+        // ~10-min takedown SLA the overrides timer provides. The generator also purges such entries from
+        // the un-aired future each run; this is the immediate layer.
+        const servable = (vid) => radioIndex.byId.has(vid) && !cats.blocked.global.has(vid) && !cats.blocked.female.has(vid);
+        const enrichAll = (list) => { // ONE batched art lookup for the whole response (finding: no per-track queries)
+          const ai = trackAlbumInfo(liveDb, list.map(([v]) => v));
+          return list.map(([vid, startMs, durSec]) => { const t = radioIndex.byId.get(vid), a = ai.get(vid); return { videoId: vid, title: t?.title ?? null, artist: t?.artistName ?? null, artistId: t?.artistId ?? null, thumbnail: a?.thumbnail ?? null, durationSec: durSec, startMs, endMs: startMs + durSec * 1000 }; });
         };
-        const stationNow = (id, s) => {
-          const i = scheduleAt(s.entries || [], nowMs);
+        // the live entry, advanced past any unservable ones: if the wall-clock entry was taken down, the
+        // broadcast is momentarily "between tracks" — the next servable entry is served as `now` with a
+        // NEGATIVE offsetMs (starts in |offset| ms; contract-documented, the app waits or starts at 0).
+        const stationNow = (s) => {
+          const entries = s.entries || [];
+          let i = scheduleAt(entries, nowMs);
           if (i < 0) return null;
-          const [vid, startMs, durSec] = s.entries[i];
-          return { i, now: { ...enrich(vid, startMs, durSec), offsetMs: nowMs - startMs } };
+          while (i < entries.length && !servable(entries[i][0])) i++;
+          return i < entries.length ? i : null;
         };
         if (u.pathname === "/stations") {
           const out = [];
           for (const [id, s] of Object.entries(sc?.doc?.stations || {})) {
-            const cur = stationNow(id, s);
-            out.push({ id, title: s.title, thumbnail: `/stations/cover?id=${encodeURIComponent(id)}`, live: !!cur, nowPlaying: cur ? { title: cur.now.title, artist: cur.now.artist, thumbnail: cur.now.thumbnail } : null });
+            const i = stationNow(s);
+            const np = i != null ? enrichAll([s.entries[i]])[0] : null;
+            out.push({ id, title: s.title, thumbnail: `/stations/cover?id=${encodeURIComponent(id)}`, live: i != null, nowPlaying: np ? { title: np.title, artist: np.artist, thumbnail: np.thumbnail } : null });
           }
           return send(res, 200, { count: out.length, stations: out, serverTimeMs: nowMs });
         }
         const id = u.searchParams.get("id");
         const s = sc?.doc?.stations?.[id];
         if (!s) return send(res, 404, { error: "station not found" });
-        const cur = stationNow(id, s);
-        if (!cur) return send(res, 503, { error: "station offline" }); // schedule ran out — generator down; app hides the card
-        const upcoming = (s.entries || []).slice(cur.i + 1, cur.i + 1 + Math.min(10, Math.max(1, Number(u.searchParams.get("next")) || 5)))
-          .map(([v, st, d]) => enrich(v, st, d));
+        const i = stationNow(s);
+        if (i == null) return send(res, 503, { error: "station offline" }); // schedule ran out — generator down; app hides the card
+        const wantNext = Math.min(10, Math.max(1, Number(u.searchParams.get("next")) || 5));
+        const upcomingRaw = s.entries.slice(i + 1).filter(([v]) => servable(v)).slice(0, wantNext);
+        const [nowE, ...nextE] = enrichAll([s.entries[i], ...upcomingRaw]);
         const lastE = s.entries[s.entries.length - 1];
         return send(res, 200, { station: { id, title: s.title, thumbnail: `/stations/cover?id=${encodeURIComponent(id)}` }, serverTimeMs: nowMs,
-          horizonMs: lastE ? lastE[1] + lastE[2] * 1000 - nowMs : 0, now: cur.now, next: upcoming });
+          horizonMs: lastE ? lastE[1] + lastE[2] * 1000 - nowMs : 0, now: { ...nowE, offsetMs: nowMs - nowE.startMs }, next: nextE });
       }
       if (u.pathname === "/radio") {
         // Zemer Radio — corpus-native "what plays next" (index/radio.mjs). Either a fresh seed

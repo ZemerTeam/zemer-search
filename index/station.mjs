@@ -21,7 +21,8 @@
 // window (no artist within MIN_ARTIST_GAP consecutive slots). The co-occurrence bonus chains related
 // tracks (graph lib+sess neighbors) so the station flows instead of shuffling.
 
-const PRIOR = 3;
+import { shrinkReach, makeSkipMul } from "./radio.mjs"; // ONE shared reach curve + skip dock (never fork the tuning)
+
 const POW = 1.6;              // contrast: the station leans hard toward what listeners ACTUALLY play…
 const FLOOR = 0.015;          // …but every pool track keeps a small discovery chance (never a closed loop)
 const COOC_BONUS = 3;         // ×(1 + 3·coocScore) — a strong neighbor of the previous track is preferred
@@ -29,7 +30,7 @@ const JITTER = 0.5;           // deterministic per-pick variety on top of the ba
 const MIN_ARTIST_GAP = 3;     // no artist within this many consecutive slots (stronger than "not in a row")
 const MIN_DUR = 30;           // ignore stub tracks; a schedule needs real durations
 
-const shrink = (r) => (r > 0 ? r / (r + PRIOR) : 0);
+const shrink = shrinkReach;
 
 // deterministic PRNG — the state carries `seed` forward so continuation is reproducible
 const nextRand = (state) => {
@@ -45,8 +46,8 @@ const nextRand = (state) => {
 export function extendSchedule({ pool, graph = {}, entries = [], state, untilMs, startAtMs }) {
   const usable = pool.filter((p) => p.videoId && p.artistId && (p.durationSec || 0) >= MIN_DUR);
   if (!usable.length) return { entries, state };
-  const reach = graph.pop || {}, lib = graph.lib || {}, sess = graph.sess || {}, skip = graph.skip || {};
-  const skipMul = (v) => { const s = skip[v]; if (!s) return 1; const rate = (s[0] + 2.5) / (s[1] + 5); return Math.max(0.35, Math.min(1, rate / 0.5)); };
+  const reach = graph.pop || {}, lib = graph.lib || {}, sess = graph.sess || {};
+  const skipMul = makeSkipMul(graph.skip);
   const base = new Map(usable.map((p) => [p.videoId, (Math.pow(shrink(reach[p.videoId] || 0), POW) + FLOOR) * skipMul(p.videoId)]));
   const byId = new Map(usable.map((p) => [p.videoId, p]));
   const noRepeat = Math.min(Math.floor(usable.length / 2), 4000); // a track can't return until ~half the pool played
@@ -72,8 +73,11 @@ export function extendSchedule({ pool, graph = {}, entries = [], state, untilMs,
       const w = base.get(p.videoId) * (1 + COOC_BONUS * (nbr.get(p.videoId) || 0)) * (1 + JITTER * nextRand(state));
       cand.push([p, w]); total += w;
     }
-    if (!cand.length) { // pool momentarily exhausted by the memory windows — relax the track memory
-      recentT.clear(); recentTQ.length = 0; continue;
+    if (!cand.length) { // pool exhausted by the memory windows — relax BOTH memories, not just tracks:
+      // with ≤ MIN_ARTIST_GAP distinct artists the spacing window alone blocks every candidate forever
+      // (confirmed infinite loop before this: a 3-artist pool never returned). Correct programming beats
+      // spacing on degenerate pools — clear the artist window too and re-pick.
+      recentT.clear(); recentTQ.length = 0; recentA.length = 0; continue;
     }
     let r = nextRand(state) * total, pick = cand[cand.length - 1][0];
     for (const [p, w] of cand) { r -= w; if (r <= 0) { pick = p; break; } }
