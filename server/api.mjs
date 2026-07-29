@@ -337,7 +337,7 @@ async function startServer() {
     // a drawn RADIO (pure vector, self-contained): rounded body with speaker + dial + tuning knob, slanted
     // antenna whose tip carries the red on-air light with two small broadcast arcs
     const radio =
-      `<g transform="translate(0,-30)">` + // sit the set clearly above the title block
+      `<g transform="translate(51.2,-8.8) scale(0.8)">` + // 80% size, x-centered, raised well clear of the title
       `<g filter="url(#ts)" stroke="#ffffff" stroke-width="7" stroke-linecap="round" fill="none">` +
       `<line x1="298" y1="136" x2="346" y2="80"/>` +                                            // antenna
       `<rect x="160" y="136" width="192" height="86" rx="15" fill="#ffffff" fill-opacity="0.12"/>` + // body
