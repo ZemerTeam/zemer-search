@@ -143,6 +143,16 @@ test("playlist with no resolvable members falls back to popularity, never empty"
   assert.ok(ids.length > 0);
 });
 
+test("skip dock: a heavily-skipped track ranks below an equal-signal listened track", () => {
+  const g2 = JSON.parse(JSON.stringify(graph));
+  g2.lib.a1 = [["b2", 0.5], ["c1", 0.5]];       // identical cooc signal for b2 and c1
+  g2.skip = { b2: [1, 20] };                     // b2: 1 of 20 plays listened → heavy dock
+  const idx = buildRadioIndex({ tracks, artists, albumTracks, graph: g2, blocked: { global: new Set(), female: new Set() } });
+  const { ids } = radio(idx, { kind: "song", seed: "a1", limit: 12 });
+  assert.ok(ids.indexOf("c1") < ids.indexOf("b2"), "the skipped track is docked below its equal");
+  assert.ok(ids.includes("b2"), "docked, never excluded");
+});
+
 test("shuffle needs no seed and varies with rngSeed", () => {
   const idx = mk();
   const a = radio(idx, { kind: "shuffle", rngSeed: 1, limit: 8 }).ids;

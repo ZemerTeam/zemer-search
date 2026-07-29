@@ -50,13 +50,18 @@ function h01(id, seed) { let x = (2166136261 ^ (seed >>> 0)) >>> 0; const s = St
 
 export function buildRadioIndex({ tracks = [], artists = [], albumTracks = [], graph = {}, matcher = null, blocked = null }) {
   const m = matcher || buildFemaleMatcher(artists);
-  const g = { pop: graph.pop || {}, lib: graph.lib || {}, sess: graph.sess || {}, art: graph.art || {} };
+  const g = { pop: graph.pop || {}, lib: graph.lib || {}, sess: graph.sess || {}, art: graph.art || {}, skip: graph.skip || {} };
   const byId = new Map();
   for (const t of tracks) {
     const fi = t.femaleInvolved !== undefined ? t.femaleInvolved : isFemaleInvolved(t.title, t.artistName, t.isFemale, m);
     byId.set(t.videoId, { videoId: t.videoId, title: t.title, artistId: t.artistId, artistName: t.artistName, isVideo: !!t.isVideo, explicit: !!t.explicit, durationSec: t.durationSec ?? null, releaseDate: t.releaseDate || null, isKidZone: !!t.isKidZone, isChasid: !!t.isChasid, femaleInvolved: fi, year: yearOf(t.releaseDate), playCount: t.playCount || 0 });
   }
   const reach = (v) => g.pop[v] || 0;
+  // SKIP DOCK — a track users bail on (any surface) is docked in every radio ordering. Shrunk listen-through
+  // rate: (listened + K·0.5) / (total + K), K=5 — a thin sample can't tank a track. Average-or-better
+  // (≥50% listen-through) keeps full score; worse docks proportionally, floored (never a hard exclusion —
+  // exclusion is the content filters' job). Multiplier, so cooc/artist/popularity tiers all feel it equally.
+  const skipMul = (v) => { const s = g.skip[v]; if (!s) return 1; const rate = (s[0] + 2.5) / (s[1] + 5); return Math.max(0.35, Math.min(1, rate / 0.5)); };
   // popularity order: device reach first, YouTube playCount as tiebreak/tail (different scales, so reach
   // strictly dominates and playCount only orders the never-reached long tail).
   const popSorted = [...byId.keys()].sort((a, b) => (reach(b) - reach(a)) || (byId.get(b).playCount - byId.get(a).playCount));
@@ -64,7 +69,7 @@ export function buildRadioIndex({ tracks = [], artists = [], albumTracks = [], g
   for (const v of popSorted) { const a = byId.get(v).artistId; let arr = artistTracks.get(a); if (!arr) artistTracks.set(a, arr = []); arr.push(v); }
   const albumTrackIds = new Map(); // albumId -> [videoId] in pos order
   for (const r of albumTracks) { let arr = albumTrackIds.get(r.albumId); if (!arr) albumTrackIds.set(r.albumId, arr = []); arr.push(r.videoId); }
-  return { byId, graph: g, reach, popSorted, artistTracks, albumTrackIds, blocked };
+  return { byId, graph: g, reach, skipMul, popSorted, artistTracks, albumTrackIds, blocked };
 }
 
 // Greedy diversity: never more than MAX_RUN of the same artist consecutively (skips ahead to the next
@@ -136,7 +141,7 @@ export function radio(idx, { kind = "shuffle", seed = null, seedTracks = null, a
     for (const v of (artistTracks.get(ra) || []).slice(0, RELART_TRACKS)) bump(v, W.RELART * s * shrink(idx.reach(v)));
 
   // ---- ordered head (scored, filtered, jittered); diversity is applied once to the whole station below ----
-  const head = [...score.keys()].filter(pass).map((v) => [v, score.get(v) + JIT_TIE * h01(v, rngSeed)]);
+  const head = [...score.keys()].filter(pass).map((v) => [v, score.get(v) * idx.skipMul(v) + JIT_TIE * h01(v, rngSeed)]);
   head.sort((a, b) => b[1] - a[1]);
   const headIds = head.map((x) => x[0]);
 
@@ -152,14 +157,14 @@ export function radio(idx, { kind = "shuffle", seed = null, seedTracks = null, a
     if (kind === "shuffle") {
       // popularity-weighted shuffle over the meaningful head (deterministic in rngSeed), then raw popularity
       const pool = popSorted.slice(0, SHUFFLE_POOL).filter((v) => !placed.has(v) && pass(v))
-        .map((v) => [v, shrink(idx.reach(v)) + JIT_SHUFFLE * h01(v, rngSeed)]).sort((a, b) => b[1] - a[1]).map((x) => x[0]);
+        .map((v) => [v, shrink(idx.reach(v)) * idx.skipMul(v) + JIT_SHUFFLE * h01(v, rngSeed)]).sort((a, b) => b[1] - a[1]).map((x) => x[0]);
       for (const v of pool) { if (rest.length >= canonNeed) break; rest.push(v); placed.add(v); }
       for (const v of popSorted) { if (rest.length >= canonNeed) break; if (!placed.has(v) && pass(v)) { rest.push(v); placed.add(v); } }
     } else {
       // seeded backfill: popularity, lightly leaning to the seed's era + content-class so a cold tail still
       // feels of-a-piece (only orders the unvalidated fallback tail — the cooc head above is untouched).
       const st = seed && byId.get(seed); const sy = st ? st.year : null, sc = st ? st.isChasid : null;
-      const key = (v) => { const t = byId.get(v); let k = shrink(idx.reach(v)); if (sy && t.year) k += 0.15 * Math.exp(-Math.abs(t.year - sy) / 8); if (sc != null && t.isChasid === sc) k += 0.05; return k; };
+      const key = (v) => { const t = byId.get(v); let k = shrink(idx.reach(v)); if (sy && t.year) k += 0.15 * Math.exp(-Math.abs(t.year - sy) / 8); if (sc != null && t.isChasid === sc) k += 0.05; return k * idx.skipMul(v); };
       const pool = popSorted.filter((v) => !placed.has(v) && pass(v));
       pool.sort((a, b) => key(b) - key(a));
       for (const v of pool) { if (rest.length >= canonNeed) break; rest.push(v); placed.add(v); }

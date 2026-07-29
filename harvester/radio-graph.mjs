@@ -54,8 +54,11 @@ for (const id of Object.keys(g.sess)) { if (!inCorpus.has(id)) continue; const n
 const inArtists = new Set(db.prepare("SELECT id FROM artist").all().map((r) => r.id));
 const art = {};
 for (const id of Object.keys(g.art || {})) { if (!inArtists.has(id)) continue; const n = (g.art[id] || []).filter(([a]) => inArtists.has(a)); if (n.length) art[id] = n; }
+// per-track skip stats [listened, total] — powers the engine's skip dock
+const skip = {};
+for (const id of Object.keys(g.skip || {})) if (inCorpus.has(id)) skip[id] = g.skip[id];
 
-const out = { builtAt: g.builtAt || Date.now(), source: "zemer-stats", devices: g.devices ?? null, pop, lib, sess, art };
+const out = { builtAt: g.builtAt || Date.now(), source: "zemer-stats", devices: g.devices ?? null, pop, lib, sess, art, skip };
 const libN = Object.keys(lib).length, sessN = Object.keys(sess).length, popN = Object.keys(pop).length;
 console.log(`radio-graph: corpus-intersected — pop ${popN} (was ${Object.keys(g.pop).length}), lib seeds ${libN} (was ${Object.keys(g.lib).length}), sess seeds ${sessN}, artist seeds ${Object.keys(art).length}`);
 if (!popN || !libN) { console.error("radio-graph: nothing survived corpus intersection — leaving existing artifact untouched"); process.exit(0); }

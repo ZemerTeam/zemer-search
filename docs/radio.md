@@ -38,8 +38,26 @@ score = 2.0·session-cooc + 1.25·library-cooc + 0.2·same-artist(shrunk-reach) 
   bigger weights drown the seed artist's own catalog and collapse it).
 
 Both graphs are **cosine-normalized** with device-support ≥ 2 (a single device can't mint an edge), so a
-globally-popular track doesn't get recommended for everything. Then: a **diversity cap** (≤ 2 of one artist
-in a row), and a **popularity backfill** so the queue is endless.
+globally-popular track doesn't get recommended for everything. Then: a **skip dock** (below), a **diversity
+cap** (≤ 2 of one artist in a row), and a **popularity backfill** so the queue is endless.
+
+### Skip dock + feedback-loop guard (2026-07-29)
+
+Radio is the app's #1 play source, so two negative-signal protections apply:
+
+- **Skip dock** — every ordering (cooc head, seeded backfill, shuffle) is multiplied by a shrunk
+  listen-through rate (`(listened + 2.5)/(plays + 5)`, vs the 50% norm; floored at 0.35, never an
+  exclusion). A track users bail on — on any surface — sinks in radio. Per-track `[listened, total]`
+  arrives in the graph artifact (`skip`, plays ≥5 only).
+- **Feedback-loop guard** (in zemer-stats `radioGraph`) — **radio-sourced plays are excluded from the
+  session graph** (the engine's own sequencing must not become its own training signal: recommend A→B →
+  passive acceptance → stronger A→B edge → recommend harder), and **live plays must be listened (≥50% /
+  ≥45s) to join a device's library** (a 5-second skip is negative signal, not taste — before this, an
+  autoplayed-and-skipped track *strengthened* the very edge that queued it). Bench effect of the cleaner
+  semantics: blend hit@20 33→42% on deliberate-session gold.
+
+The production KPI is the **daily radio skip%** (`radioDaily` on the zemer-stats dashboards; ~70–78%
+during the YouTube.next() era — watch it fall as the corpus-native radio rolls out, and tune against it).
 
 ### Cold seeds never fail
 
