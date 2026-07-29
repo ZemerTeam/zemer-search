@@ -345,9 +345,12 @@ async function startServer() {
       }
 
       // LRU cache for the hot read endpoints (cleared on reload, so never stale beyond one cycle).
+      // /home-rows folds the UTC day into its cache key: topCommunity rotates daily (store.homeRows dayKey),
+      // and without this a warm cache would serve yesterday's set past midnight until an unrelated reload.
+      const cKey = u.pathname === "/home-rows" ? `${req.url}|d${Math.floor(Date.now() / 86400000)}` : req.url;
       if (req.method === "GET" && CACHEABLE.has(u.pathname)) {
-        const hit = cache.get(req.url);
-        if (hit !== undefined) { cache.delete(req.url); cache.set(req.url, hit); res.writeHead(200, CORS); return res.end(hit); }
+        const hit = cache.get(cKey);
+        if (hit !== undefined) { cache.delete(cKey); cache.set(cKey, hit); res.writeHead(200, CORS); return res.end(hit); }
       }
 
       if (u.pathname === "/search") {
@@ -465,7 +468,7 @@ async function startServer() {
         // to fall back to its scrape for that row.
         const cf = contentFlags(u.searchParams);
         const dropId = (x) => idDropped(x, cats.blocked, cf.allowFemale);
-        return cacheSet(req.url, send(res, 200, homeRows(liveDb, cf, dropId)));
+        return cacheSet(cKey, send(res, 200, homeRows(liveDb, cf, dropId)));
       }
       if (u.pathname === "/zemer-playlists/cover") {
         // Branded SVG title card for a curated playlist (see zemerCoverSvg). Relative-linked from the

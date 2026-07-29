@@ -580,7 +580,9 @@ export function applyHomeRank(db, rows = {}) {
 // Each card carries `artistId` (the app's famous/american/israeli gate + one-per-artist dedup need it).
 // A row is returned in stored rank order with filtered-out cards removed (gaps close — the app caps/rotates
 // downstream). blockVideos empties top-videos (they ARE videos). Unknown/absent rows → [].
-export function homeRows(db, { allowFemale = true, kidZoneOnly = false, blockVideos = false } = {}, dropId = null) {
+// `dayKey` (UTC day number) drives topCommunity's deterministic daily rotation — parameterized for tests;
+// callers omit it. The API folds the same day into its /home-rows cache key so the set flips at midnight UTC.
+export function homeRows(db, { allowFemale = true, kidZoneOnly = false, blockVideos = false } = {}, dropId = null, dayKey = Math.floor(Date.now() / 86400000)) {
   const ranked = (rowKey) => db.prepare("SELECT kind,refId,artistId FROM home_rank WHERE row=? ORDER BY pos").all(rowKey);
   const drop = (id) => (dropId ? dropId(id) : false);
 
@@ -637,7 +639,13 @@ export function homeRows(db, { allowFemale = true, kidZoneOnly = false, blockVid
   //        artist playlist, or its curator name matches a female whitelist entry) is dropped under
   //        allowFemale=0 even if it survives on a male collab track. Same recipe as index/categories.mjs.
   //      • blocked-ids (dropId).
-  const HOME_COMMUNITY_POOL = 80, HOME_COMMUNITY_N = 32, HOME_COMMUNITY_MIN_SEC = 40 * 60; // serve up to 32 (8-slot row × headroom so the app's rotation turns it over on refresh)
+  //    DAILY ROTATION: thousands of playlists clear the gates, but a pure top-N-by-views pool froze the SAME
+  //    32 cards forever (the app shuffles within the pool, so variety existed within a day but not across
+  //    days). The served 32 are now: the top HOME_COMMUNITY_ANCHORS by view count (the proven best, always
+  //    present) + the rest chosen by a DETERMINISTIC per-UTC-day shuffle (hash(id, day)) over a much wider
+  //    gated pool — every worker/request serves the identical set (no flicker), the set turns over at
+  //    midnight UTC, and over weeks the whole eligible catalog cycles through the home row.
+  const HOME_COMMUNITY_POOL = 400, HOME_COMMUNITY_N = 32, HOME_COMMUNITY_ANCHORS = 8, HOME_COMMUNITY_MIN_SEC = 40 * 60;
   const ENGAGED_LISTS = ["auto-top-50", "auto-trending", "auto-favorites"]; // the data-driven engagement signals
   const engagedIn = ENGAGED_LISTS.map((x) => `'${x}'`).join(",");
   const engagedN = db.prepare(`SELECT COUNT(*) n FROM zemer_playlist_item WHERE kind='track' AND playlistId IN (${engagedIn})`).get().n;
@@ -656,14 +664,29 @@ export function homeRows(db, { allowFemale = true, kidZoneOnly = false, blockVid
     femaleOwned = makeFemaleOwned(fpl, fnames);
   }
   const cKept = communityKeptCounts(db, cpool.map((c) => c.id), { allowFemale, kidZoneOnly, blockVideos }); // Map when filtering, else null
-  const topCommunity = [];
-  for (const c of cpool) {
-    if (topCommunity.length >= HOME_COMMUNITY_N) break;
-    if (drop(c.id)) continue;                          // blocked-id
-    if (femaleOwned && femaleOwned(c)) continue;       // gotcha #7 rule 2 — hide a female's own playlist
+  const surviveRow = (c) => { // the shared community recipe (blocked-id, femaleOwned, member-survival, cover)
+    if (drop(c.id)) return null;                       // blocked-id
+    if (femaleOwned && femaleOwned(c)) return null;    // gotcha #7 rule 2 — hide a female's own playlist
     let songCount = c.whitelisted, cover = ytThumb(c.cover);
-    if (cKept) { const k = cKept.get(c.id); if (!k || k.kept <= 0) continue; songCount = k.kept; cover = k.cover; } // member-survival + surviving-cover
-    topCommunity.push({ id: c.id, title: c.title, artist: c.author || "", thumbnail: cover, songCount });
+    if (cKept) { const k = cKept.get(c.id); if (!k || k.kept <= 0) return null; songCount = k.kept; cover = k.cover; } // member-survival + surviving-cover
+    return { id: c.id, title: c.title, artist: c.author || "", thumbnail: cover, songCount };
+  };
+  // anchors first (view-count order — the proven best), then the day-rotated remainder.
+  // fnv-1a + murmur3 finalizer: bare fnv has weak low-bit avalanche, so consecutive dayKeys (differing in
+  // one trailing char) produced near-identical sort orders — i.e. almost no actual rotation day to day.
+  const fmix = (x) => { x ^= x >>> 16; x = Math.imul(x, 0x85ebca6b); x ^= x >>> 13; x = Math.imul(x, 0xc2b2ae35); x ^= x >>> 16; return x >>> 0; };
+  const h32 = (s) => { let x = 2166136261 >>> 0; for (let i = 0; i < s.length; i++) { x ^= s.charCodeAt(i); x = Math.imul(x, 16777619) >>> 0; } return fmix(x); };
+  const topCommunity = [], anchored = new Set();
+  for (const c of cpool) {
+    if (topCommunity.length >= HOME_COMMUNITY_ANCHORS) break;
+    const r = surviveRow(c);
+    if (r) { topCommunity.push(r); anchored.add(c.id); }
+  }
+  const rotated = cpool.filter((c) => !anchored.has(c.id)).sort((a, b) => h32(a.id + ":" + dayKey) - h32(b.id + ":" + dayKey));
+  for (const c of rotated) {
+    if (topCommunity.length >= HOME_COMMUNITY_N) break;
+    const r = surviveRow(c);
+    if (r) topCommunity.push(r);
   }
   return { topAlbums, topVideos, topArtists, topCommunity };
 }
