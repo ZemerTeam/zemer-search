@@ -53,7 +53,7 @@ const RELEASES_FEED = process.env.RELEASES_FEED || "https://api.flipphoneguy.duc
 const GENRE_TITLES = {
   // Style — heimish words the audience actually uses, not generic category names
   nigunim: "Nigunim", acapella: "Acapella", chazzanus: "Chazzanus", carlebach: "Carlebach",
-  calm: "Chill", dance: "Freilach", electronic: "Remix Room", workout: "On the Move",
+  calm: "Chill", dance: "Freilach", electronic: "Electronic", workout: "On the Move",
   instrumental: "Instrumental", wedding: "Chasunah", march: "Marches", lullaby: "Bedtime",
   kids: "Kids", yiddish: "Yiddish", english: "English", israeli: "Israeli", mizrachi: "Mizrachi",
   yemenite: "Teimani",
