@@ -306,6 +306,15 @@ export function getUserPlaylist(db, id) { // ownerToken deliberately NEVER selec
   const r = db.prepare("SELECT id,title,tracks,sharedBy,createdAt,updatedAt FROM user_playlist WHERE id=?").get(id);
   return r ? { id: r.id, title: r.title, tracks: JSON.parse(r.tracks), sharedBy: r.sharedBy || null, createdAt: r.createdAt, updatedAt: r.updatedAt ? Number(r.updatedAt) : null } : null;
 }
+// Token-gated DELETE: the sharer can withdraw a shared link — it 404s everywhere immediately.
+// Same tri-state as update; pre-token rows are not deletable by users (takedown = blocked-ids, as ever).
+export function deleteUserPlaylist(db, { id, ownerToken }) {
+  if (!ownerToken) return "forbidden";
+  const info = db.prepare("DELETE FROM user_playlist WHERE id=? AND ownerToken=?").run(id, ownerToken);
+  if (info.changes === 1) return "ok";
+  return db.prepare("SELECT 1 FROM user_playlist WHERE id=?").get(id) ? "forbidden" : "missing";
+}
+
 // In-place update, token-gated: returns "ok" | "forbidden" (row exists, wrong/absent token) | "missing".
 // A row created before tokens existed (ownerToken NULL) is not updatable — the app mints a fresh share.
 export function updateUserPlaylist(db, { id, ownerToken, title, tracks, sharedBy = null, updatedAt = Date.now() }) {

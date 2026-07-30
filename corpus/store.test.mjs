@@ -10,7 +10,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, trackAlbumInfo, tracksByIds, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistList, communityKeptCounts, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, tracksNeedingDate, setTrackUploadDate, recentAlbums, recentTracks, setFemaleSet, applyZemerPlaylists, zemerPlaylistList, zemerPlaylistDetail, applyHomeRank, homeRows, setMeta, getMeta, createUserPlaylist, getUserPlaylist, updateUserPlaylist, countUserPlaylistsByDevice } from "./store.mjs";
+import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, trackAlbumInfo, tracksByIds, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistList, communityKeptCounts, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, tracksNeedingDate, setTrackUploadDate, recentAlbums, recentTracks, setFemaleSet, applyZemerPlaylists, zemerPlaylistList, zemerPlaylistDetail, applyHomeRank, homeRows, setMeta, getMeta, createUserPlaylist, getUserPlaylist, updateUserPlaylist, deleteUserPlaylist, countUserPlaylistsByDevice } from "./store.mjs";
 import { parseDurationSec, parsePlays } from "../harness/browse.mjs";
 
 const seed = (db) => upsertArtistCatalog(db, { id: "UCmusic", name: "Test Artist" }, {
@@ -870,4 +870,13 @@ test("user-shared playlists: owner-token update in place; token never served", (
   // legacy row without a token is never updatable
   createUserPlaylist(db, { id: "LegacyRow9999", title: "old", tracks: ["ccccccccccc"] });
   assert.equal(updateUserPlaylist(db, { id: "LegacyRow9999", ownerToken: "anything", title: "x", tracks: ["d"] }), "forbidden");
+});
+
+test("user-shared playlists: owner-token delete withdraws the link", () => {
+  const db = openCorpus(":memory:");
+  createUserPlaylist(db, { id: "DelShare12345", title: "t", tracks: ["aaaaaaaaaaa"], ownerToken: "tok" });
+  assert.equal(deleteUserPlaylist(db, { id: "DelShare12345", ownerToken: "wrong" }), "forbidden");
+  assert.equal(deleteUserPlaylist(db, { id: "DelShare12345", ownerToken: "tok" }), "ok");
+  assert.equal(getUserPlaylist(db, "DelShare12345"), null, "404s everywhere after");
+  assert.equal(deleteUserPlaylist(db, { id: "DelShare12345", ownerToken: "tok" }), "missing");
 });

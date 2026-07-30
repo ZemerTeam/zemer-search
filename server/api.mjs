@@ -26,7 +26,7 @@ import os from "node:os";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, homeRows, artistDetail, albumDetail, tracksByIds, trackAlbumInfo, allAlbumTracks, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, loadRadioGraph, claimArtistRefresh, createUserPlaylist, getUserPlaylist, updateUserPlaylist, countUserPlaylistsByDevice, blocklist, BLOCKED_IDS_PATH, RADIO_GRAPH_PATH, STATIONS_PATH, AUTO_HISTORY_PATH, ZEMER_PLAYLISTS_PATH, ACAPELLA_AUTO_PATH } from "../corpus/store.mjs";
+import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, homeRows, artistDetail, albumDetail, tracksByIds, trackAlbumInfo, allAlbumTracks, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, loadRadioGraph, claimArtistRefresh, createUserPlaylist, getUserPlaylist, updateUserPlaylist, deleteUserPlaylist, countUserPlaylistsByDevice, blocklist, BLOCKED_IDS_PATH, RADIO_GRAPH_PATH, STATIONS_PATH, AUTO_HISTORY_PATH, ZEMER_PLAYLISTS_PATH, ACAPELLA_AUTO_PATH } from "../corpus/store.mjs";
 import { pickAnchor, applyBadges, applyRanks, chartedBefore, firstCharted, formulaOf, chartWeek } from "./chart-badges.mjs";
 import { buildCategories, searchCategories } from "../index/categories.mjs";
 import { buildRadioIndex, radio } from "../index/radio.mjs";
@@ -607,6 +607,17 @@ async function startServer() {
           } catch (e) { console.error("user-playlist create failed:", e.message); try { send(res, 500, { error: "server error" }); } catch { /* res gone */ } }
         });
         return;
+      }
+      if (u.pathname.startsWith("/user-playlist/") && req.method === "DELETE") {
+        // Sharer withdraws a shared link (owner-token capability, same as PUT) — 404s everywhere after.
+        // Token from the X-Owner-Token header or ?token= (DELETE bodies are unreliable across clients).
+        const id = u.pathname.slice(15);
+        if (!/^[A-Za-z0-9]{8,20}$/.test(id)) return send(res, 400, { error: "bad id" });
+        const tok = String(req.headers["x-owner-token"] || u.searchParams.get("token") || "") || null;
+        const r = deleteUserPlaylist(liveDb, { id, ownerToken: tok });
+        if (r === "missing") return send(res, 404, { error: "playlist not found" });
+        if (r === "forbidden") return send(res, 403, { error: "bad owner token" });
+        return send(res, 200, { ok: true, id });
       }
       if (u.pathname.startsWith("/user-playlist/") && req.method === "PUT") {
         // LIVE-UPDATING share (app request 2026-07-30): in-place replace of the snapshot — same id, same
