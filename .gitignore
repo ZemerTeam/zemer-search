@@ -69,3 +69,4 @@ data/corpus.db.*bak*
 data/corpus.db.vps-new*
 data/shabbat.json
 data/mirror-sync.json
+data/alt-titles.json

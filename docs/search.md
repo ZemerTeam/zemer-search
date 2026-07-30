@@ -37,11 +37,16 @@ distinction:** matching uses `skeletonTokens` (filtered); the exact/begins boost
 Without it, "Yoni Shlomo" → `"slm"` (Yoni drops) would *exactly equal* the one-word query "shlomo" →
 `"slm"` and steal a false exact-match boost. With it, "Yoni Shlomo" → `"n slm"` ≠ `"slm"`. (Gotcha #3.)
 
-### artist.altName — the second artist name (cross-script retrieval)
+### artist.altName / track.altTitle — second name & title (cross-script retrieval)
 An artist's name in the OTHER script (Hebrew ⇄ romanized), when known. The skeleton lever above aligns
 scripts *approximately*; a known second name aligns them **exactly**, so `עדי רן` finds `Adi Ran` and
 `Yanky Berlinger` finds `יענקי ברלינגר` with no approximation at all. Measured: cross-script artist
-recall **66% → 100%** (527/527 Hebrew→romanized, 172/172 the reverse).
+recall **66% → 100%** (527/527 Hebrew→romanized, 172/172 the reverse). `track.altTitle` is the same idea
+one level down — the song's title in the other script, indexed under the TITLE mask: cross-script
+song-title recall **12.7% → 80.3%** ("lecha dodi" finds לכה דודי). Unlike `altName` (which rides the
+whitelist), `altTitle` cannot be harvested — a browse page shows one title — so it is applied from the
+durable gitignored `data/alt-titles.json` by `harvester/alt-titles.mjs`, and the track upsert never
+touches the column so re-harvest can't wipe it.
 
 Two hard rules make it safe (both measured — see gotcha #21):
 

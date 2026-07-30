@@ -88,16 +88,25 @@ export function buildIndex(tracks, synonyms = []) {
     // must stay one-name-per-slot (gotcha #3).
     const alt = t.artistAltName || "";
     const bp = uniq(plainTokens(alt)), bs = uniq(skeletonTokens(alt));
+    // Same treatment for the song's own other-script title (TITLE mask instead of ARTIST): retrieval-only,
+    // fuzzy-excluded. A title carries far more tokens than a name, so admitting these to fuzzy would relax
+    // the index even harder than the name case did.
+    const altT = t.altTitle || "";
+    const cp = uniq(plainTokens(altT)), cs = uniq(skeletonTokens(altT));
     for (const tok of bp) altTokP.add(tok);
     for (const tok of bs) altTokS.add(tok);
+    for (const tok of cp) altTokP.add(tok);
+    for (const tok of cs) altTokS.add(tok);
     for (const tok of tp) realTokP.add(tok); for (const tok of ap) realTokP.add(tok);
     for (const tok of ts) realTokS.add(tok); for (const tok of as) realTokS.add(tok);
     for (const tok of tp) put(plain, tok, i, TITLE);
     for (const tok of ap) put(plain, tok, i, ARTIST);
     for (const tok of bp) put(plain, tok, i, ARTIST);
+    for (const tok of cp) put(plain, tok, i, TITLE);
     for (const tok of ts) put(skel, tok, i, TITLE);
     for (const tok of as) put(skel, tok, i, ARTIST);
     for (const tok of bs) put(skel, tok, i, ARTIST);
+    for (const tok of cs) put(skel, tok, i, TITLE);
     titleP.push(tp.join(" ")); artistP.push(ap.join(" "));
     titleS.push(skeletonKey(t.title)); artistS.push(skeletonKey(t.artistName || ""));
     altP.push(bp.join(" ")); altS.push(alt ? skeletonKey(alt) : "");

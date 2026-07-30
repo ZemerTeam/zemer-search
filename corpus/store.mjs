@@ -214,6 +214,12 @@ export function openCorpus(file = DB_PATH) {
   // NULL = unknown (the vast majority stay NULL; absence must never be treated as a name).
   if (!db.prepare("PRAGMA table_info(artist)").all().some((c) => c.name === "altName"))
     db.exec("ALTER TABLE artist ADD COLUMN altName TEXT");
+  // track.altTitle: the song's title in the OTHER script, same idea as artist.altName one level down —
+  // indexed as a second searchable TITLE so a Hebrew query finds a romanized-titled song and vice-versa.
+  // Applied from the durable data/alt-titles.json (harvester/alt-titles.mjs) and PRESERVED across
+  // re-harvest by COALESCE, since browse pages only ever carry the one title they display.
+  if (!db.prepare("PRAGMA table_info(track)").all().some((c) => c.name === "altTitle"))
+    db.exec("ALTER TABLE track ADD COLUMN altTitle TEXT");
   // album.uploadDate: the release's REAL date (ISO-8601), dated via one /player on a sample track (see
   // harvester/releases.mjs). Browse pages only carry a year; this is what makes New Releases accurate.
   if (!db.prepare("PRAGMA table_info(album)").all().some((c) => c.name === "uploadDate"))
@@ -347,7 +353,7 @@ export function claimArtistRefresh(db, artistId, cutoffMs, now = Date.now()) {
 // All tracks in the denormalized shape the index/bench/subset already expect.
 export function allTracks(db) {
   return db.prepare(`
-    SELECT t.videoId, t.title, t.artistId, a.name AS artistName,
+    SELECT t.videoId, t.title, t.altTitle, t.artistId, a.name AS artistName,
            t.isVideo, t.explicit, t.durationSec, t.playCount,
            COALESCE(t.uploadDate, MAX(al.uploadDate)) AS releaseDate,
            a.isFemale, a.isChasid, a.isKidZone, a.isDJ, a.isAmerican, a.isFamous, a.altName
@@ -362,6 +368,7 @@ export function allTracks(db) {
     isFemale: !!r.isFemale, isChasid: !!r.isChasid, isKidZone: !!r.isKidZone,
     isDJ: !!r.isDJ, isAmerican: !!r.isAmerican, isFamous: !!r.isFamous,
     artistAltName: r.altName || null, // second searchable artist name (other script) — see index/search.mjs
+    altTitle: r.altTitle || null,     // second searchable TITLE (other script), same rules
   }));
 }
 
@@ -568,6 +575,9 @@ export const STATIONS_PATH = process.env.STATIONS || path.resolve(HERE, "../data
 // of harvester/backfill-video-type-player.mjs. Consumed ONLY by the Zemer Stations pool filter + /station
 // serve-time guard (stations are audio-only): deliberately NOT a corpus isVideo flip, so search categories
 // and blockVideos filtering are untouched. Absent file = empty set (fail-safe).
+// Durable song-title aliases (other-script titles) applied by harvester/alt-titles.mjs → track.altTitle.
+// Gitignored + machine-local: the harvest cannot regenerate it, so it is the source of truth for the field.
+export const ALT_TITLES_PATH = process.env.ALT_TITLES || path.resolve(HERE, "../data/alt-titles.json");
 export const PLAYER_VIDEO_IDS_PATH = process.env.PLAYER_VIDEO_IDS || path.resolve(HERE, "../data/player-video-ids.json");
 export const loadPlayerVideoIds = () => { try { return new Set(JSON.parse(fs.readFileSync(PLAYER_VIDEO_IDS_PATH, "utf8")).videoIds || []); } catch { return new Set(); } };
 export function loadRadioGraph() { try { const g = JSON.parse(fs.readFileSync(RADIO_GRAPH_PATH, "utf8")); return { pop: g.pop || {}, lib: g.lib || {}, sess: g.sess || {}, art: g.art || {}, skip: g.skip || {}, builtAt: g.builtAt || 0 }; } catch { return { pop: {}, lib: {}, sess: {}, art: {}, skip: {}, builtAt: 0 }; } }

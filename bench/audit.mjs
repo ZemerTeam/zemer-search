@@ -18,11 +18,15 @@ import { openCorpus, allTracks, allArtists, allAlbums, allPlaylists } from "../c
 
 const db = openCorpus();
 const artistRows = allArtists(db);
-const cats = buildCategories({ tracks: allTracks(db), artists: artistRows, albums: allAlbums(db), playlists: allPlaylists(db) });
+const trackRows = allTracks(db);
+const cats = buildCategories({ tracks: trackRows, artists: artistRows, albums: allAlbums(db), playlists: allPlaylists(db) });
 // An artist may carry a second name in the other script; a result matched through it is GENUINE even
 // though the row displays only the primary name. Without this the audit flags correct cross-script hits
 // ("ber" → יענקי ברלינגר, whose other-script name begins with "Ber") as false positives.
 const altByName = new Map(artistRows.filter((a) => a.name && a.altName).map((a) => [a.name, a.altName]));
+// Same for a song's other-script title: a romanized query legitimately matching a Hebrew-titled song
+// ("lecha dodi" → לכה דודי) is genuine, though the row displays only the title it was harvested with.
+const altByVideo = new Map(trackRows.filter((t) => t.altTitle).map((t) => [t.videoId, t.altTitle]));
 
 const queries = [
   "avr", "shl", "ber", "yos", "men", "dav", "chai", "yid", "sim",          // short prefixes
@@ -51,7 +55,9 @@ for (const query of queries) {
   for (const [cat, items] of Object.entries(r)) for (const it of items) {
     const primary = `${it.name || it.title || ""} ${it.artist || ""}`.trim();
     const alt = altByName.get(it.name) || altByName.get(it.artist) || ""; // other-script name, when known
-    all.push({ cat, text: primary, match: alt ? `${primary} ${alt}` : primary });
+    const altT = it.videoId ? (altByVideo.get(it.videoId) || "") : "";     // other-script title, when known
+    const extra = `${alt} ${altT}`.trim();
+    all.push({ cat, text: primary, match: extra ? `${primary} ${extra}` : primary });
   }
   const sus = all.filter((x) => !genuine(query, x.match));
   totalSus += sus.length;

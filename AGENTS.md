@@ -59,6 +59,7 @@ DRY=1 node harvester/backfill-track-meta.mjs               # extract track durat
 DRY=1 node harvester/backfill-durations-player.mjs         # fill remaining durations from cached /player videoDetails.lengthSeconds (the dating pass caches /player for videos+standalone); LIVE=1 fetches the few uncached (IP-safe)
 DRY=1 node harvester/backfill-video-type-player.mjs        # detect STANDALONE songs that are really VIDEOS via /player musicVideoType (ATV=audio, else video — catches videos harvested off a Songs shelf that the listed-as-video backfill can't see, e.g. a wedding-recap clip that aired on a Station) → gitignored data/player-video-ids.json (union-merged), a STATIONS-ONLY exclusion list (pool filter + /station serve-time) — deliberately NOT a corpus isVideo flip, so search categories/blockVideos are untouched; album members skipped (songs by construction); LIVE=1 fetches uncached (IP-safe; use the residential PROXY_URL from a datacenter)
 node harvester/playlists.mjs                                  # discover COMMUNITY playlists (SEEDS=both FIRSTNAMES=1 N=4000 = full sweep; REVALIDATE=1 prunes stale; DRY=1 = preview — full pass, would-admit/would-remove counts, zero DB writes)
+node harvester/alt-titles.mjs                                 # apply data/alt-titles.json → track.altTitle (a song's title in the OTHER script, indexed as a second searchable title; the harvest can't produce it, so this is the durable source — idempotent, DRY=1 previews)
 node harvester/zemer-playlists.mjs                            # apply hand-curated data/zemer-playlists.json → /zemer-playlists (offline; REPLACES wholesale; DRY=1 validates + reports unknown ids)
 STATS_URL=… STATS_KEY=… node harvester/auto-playlists.mjs    # generate DATA-DRIVEN playlists (Top 50 / Trending / Favorites) from zemer-stats /stats → data/zemer-playlists-auto.json (gitignored) + apply merged; fail-safe, no-op when unchanged; DRY=1 previews. Twice daily via zemer-autoplaylists.timer (Shabbat-gated)
 STATS_URL=… STATS_KEY=… node harvester/radio-graph.mjs       # fetch the co-occurrence graph from zemer-stats /radio-graph → corpus-intersect → data/radio-graph.json (gitignored) powering /radio; fail-safe, no-op when unchanged; DRY=1 previews. Runs with auto-playlists on the twice-daily timer
@@ -91,9 +92,10 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
 - **IDF** — a match on a rare/distinctive token outweighs a common one ("live", "feat", a year).
 - **Two scripts** — plain Latin tokens **and** a Hebrew-aware **consonant skeleton** (so romanized
   "kevakarat" → `kbkrt` aligns with Hebrew "כבקרת" → `kbkrt`).
-- **Second artist name (`artist.altName`)** — an artist's name in the OTHER script, when known: indexed
-  as an additional searchable artist name so a Hebrew query lands on a romanized-named artist (and
-  vice-versa) by EXACT alignment instead of skeleton approximation. Cross-script artist recall 66% → 100%.
+- **Second artist name (`artist.altName`) + second song title (`track.altTitle`)** — the artist's name and
+  the song's title in the OTHER script, when known: indexed as additional searchable name/title so a Hebrew
+  query lands on a romanized-named artist or romanized-titled song (and vice-versa) by EXACT alignment
+  instead of skeleton approximation. Cross-script **artist** recall 66% → 100%, **song-title** 12.7% → 80.3%.
   **Retrieval-only and never fuzzy** — see gotcha #21.
 - **Position boost: exact > begins-with > contains** (for both title and artist fields).
 - **As-you-type** — the *last* query token is treated as a near-exact **prefix** (the word being typed).
@@ -265,9 +267,9 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
     and **back up the VPS corpus BEFORE shipping the UPDATEs** (timestamped `sqlite3 .backup` — never write
     into the production DB without a same-day restore point).
 
-21. **A second artist name is RETRIEVAL-ONLY and must never be fuzzy-reachable.** `artist.altName` (the
-    artist's name in the other script) is indexed under the ARTIST mask so the artist is findable in either
-    script — but it grants **no position boost** and its tokens are **kept out of the bigram index**
+21. **A second name/title is RETRIEVAL-ONLY and must never be fuzzy-reachable.** `artist.altName` (ARTIST
+    mask) and `track.altTitle` (TITLE mask) hold the artist's name / song's title in the other script, so both
+    are findable in either script — but it grants **no position boost** and its tokens are **kept out of the bigram index**
     (`finalize(field, N, altOnly)`), so fuzzy can never reach them. Both rules are measured, not stylistic:
     letting a second name boost re-ranked queries that already worked (+2 `begins>contains` violations —
     a romanized alias pulled an artist's albums above a genuine begins-with match), and making its tokens
@@ -275,8 +277,11 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
     ("לולי ה'" → רולי/שולי, **26** false positives). Same principle as skeleton fuzzy being off (gotcha #2):
     a second alignment must not also relax. Position-boost keys stay SEPARATE (`altP`/`altS`) — never merged
     into `artistP`/`artistS`, whose word-aligned `skeletonKey` must stay one-name-per-slot (gotcha #3).
-    `bench/audit.mjs` is alias-aware (a row displays only its primary name, so a correct cross-script hit
-    would otherwise read as a false positive).
+    `bench/audit.mjs` is alias-aware for BOTH (a row displays only the name/title it was harvested with, so a
+    correct cross-script hit would otherwise read as a false positive — "lecha dodi" → לכה דודי).
+    **`track.altTitle` is durable, not harvestable:** a browse page shows exactly one title, so the track
+    upsert deliberately never writes the column and `harvester/alt-titles.mjs` re-applies it from the
+    gitignored `data/alt-titles.json` (idempotent, `DRY=1` previews). Re-harvest can't wipe it.
 
 ## Editing the matcher safely
 
