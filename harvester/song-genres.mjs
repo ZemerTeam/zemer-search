@@ -27,14 +27,15 @@ const DRY = process.env.DRY === "1";
 // The full Zemer genre vocabulary. A slug outside this set is a derivation bug, not data — it is dropped
 // and counted as malformed so the run reports it loudly instead of writing an unknown label into the corpus.
 const SLUGS = new Set([
-  // style
-  "acapella", "chasidish", "yiddish", "israeli", "english", "mizrachi", "yemenite",
-  "chazzanus", "carlebach", "instrumental", "dance", "calm", "kids", "wedding",
+  // style — each slug names what it actually is (a slug that overstates its category is a correctness bug:
+  // "nigunim" is the NIGUN form, NOT the broad chasidish genre, and must never be equated with isChasid)
+  "nigunim", "yiddish", "israeli", "mizrachi", "yemenite", "acapella", "chazzanus", "carlebach",
+  "instrumental", "dance", "electronic", "workout", "calm", "lullaby", "kids", "wedding", "march", "english",
   // occasion (album-level facts: a release IS a Purim/Pesach/Three-Weeks record)
-  "purim", "pesach", "chanukah", "yamim-noraim", "succos", "shavuos", "lag-baomer",
+  "purim", "pesach", "chanukah", "yamim-noraim", "succos", "shavuos-simchas-torah", "lag-baomer",
   "tu-bishvat", "three-weeks", "rosh-chodesh", "shabbos", "melave-malka",
-  // non-music — the point is EXCLUSION (never air a shiur/story/podcast on a music station)
-  "spoken", "story", "comedy", "podcast",
+  // non-music — the point is EXCLUSION (never air these on a music station)
+  "shiur", "parsha", "story", "comedy", "podcast",
 ]);
 let doc;
 try { doc = JSON.parse(fs.readFileSync(SONG_GENRES_PATH, "utf8")); }
