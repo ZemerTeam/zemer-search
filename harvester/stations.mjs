@@ -38,10 +38,24 @@ const KEEP_PAST_H = 6; // history kept for late joins/debug; pruned beyond
 // complement is a real Israeli roster, not "untagged" — `requires` guards exactly that: on a corpus whose
 // isAmerican column is still unpopulated (fresh deploy, pre-migration sync) the negation would match the
 // ENTIRE roster, so the station is skipped (fail-soft) rather than broadcasting the whole catalog.
+// Two kinds of station. ARTIST-tagged (`match`) slices the roster by curated whitelist flags. GENRE-pooled
+// (`genre`) slices by track.genres — a property of the RELEASE, so it can express things an artist tag
+// never could ("nigunim", "instrumental"), and it is the reason those stations are possible at all.
+// A genre station needs MIN_GENRE_POOL survivors after the kosher-for-all filters or it is skipped, so a
+// thinly-covered genre never becomes a repetitive loop. See docs/genres.md + docs/stations.md.
+const MIN_GENRE_POOL = 150;
+// A genre station also has to be FAMILIAR enough to be worth broadcasting: stations are programmed
+// familiarity-first (reach^1.6), so a pool the audience has barely played produces a stream of songs
+// nobody recognises. Measured on the shipped artist stations, listened-share runs 28-49%; a genre pool
+// below this bar is skipped rather than aired (instrumental sat at 13% and would have been 27%
+// listener-validated slots vs 68-88% everywhere else).
+const MIN_GENRE_LISTENED = 0.20;
 const STATIONS = [
   { id: "chasidish", title: "Chassidish Radio", match: (a) => a.isChasid },
   { id: "dj", title: "DJ / Remix Radio", match: (a) => a.isDJ },
   { id: "israeli", title: "Israeli Radio", match: (a) => !a.isAmerican, requires: "isAmerican" },
+  { id: "nigunim", title: "Nigunim Radio", genre: "nigunim" },
+  { id: "calm", title: "Chill Radio", genre: "calm" },
 ];
 
 const db = openCorpus();
@@ -63,6 +77,15 @@ const playerVideo = loadPlayerVideoIds(); // /player-classified real videos stor
 // whose RELEASE is an acapella release (track.genres, gotcha #22 — itself seeded from the curated list, so
 // this is a superset). Over-exclusion is the safe direction here: missing one airs acapella on a station.
 const genreAcapella = (t) => (t.genres || []).includes("acapella");
+// NO SEASONAL MUSIC ON A STATION, same reasoning as acapella: a station is one shared year-round stream,
+// so a Purim song in Elul or Chanukah music in Nissan is jarring for every listener at once and nobody
+// can skip it. Excluded year-round; seasonal material has its own surfaces (the curated + auto seasonal
+// playlists, and genre radio, which IS skippable and can be asked for deliberately).
+// ANNUAL occasions only — `shabbos`, `melave-malka` and `rosh-chodesh` recur weekly/monthly and are
+// ordinary listening in this catalog, so they stay in the pools.
+const SEASONAL = new Set(["purim", "pesach", "chanukah", "yamim-noraim", "succos",
+  "shavuos-simchas-torah", "lag-baomer", "tu-bishvat", "three-weeks"]);
+const genreSeasonal = (t) => (t.genres || []).some((g) => SEASONAL.has(g));
 const now = Date.now();
 
 let doc = { stations: {} };
@@ -87,16 +110,23 @@ for (const st of STATIONS) {
     if (prevStations[st.id]) doc.stations[st.id] = prevStations[st.id];
     continue;
   }
-  const tagged = new Set(artists.filter(st.match).map((a) => a.id));
+  const tagged = st.genre ? null : new Set(artists.filter(st.match).map((a) => a.id));
   // kosher-for-all pool: tagged artists, audio-only, no female-involved (auto-detected AND the curated
   // blocked-ids `female` overrides — the ids curation exists precisely because detection can't see them),
   // no globally-blocked ids, real durations. Audio-only means the /player-classified list too: a video
   // stored isVideo=0 (harvested off a Songs shelf — real case: a wedding-recap clip aired) is caught by
   // data/player-video-ids.json (backfill-video-type-player.mjs; stations-only, no corpus flip).
-  const pool = tracks.filter((t) => tagged.has(t.artistId) && !t.isVideo && !playerVideo.has(t.videoId) && !female.has(t.videoId)
+  const inStation = st.genre ? (t) => (t.genres || []).includes(st.genre) : (t) => tagged.has(t.artistId);
+  const pool = tracks.filter((t) => inStation(t) && !t.isVideo && !playerVideo.has(t.videoId) && !female.has(t.videoId)
     && !blocked.global.has(t.videoId) && !blocked.female.has(t.videoId) && (t.durationSec || 0) >= 30
-    && !acapella.has(t.videoId) && !genreAcapella(t) && !CLEAR_ACAP.test(t.title || ""))
+    && !acapella.has(t.videoId) && !genreAcapella(t) && !genreSeasonal(t) && !CLEAR_ACAP.test(t.title || ""))
     .map((t) => ({ videoId: t.videoId, artistId: t.artistId, durationSec: t.durationSec }));
+  const listenedShare = pool.length ? pool.filter((t) => graph.pop?.[t.videoId]).length / pool.length : 0;
+  if (st.genre && (pool.length < MIN_GENRE_POOL || listenedShare < MIN_GENRE_LISTENED)) {
+    console.warn(`station ${st.id}: SKIPPED — pool ${pool.length} (min ${MIN_GENRE_POOL}), listened ${(100 * listenedShare).toFixed(0)}% (min ${100 * MIN_GENRE_LISTENED}%); carrying previous schedule forward`);
+    if (prevStations[st.id]) doc.stations[st.id] = prevStations[st.id];
+    continue;
+  }
   const prev = prevStations[st.id] || {};
   const idHash = [...st.id].reduce((h, ch) => (Math.imul(h ^ ch.charCodeAt(0), 16777619)) >>> 0, 2166136261); // per-ID stream (length-only collided)
   const state = prev.state || { seed: (Math.imul(idHash, now & 0x7fffffff) ^ 0x9e3779b9) >>> 0, recentTracks: [], recentArtists: [] };

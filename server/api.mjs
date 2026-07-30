@@ -47,6 +47,28 @@ const RELOAD_MS = Number(process.env.RELOAD_MS || 30000);
 // view to display; cached briefly, with a corpus fallback if unreachable.
 const RELEASES_FEED = process.env.RELEASES_FEED || "https://api.flipphoneguy.duckdns.org/zemer/recent-releases.json";
 // Public host for URLs we mint (share links). Fixed/env-configured — never derived from request headers.
+// Display names for the genre catalog (docs/genres.md). The slug is the stable contract; this is the
+// human label the app shows. `kind` lets a client group the catalog — style vs occasion vs non-music
+// (the last exists so a music surface can EXCLUDE shiurim/stories rather than feature them).
+const GENRE_TITLES = {
+  // Style — heimish words the audience actually uses, not generic category names
+  nigunim: "Nigunim", acapella: "Acapella", chazzanus: "Chazzanus", carlebach: "Carlebach",
+  calm: "Chill", dance: "Freilach", electronic: "Remix Room", workout: "On the Move",
+  instrumental: "Instrumental", wedding: "Chasunah", march: "Marches", lullaby: "Bedtime",
+  kids: "Kids", yiddish: "Yiddish", english: "English", israeli: "Israeli", mizrachi: "Mizrachi",
+  yemenite: "Teimani",
+  // Occasion — the yom tov as it is spoken
+  purim: "Purim", pesach: "Pesach", chanukah: "Chanukah", "yamim-noraim": "Yomim Noraim",
+  succos: "Succos", "shavuos-simchas-torah": "Shavuos & Simchas Torah", "lag-baomer": "Lag BaOmer",
+  "tu-bishvat": "Tu BiShvat", "three-weeks": "The Three Weeks", "rosh-chodesh": "Rosh Chodesh",
+  shabbos: "Shabbos Table", "melave-malka": "Melave Malka",
+  // Non-music
+  shiur: "Shiurim", parsha: "Parsha", story: "Stories", comedy: "Comedy", podcast: "Podcasts",
+};
+const OCCASION = new Set(["purim", "pesach", "chanukah", "yamim-noraim", "succos", "shavuos-simchas-torah",
+  "lag-baomer", "tu-bishvat", "three-weeks", "rosh-chodesh", "shabbos", "melave-malka"]);
+const NON_MUSIC = new Set(["shiur", "parsha", "story", "comedy", "podcast"]);
+const GENRE_KIND = new Proxy({}, { get: (_, k) => (OCCASION.has(k) ? "occasion" : NON_MUSIC.has(k) ? "non-music" : "style") });
 const PUBLIC_HOST = process.env.PUBLIC_HOST || "search.zemer.io";
 const FEED_TTL_MS = Number(process.env.FEED_TTL_MS || 300000); // ~5 min
 const CACHE_MAX = Number(process.env.CACHE_MAX || 5000);
@@ -785,6 +807,69 @@ ol{list-style:none;margin:0;padding:0}li{display:flex;gap:10px;align-items:cente
         return send(res, 200, { station: { id, title: s.title, thumbnail: `/stations/cover?id=${encodeURIComponent(id)}` }, serverTimeMs: nowMs,
           horizonMs: lastE ? lastE[1] + lastE[2] * 1000 - nowMs : 0, now: { ...nowE, offsetMs: nowMs - nowE.startMs }, next: nextE });
       }
+      if (u.pathname === "/genres") {
+        // Browsable style/occasion index over track.genres (docs/genres.md). Without `id`: the catalog with
+        // per-genre counts, computed POST-FILTER so a viewer never sees a count they cannot reach. With
+        // `id`: that genre's songs, reach-ordered. Absent genres mean UNKNOWN, so this is a positive index
+        // only — there is deliberately no "songs with no genre" listing.
+        const cf = contentFlags(u.searchParams);
+        const gid = u.searchParams.get("id");
+        // Same content rules the engine applies internally (gotcha #7): explicit flags only, default-OPEN.
+        const ok = (t) => !!t && (cf.allowFemale || !t.femaleInvolved) && (!cf.kidZoneOnly || t.isKidZone)
+          && (!cf.blockVideos || !t.isVideo) && !cats.blocked.global.has(t.videoId)
+          && !(!cf.allowFemale && cats.blocked.female.has(t.videoId));
+        if (!gid) {
+          const counts = new Map();
+          for (const v of radioIndex.popSorted) { const t = radioIndex.byId.get(v); if (!t?.genres?.length || !ok(t)) continue;
+            for (const g of t.genres) counts.set(g, (counts.get(g) || 0) + 1); }
+          const genres = [...counts].filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1])
+            .map(([id, trackCount]) => ({ id, title: GENRE_TITLES[id] || id, trackCount, kind: GENRE_KIND[id] || "style" }));
+          return send(res, 200, { count: genres.length, genres });
+        }
+        const limit = Math.min(200, Math.max(1, Number(u.searchParams.get("limit")) || 100));
+        const offset = Math.max(0, Number(u.searchParams.get("offset")) || 0);
+        const all = (radioIndex.genreTracks?.get(gid) || []).filter((v) => ok(radioIndex.byId.get(v)));
+        if (!all.length) return send(res, 404, { error: "unknown or empty genre" });
+        // A genre is BROWSABLE, not just a track list: the app opens it like an artist page. Artists and
+        // releases are derived from the surviving member tracks, so every count here is reachable and the
+        // content filters apply once, at the song level, rather than being re-derived per entity.
+        const k = Math.min(60, Math.max(1, Number(u.searchParams.get("k")) || 20));
+        const byArtist = new Map();
+        for (const v of all) { const t = radioIndex.byId.get(v); if (!t?.artistId) continue;
+          let e = byArtist.get(t.artistId); if (!e) byArtist.set(t.artistId, e = { id: t.artistId, name: t.artistName, trackCount: 0 });
+          e.trackCount++; }
+        const artistThumb = new Map(liveDb.prepare(`SELECT id, thumbnail FROM artist WHERE id IN (SELECT value FROM json_each(?))`)
+          .all(JSON.stringify([...byArtist.keys()])).map((r) => [r.id, r.thumbnail]));
+        const artists = [...byArtist.values()].sort((a, b) => b.trackCount - a.trackCount).slice(0, k)
+          .map((a) => ({ ...a, thumbnail: artistThumb.get(a.id) ?? null }));
+        // Releases: an album counts for the genre when ≥2 of ITS surviving members carry it (one stray
+        // member is not a genre) — mirroring the album-anchored derivation the genres came from.
+        const albRows = liveDb.prepare(`
+          SELECT al.id, al.playlistId, al.title, al.type, al.year, al.thumbnail, al.uploadDate, a.name AS artistName,
+                 COUNT(*) AS hits
+          FROM album_track at JOIN album al ON al.id = at.albumId JOIN artist a ON a.id = al.artistId
+          WHERE at.videoId IN (SELECT value FROM json_each(?))
+          GROUP BY al.id HAVING hits >= 2 ORDER BY hits DESC`).all(JSON.stringify(all));
+        const relRow = (r) => ({ id: r.id, playlistId: r.playlistId, title: r.title, artist: r.artistName,
+          year: r.year, thumbnail: r.thumbnail, releaseDate: r.uploadDate || null, trackCount: r.hits });
+        const albums = albRows.filter((r) => r.type !== "single").slice(0, k).map(relRow);
+        const singles = albRows.filter((r) => r.type === "single").slice(0, k).map(relRow);
+        const page = all.slice(offset, offset + limit);
+        const ai2 = trackAlbumInfo(liveDb, page);
+        const songRow = (v) => { const t = radioIndex.byId.get(v), a = ai2.get(v);
+          return { videoId: v, title: t.title, artist: t.artistName, artistId: t.artistId, thumbnail: a?.thumbnail ?? null,
+                   durationSec: t.durationSec, explicit: t.explicit, isVideo: t.isVideo, releaseDate: t.releaseDate,
+                   genres: t.genres, album: a ? { id: a.albumId, name: a.albumName } : null }; };
+        const rows = page.map(songRow);
+        return send(res, 200, {
+          genre: { id: gid, title: GENRE_TITLES[gid] || gid, trackCount: all.length, kind: GENRE_KIND[gid] || "style",
+                   artistCount: byArtist.size, albumCount: albums.length, singleCount: singles.length },
+          artists, albums, singles,
+          songs: rows.filter((r) => !r.isVideo), videos: rows.filter((r) => r.isVideo),
+          tracks: rows, // flat list, all kinds, in reach order (kept for simple clients)
+          offset, nextOffset: offset + page.length < all.length ? offset + page.length : null,
+        });
+      }
       if (u.pathname === "/radio") {
         // Zemer Radio — corpus-native "what plays next" (index/radio.mjs). Either a fresh seed
         // (kind + seed) or an opaque `continuation` token (kind+seed+flags+rngSeed+offset) → deterministic
@@ -797,7 +882,7 @@ ol{list-style:none;margin:0;padding:0}li{display:flex;gap:10px;align-items:cente
           p = { kind: d.k, seed: d.s, allowFemale: !!d.af, blockVideos: !!d.bv, kidZoneOnly: !!d.kz, rngSeed: d.r | 0, offset: Math.max(0, d.o | 0) };
         } else {
           const kind = u.searchParams.get("kind") || "shuffle";
-          if (!["artist", "album", "song", "shuffle", "playlist"].includes(kind)) return send(res, 400, { error: "bad kind" });
+          if (!["artist", "album", "song", "shuffle", "playlist", "genre"].includes(kind)) return send(res, 400, { error: "bad kind" });
           const seed = u.searchParams.get("seed") || null;
           if (kind !== "shuffle" && !seed) return send(res, 400, { error: "missing seed" });
           const cf = contentFlags(u.searchParams);
@@ -821,7 +906,7 @@ ol{list-style:none;margin:0;padding:0}li{display:flex;gap:10px;align-items:cente
         }
         const { ids, nextOffset } = radio(radioIndex, { ...p, seed: rseed, seedTracks, limit, acapellaOk: inThreeWeeks() }); // acapella allowed in-season (or on acapella seeds, engine-side)
         const ai = trackAlbumInfo(liveDb, ids);
-        const tracks = ids.map((v) => { const t = radioIndex.byId.get(v), a = ai.get(v); return { videoId: v, title: t.title, artist: t.artistName, artistId: t.artistId, thumbnail: a?.thumbnail ?? null, durationSec: t.durationSec, explicit: t.explicit, isVideo: t.isVideo, releaseDate: t.releaseDate, album: a ? { id: a.albumId, name: a.albumName } : null }; });
+        const tracks = ids.map((v) => { const t = radioIndex.byId.get(v), a = ai.get(v); return { videoId: v, title: t.title, artist: t.artistName, artistId: t.artistId, thumbnail: a?.thumbnail ?? null, durationSec: t.durationSec, explicit: t.explicit, isVideo: t.isVideo, releaseDate: t.releaseDate, genres: t.genres?.length ? t.genres : undefined, album: a ? { id: a.albumId, name: a.albumName } : null }; });
         const continuation = nextOffset == null ? null : encTok({ k: p.kind, s: p.seed, af: p.allowFemale ? 1 : 0, bv: p.blockVideos ? 1 : 0, kz: p.kidZoneOnly ? 1 : 0, r: p.rngSeed, o: nextOffset });
         return send(res, 200, { tracks, continuation });
       }

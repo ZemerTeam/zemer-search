@@ -52,7 +52,7 @@ weight = (shrunkReach^1.6 + 0.015) × skipMul × (1 + 3·cooc(prev)) × jitter
 
 A synchronized station cannot be personalized, so pools are pre-filtered to the strictest common
 denominator at build time: tagged artists only, **no female-involved tracks** (the `/search` featuring
-rule AND the curated blocked-ids `female` overrides), **NO ACAPELLA** (product rule — the same master set
+rule AND the curated blocked-ids `female` overrides), **NO SEASONAL MUSIC** (`purim` `pesach` `chanukah` `yamim-noraim` `succos` `shavuos-simchas-torah` `lag-baomer` `tu-bishvat` `three-weeks` — a station is one shared year-round stream, so a Purim song in Elul is jarring for every listener at once and nobody can skip it; the recurring `shabbos`/`melave-malka`/`rosh-chodesh` genres stay in, being ordinary listening here. Seasonal material lives on its own surfaces: the curated/auto seasonal playlists and genre radio, which IS skippable and asked for deliberately), **NO ACAPELLA** (product rule — the same master set
 that excludes acapella from Trending/Top Downloaded: curated `acapella` videoIds read un-gated +
 `acapella-auto` + the strict clear-label title marker), **no globally-blocked ids**, **audio only** (no
 videos), real durations (≥30s). Audio-only has a second layer beyond the stored `isVideo` flag: the
@@ -67,6 +67,17 @@ makes the broadcast momentarily "between tracks": the next servable entry is ser
 NEGATIVE `offsetMs`, i.e. "starts in |offset| ms"), the **generator purges them from the un-aired future**
 each run (≤12h), and the **app applies its own blocked list** at play time (handoff doc). Stations are NOT
 kidZone-filtered — the app hides station cards in kidZone mode.
+
+## Two kinds of station
+
+**Artist-tagged** stations slice the roster by curated whitelist flags (`chasidish`, `dj`, `israeli`).
+**Genre-pooled** stations slice by `track.genres` — a property of the RELEASE, so they express things an
+artist tag cannot (`nigunim`, `calm`/Chill). A genre station must clear two gates or it is skipped and
+its previous schedule carried forward: **≥150 pool tracks** after the kosher-for-all filters, and **≥20%
+of that pool already listened to** by the audience. Stations are programmed familiarity-first, so a pool
+nobody has played produces a stream nobody recognises — `instrumental` sat at 13% listened and would have
+aired 27% listener-validated slots against 67–88% for every other station, so it is not in the catalog.
+See [genres.md](genres.md).
 
 ## Endpoints
 

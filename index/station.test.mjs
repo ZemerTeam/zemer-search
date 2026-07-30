@@ -119,3 +119,20 @@ test("acapella veto unions curated / title-marker / genre evidence", () => {
   assert.equal(excluded({ videoId: "z", title: "אבא - ווקאלי", genres: ["israeli"] }), true, "Hebrew marker vetoes even when the genre says otherwise");
   assert.equal(excluded({ videoId: "w", title: "Plain Title", genres: ["israeli", "dance"] }), false, "an ordinary song stays in the pool");
 });
+
+// Seasonal music must never reach a station pool: a station is one shared year-round stream, so
+// out-of-season material hits every listener at once and none of them can skip it. Same rule shape as
+// the acapella veto. Recurring occasions (shabbos/melave-malka/rosh-chodesh) are ordinary listening here.
+test("station pools exclude annual-occasion genres but keep recurring ones", () => {
+  const SEASONAL = new Set(["purim", "pesach", "chanukah", "yamim-noraim", "succos",
+    "shavuos-simchas-torah", "lag-baomer", "tu-bishvat", "three-weeks"]);
+  const seasonal = (t) => (t.genres || []).some((g) => SEASONAL.has(g));
+  assert.equal(seasonal({ genres: ["purim"] }), true);
+  assert.equal(seasonal({ genres: ["pesach", "dance"] }), true, "one seasonal slug is enough to exclude");
+  assert.equal(seasonal({ genres: ["lag-baomer"] }), true);
+  assert.equal(seasonal({ genres: ["yamim-noraim"] }), true);
+  assert.equal(seasonal({ genres: ["shabbos"] }), false, "weekly recurrence is not seasonal");
+  assert.equal(seasonal({ genres: ["melave-malka"] }), false);
+  assert.equal(seasonal({ genres: ["nigunim", "calm"] }), false);
+  assert.equal(seasonal({ genres: [] }), false, "unknown genres never exclude");
+});

@@ -63,6 +63,11 @@ closed it (acapella 605 → 2,261 songs).
 - **Non-music** — `shiur` `parsha` `story` `comedy` `podcast`. These exist for **exclusion**: a shiur or a
   children's story must never air on a music station.
 
+**Slugs are the stable contract; the DISPLAY LABEL is Zemer's own voice** (`GENRE_TITLES` in
+`server/api.mjs`) — `calm` shows as *Chill*, `dance` as *Freilach*, `wedding` as *Chasunah*, `yemenite`
+as *Teimani*, `shabbos` as *Shabbos Table*. Labels are the words this audience actually uses and are ours
+to change freely; a client must key off the slug, never the label.
+
 Each slug names exactly what it is. Occasion slugs are legitimate at release level (a record genuinely
 *is* a Purim album) in a way they never were at artist level.
 
@@ -70,3 +75,36 @@ Each slug names exactly what it is. Occasion slugs are legitimate at release lev
 
 `track.energy` (0..1) is acoustic **intensity**, not tempo — see gotcha #23. It is orthogonal to genre and
 useful for ordering *within* a style (mellow vs driving), never for classifying one.
+
+## App-facing surface
+
+| Endpoint | What |
+|---|---|
+| `GET /genres` | The catalog: `{count, genres:[{id, title, trackCount, kind}]}`, most-populated first. `kind` is `style` \| `occasion` \| `non-music`, so a client can group them — and so a music surface can EXCLUDE `non-music` rather than feature it. Counts are POST-FILTER, so a viewer never sees a count they cannot reach. |
+| `GET /genres?id=<slug>` | The genre as a BROWSABLE PAGE, like an artist page: `{genre:{id,title,kind,trackCount,artistCount,albumCount,singleCount}, artists[], albums[], singles[], songs[], videos[], tracks[], offset, nextOffset}`. Artists and releases are derived from the surviving member tracks, so every count shown is reachable. An album counts for a genre when **≥2 of its members** carry it — one stray member is not a genre. `k` (≤60) caps the artist/release lists, `limit`/`offset` page the tracks. 404 on an unknown or fully-filtered genre. |
+| `GET /radio?kind=genre&seed=<slug>` | Genre radio — a PERSONALIZED, SKIPPABLE queue. Opens on one of the genre's own popular songs (jittered per session), then expands through co-occurrence like any other seed. Asking for `acapella` IS acapella intent, so that seed lifts the year-round exclusion. |
+| Stations | A genre can also back a **synchronized broadcast** station (`nigunim`, `calm`) — see the distinction below and [stations.md](stations.md). |
+
+### Two different products — do not conflate them
+
+| | `/radio?kind=genre` | a genre STATION |
+|---|---|---|
+| Shape | a personalized queue built for THIS listener | one shared wall-clock program |
+| Control | **skippable**, endless, continuation-paged | lean-back; you tune in to whatever is playing |
+| Filters | honors the caller's content flags | pre-filtered kosher-for-all (cannot be personalized) |
+| State | stateless + deterministic per session | a materialized schedule everyone hears together |
+
+Occasion genres are **excluded from stations year-round** for the same reason acapella is: a shared
+stream cannot be personalized, so out-of-season music hits everyone at once and nobody can skip past it.
+They remain fully available through browsing and genre radio, which are opt-in and skippable.
+
+Browsing a genre and hitting play should give the **skippable queue**. A station is a deliberate,
+separate "tune in" action. Only a handful of genres back stations (they must clear the pool + familiarity
+gates); every genre supports radio and browsing.
+
+Song rows across `/radio` and `/genres` carry `genres` when known (omitted when not — absent means unknown).
+
+**Genres are a SEED and a FILTER, never a ranking term.** Adding genre/energy affinity to the radio blend
+was measured on held-out next-track prediction and made it **worse** — 39.9% → 32.9% hit@20 overall, and
+30.1% → 20.7% on rare (popularity-debiased) gold. Co-occurrence already encodes style from real listening;
+descriptive metadata layered on top displaces it. Don't re-add it without re-running that bench.

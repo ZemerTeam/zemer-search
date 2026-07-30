@@ -36,6 +36,12 @@ const RELART_TRACKS = 5;      // top tracks pulled per related artist
 const JIT_TIE = 0.03;         // within-tier variety across sessions (seeded kinds)
 const JIT_SHUFFLE = 0.35;     // stronger for kind=shuffle → popularity-weighted walk, not a fixed Top-N
 const ARTIST_SEED_TOPK = 8;   // artist / cold-song fallback: use the artist's top-K tracks as cooc seeds
+// NOTE — genre/energy AFFINITY was tried in the ranking blend (a small multiplicative nudge for candidates
+// sharing the seed's genre or sitting near its energy) and MEASURED WORSE on held-out next-track
+// prediction: 39.9% → 32.9% hit@20 overall, 30.1% → 20.7% on rare (popularity-debiased) gold. Co-occurrence
+// already encodes style from real listening; descriptive metadata layered on top displaces it. Genres are
+// therefore a SEED and a FILTER here, never a ranking term. Don't re-add it without re-running the bench.
+const GENRE_LEAD_POOL = 40; // pick the opening track from the genre's top-N by reach, jittered per session
 const PLAYLIST_SEED_CAP = 50; // kind=playlist: cap member tracks used as cooc seeds (bounds the aggregation)
 const SHUFFLE_POOL = 3000;    // shuffle weights over the meaningful head, then extends by popularity
 const STATION = 500;          // canonical (diversified) station length — offset-independent so paging is a
@@ -59,7 +65,7 @@ export function buildRadioIndex({ tracks = [], artists = [], albumTracks = [], g
   const byId = new Map();
   for (const t of tracks) {
     const fi = t.femaleInvolved !== undefined ? t.femaleInvolved : isFemaleInvolved(t.title, t.artistName, t.isFemale, m);
-    byId.set(t.videoId, { videoId: t.videoId, title: t.title, artistId: t.artistId, artistName: t.artistName, isVideo: !!t.isVideo, explicit: !!t.explicit, durationSec: t.durationSec ?? null, releaseDate: t.releaseDate || null, isKidZone: !!t.isKidZone, isChasid: !!t.isChasid, femaleInvolved: fi, year: yearOf(t.releaseDate), playCount: t.playCount || 0 });
+    byId.set(t.videoId, { videoId: t.videoId, title: t.title, artistId: t.artistId, artistName: t.artistName, isVideo: !!t.isVideo, explicit: !!t.explicit, durationSec: t.durationSec ?? null, releaseDate: t.releaseDate || null, isKidZone: !!t.isKidZone, isChasid: !!t.isChasid, femaleInvolved: fi, year: yearOf(t.releaseDate), playCount: t.playCount || 0, genres: t.genres || [], energy: t.energy ?? null });
   }
   const reach = (v) => g.pop[v] || 0;
   // SKIP DOCK — a track users bail on (any surface) is docked in every radio ordering. Shrunk listen-through
@@ -74,7 +80,13 @@ export function buildRadioIndex({ tracks = [], artists = [], albumTracks = [], g
   for (const v of popSorted) { const a = byId.get(v).artistId; let arr = artistTracks.get(a); if (!arr) artistTracks.set(a, arr = []); arr.push(v); }
   const albumTrackIds = new Map(); // albumId -> [videoId] in pos order
   for (const r of albumTracks) { let arr = albumTrackIds.get(r.albumId); if (!arr) albumTrackIds.set(r.albumId, arr = []); arr.push(r.videoId); }
-  return { byId, graph: g, reach, skipMul, popSorted, artistTracks, albumTrackIds, blocked, acapella };
+  // genre → its tracks, popularity-ordered (popSorted is already reach-ranked), so a genre seed opens on
+  // something the audience actually plays rather than an arbitrary member.
+  const genreTracks = new Map();
+  for (const v of popSorted) for (const g of (byId.get(v).genres || [])) {
+    let arr = genreTracks.get(g); if (!arr) genreTracks.set(g, arr = []); arr.push(v);
+  }
+  return { byId, graph: g, reach, skipMul, popSorted, artistTracks, albumTrackIds, genreTracks, blocked, acapella };
 }
 
 // Greedy diversity: never more than MAX_RUN of the same artist consecutively (skips ahead to the next
@@ -108,6 +120,7 @@ export function radio(idx, { kind = "shuffle", seed = null, seedTracks = null, a
     else if (kind === "album") acapAllowed = (albumTrackIds.get(seed) || []).some((v) => acap.has(v));
     else if (kind === "playlist") acapAllowed = (seedTracks || []).some((v) => acap.has(v));
     else if (kind === "artist") { const own = artistTracks.get(seed) || []; acapAllowed = own.length > 0 && own.filter((v) => acap.has(v)).length * 2 > own.length; }
+    else if (kind === "genre") acapAllowed = seed === "acapella"; // asking for the acapella genre IS the intent
   }
   const pass = (v) => {
     if (!acapAllowed && acap && acap.has(v)) return false;
@@ -143,6 +156,16 @@ export function radio(idx, { kind = "shuffle", seed = null, seedTracks = null, a
     // resolves membership → seedTracks). No single seedArtist (mixed), no opening run. Members can reappear
     // (they're on-taste); cold/empty → popularity fallback like any other kind.
     seedSet = (seedTracks || []).filter((v) => byId.has(v)).slice(0, PLAYLIST_SEED_CAP);
+  } else if (kind === "genre") {
+    // Like a playlist seed, but membership comes from track.genres (docs/genres.md). Opens on one of the
+    // genre's own popular songs so the queue is recognisably that genre from the first track, then expands
+    // through co-occurrence — genre members stay eligible later (they are on-taste by definition).
+    const mem = (idx.genreTracks?.get(seed) || []).filter(pass);
+    if (mem.length) {
+      const lead = mem.slice(0, GENRE_LEAD_POOL).reduce((a, b) => (shrink(idx.reach(b)) + JIT_SHUFFLE * h01(b, rngSeed) > shrink(idx.reach(a)) + JIT_SHUFFLE * h01(a, rngSeed) ? b : a));
+      opening = [lead]; exclude.add(lead);
+    }
+    seedSet = mem.slice(0, PLAYLIST_SEED_CAP);
   } // kind === "shuffle" → no seed
 
   // ---- score candidates from the co-occurrence blend + same-artist ----
