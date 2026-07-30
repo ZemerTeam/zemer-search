@@ -89,6 +89,22 @@ listed as a video anywhere. Attribution stays the PK owner (no duplicate same-id
 album pages don't cover (videos + standalone), so this is a free cache read (`LIVE=1` fetches the few
 uncached stragglers, IP-safe). Together (measured 2026-07-01): **durations 100%** (70,392/70,392).
 
+**Video-type detection for Stations (`harvester/backfill-video-type-player.mjs`).** The shelf backfill
+(`backfill-video-flags.mjs`) can only flip a song listed AS a video somewhere in the cached browse pages —
+a video harvested solely off a Songs/landing shelf is invisible to it (real case, 2026-07-30: a wedding-recap
+clip stored `isVideo=0` aired on a Zemer Station). This pass reads the authoritative signal instead:
+`/player`'s **`videoDetails.musicVideoType`** — `MUSIC_VIDEO_TYPE_ATV` = audio art track, anything else
+(`OMV`/`UGC`/`OFFICIAL_SOURCE_MUSIC` — music videos, uploads, live sessions/full-show recordings) = a real
+video. **Output is an exclusion list, NOT a corpus flip**: the ids go to gitignored
+`data/player-video-ids.json` (atomic write, **union-merged** across runs/machines), consumed ONLY by the
+Zemer Stations pool filter (`stations.mjs`) and the `/station` serve-time guard — a deliberate product call
+(2026-07-30): flipping `isVideo` would move ~1.2k tracks from the *songs* to the *videos* search category and
+hide them under `blockVideos`, a visible app-wide shift; stations-only exclusion has no other effects. Scope
+is **standalone tracks only** — album members sit on an album tracklist and are songs by construction, so no
+`/player` is ever spent on them (already-listed ids are also skipped). Cache-first (`DRY=1` reports);
+`LIVE=1` fetches uncached `/player`s, IP-safe via `net.mjs` — from a datacenter run it through the
+residential `PROXY_URL`, like the dating pass.
+
 **Community member artist resolution.** A community-playlist member whose track isn't harvested (e.g. on the
 artist's regular channel) has no corpus row, so the content filter couldn't tell its gender and an all-female
 list with one such member wrongly failed open (showed, then opened empty). Discovery now records each

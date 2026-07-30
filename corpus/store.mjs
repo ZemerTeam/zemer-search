@@ -556,6 +556,12 @@ export const RADIO_GRAPH_PATH = process.env.RADIO_GRAPH || path.resolve(HERE, ".
 // Zemer Stations schedule — gitignored + VPS-local, written by harvester/stations.mjs (append-only
 // synchronized wall-clock program per station), served by /stations + /station. See docs/stations.md.
 export const STATIONS_PATH = process.env.STATIONS || path.resolve(HERE, "../data/stations.json");
+// Standalone "songs" that /player classifies as real VIDEOS (musicVideoType ≠ ATV) — gitignored artifact
+// of harvester/backfill-video-type-player.mjs. Consumed ONLY by the Zemer Stations pool filter + /station
+// serve-time guard (stations are audio-only): deliberately NOT a corpus isVideo flip, so search categories
+// and blockVideos filtering are untouched. Absent file = empty set (fail-safe).
+export const PLAYER_VIDEO_IDS_PATH = process.env.PLAYER_VIDEO_IDS || path.resolve(HERE, "../data/player-video-ids.json");
+export const loadPlayerVideoIds = () => { try { return new Set(JSON.parse(fs.readFileSync(PLAYER_VIDEO_IDS_PATH, "utf8")).videoIds || []); } catch { return new Set(); } };
 export function loadRadioGraph() { try { const g = JSON.parse(fs.readFileSync(RADIO_GRAPH_PATH, "utf8")); return { pop: g.pop || {}, lib: g.lib || {}, sess: g.sess || {}, art: g.art || {}, skip: g.skip || {}, builtAt: g.builtAt || 0 }; } catch { return { pop: {}, lib: {}, sess: {}, art: {}, skip: {}, builtAt: 0 }; } }
 
 // Album membership (albumId, videoId, pos) for the whole corpus — the radio engine's album-seed opening run

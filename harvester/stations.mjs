@@ -25,7 +25,7 @@
 //   node harvester/stations.mjs           # DRY=1 previews (no write)
 import fs from "node:fs";
 import path from "node:path";
-import { openCorpus, allTracks, allArtists, loadRadioGraph, loadBlockedIds, STATIONS_PATH, ZEMER_PLAYLISTS_PATH, ACAPELLA_AUTO_PATH } from "../corpus/store.mjs";
+import { openCorpus, allTracks, allArtists, loadRadioGraph, loadBlockedIds, loadPlayerVideoIds, STATIONS_PATH, ZEMER_PLAYLISTS_PATH, ACAPELLA_AUTO_PATH } from "../corpus/store.mjs";
 import { buildFemaleMatcher, collectFemaleVideoIds } from "../index/credits.mjs";
 import { extendSchedule } from "../index/station.mjs";
 
@@ -58,6 +58,7 @@ const acapella = new Set();
 try { for (const v of ((JSON.parse(fs.readFileSync(ZEMER_PLAYLISTS_PATH, "utf8")).playlists || []).find((p) => p?.id === "acapella")?.videoIds || [])) acapella.add(v); } catch { /* none */ }
 try { for (const v of (JSON.parse(fs.readFileSync(ACAPELLA_AUTO_PATH, "utf8")).videoIds || [])) acapella.add(v); } catch { /* none */ }
 const CLEAR_ACAP = /a[\s-]?c+app?ell?a|\bvocal\s+version\b|\(\s*vocal\s*\)|ווקאל|וואקאל|אקפלה/i;
+const playerVideo = loadPlayerVideoIds(); // /player-classified real videos stored isVideo=0 — audio-only pools drop them
 const now = Date.now();
 
 let doc = { stations: {} };
@@ -85,8 +86,10 @@ for (const st of STATIONS) {
   const tagged = new Set(artists.filter(st.match).map((a) => a.id));
   // kosher-for-all pool: tagged artists, audio-only, no female-involved (auto-detected AND the curated
   // blocked-ids `female` overrides — the ids curation exists precisely because detection can't see them),
-  // no globally-blocked ids, real durations.
-  const pool = tracks.filter((t) => tagged.has(t.artistId) && !t.isVideo && !female.has(t.videoId)
+  // no globally-blocked ids, real durations. Audio-only means the /player-classified list too: a video
+  // stored isVideo=0 (harvested off a Songs shelf — real case: a wedding-recap clip aired) is caught by
+  // data/player-video-ids.json (backfill-video-type-player.mjs; stations-only, no corpus flip).
+  const pool = tracks.filter((t) => tagged.has(t.artistId) && !t.isVideo && !playerVideo.has(t.videoId) && !female.has(t.videoId)
     && !blocked.global.has(t.videoId) && !blocked.female.has(t.videoId) && (t.durationSec || 0) >= 30
     && !acapella.has(t.videoId) && !CLEAR_ACAP.test(t.title || ""))
     .map((t) => ({ videoId: t.videoId, artistId: t.artistId, durationSec: t.durationSec }));

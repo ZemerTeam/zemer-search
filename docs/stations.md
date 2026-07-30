@@ -55,8 +55,14 @@ denominator at build time: tagged artists only, **no female-involved tracks** (t
 rule AND the curated blocked-ids `female` overrides), **NO ACAPELLA** (product rule — the same master set
 that excludes acapella from Trending/Top Downloaded: curated `acapella` videoIds read un-gated +
 `acapella-auto` + the strict clear-label title marker), **no globally-blocked ids**, **audio only** (no
-videos), real durations (≥30s). Post-scheduling takedowns are three-layered: the **API drops blocked /
-out-of-corpus ids at SERVE time** (the ~10-min overrides-timer SLA, gotcha #7 — an unservable live entry
+videos), real durations (≥30s). Audio-only has a second layer beyond the stored `isVideo` flag: the
+**`/player`-classified exclusion list** `data/player-video-ids.json` (gitignored; from
+`backfill-video-type-player.mjs`, see [harvester.md](harvester.md)) — real videos that were harvested off a
+Songs shelf and stored `isVideo=0` (real case, 2026-07-30: a wedding-recap clip aired). Both the pool filter
+and serve-time `servable()` honor the flag AND the list, so an exposed video falls out of the broadcast
+immediately, not at the next rewrite. The list is **stations-only by design** — search categories and
+`blockVideos` filtering are untouched (a corpus `isVideo` flip would visibly move ~1.2k tracks app-wide).
+Post-scheduling takedowns are three-layered: the **API drops blocked / out-of-corpus ids at SERVE time** (the ~10-min overrides-timer SLA, gotcha #7 — an unservable live entry
 makes the broadcast momentarily "between tracks": the next servable entry is served as `now` with a
 NEGATIVE `offsetMs`, i.e. "starts in |offset| ms"), the **generator purges them from the un-aired future**
 each run (≤12h), and the **app applies its own blocked list** at play time (handoff doc). Stations are NOT

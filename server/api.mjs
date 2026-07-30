@@ -26,7 +26,7 @@ import os from "node:os";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, homeRows, artistDetail, albumDetail, tracksByIds, trackAlbumInfo, allAlbumTracks, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, loadRadioGraph, claimArtistRefresh, createUserPlaylist, getUserPlaylist, updateUserPlaylist, deleteUserPlaylist, countUserPlaylistsByDevice, blocklist, BLOCKED_IDS_PATH, RADIO_GRAPH_PATH, STATIONS_PATH, AUTO_HISTORY_PATH, ZEMER_PLAYLISTS_PATH, ACAPELLA_AUTO_PATH } from "../corpus/store.mjs";
+import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, homeRows, artistDetail, albumDetail, tracksByIds, trackAlbumInfo, allAlbumTracks, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, loadRadioGraph, claimArtistRefresh, createUserPlaylist, getUserPlaylist, updateUserPlaylist, deleteUserPlaylist, countUserPlaylistsByDevice, blocklist, BLOCKED_IDS_PATH, RADIO_GRAPH_PATH, STATIONS_PATH, AUTO_HISTORY_PATH, ZEMER_PLAYLISTS_PATH, ACAPELLA_AUTO_PATH, PLAYER_VIDEO_IDS_PATH, loadPlayerVideoIds } from "../corpus/store.mjs";
 import { pickAnchor, applyBadges, applyRanks, chartedBefore, firstCharted, formulaOf, chartWeek } from "./chart-badges.mjs";
 import { buildCategories, searchCategories } from "../index/categories.mjs";
 import { buildRadioIndex, radio } from "../index/radio.mjs";
@@ -82,6 +82,16 @@ function stationsDoc() {
   if (_stationsCache && _stationsCache.mtime === mtime) return _stationsCache;
   try { _stationsCache = { mtime, doc: JSON.parse(fs.readFileSync(STATIONS_PATH, "utf8")) }; } catch { /* keep last-good */ }
   return _stationsCache;
+}
+// /player-classified real videos stored isVideo=0 (data/player-video-ids.json, union-merged by
+// backfill-video-type-player.mjs) — station-only audio purity, same mtime-cache pattern. Missing file = empty set.
+let _playerVideoCache = null;
+function playerVideoIds() {
+  let mtime = 0;
+  try { mtime = fs.statSync(PLAYER_VIDEO_IDS_PATH).mtimeMs; } catch { /* absent → empty */ }
+  if (_playerVideoCache && _playerVideoCache.mtime === mtime) return _playerVideoCache.set;
+  _playerVideoCache = { mtime, set: loadPlayerVideoIds() };
+  return _playerVideoCache.set;
 }
 
 // WORKERS=0/"auto" → one per core; default 1 (dev). Production: set to the core count.
@@ -731,8 +741,12 @@ ol{list-style:none;margin:0;padding:0}li{display:flex;gap:10px;align-items:cente
         // since been blocked (global OR curated-female — station pools are female-free by policy) or whose
         // track left the corpus (de-whitelisted between generator runs) is skipped here, honoring the
         // ~10-min takedown SLA the overrides timer provides. The generator also purges such entries from
-        // the un-aired future each run; this is the immediate layer.
-        const servable = (vid) => radioIndex.byId.has(vid) && !cats.blocked.global.has(vid) && !cats.blocked.female.has(vid);
+        // the un-aired future each run; this is the immediate layer. Audio-only is enforced here too:
+        // isVideo AND the /player-classified list (player-video-ids.json — real videos stored isVideo=0,
+        // e.g. a wedding-recap clip harvested off a Songs shelf that aired) drop out of the broadcast
+        // immediately, not at the next rewrite. Stations-only — search/blockVideos are untouched by the list.
+        const pv = playerVideoIds();
+        const servable = (vid) => { const t = radioIndex.byId.get(vid); return !!t && !t.isVideo && !pv.has(vid) && !cats.blocked.global.has(vid) && !cats.blocked.female.has(vid); };
         const enrichAll = (list) => { // ONE batched art lookup for the whole response (finding: no per-track queries)
           const ai = trackAlbumInfo(liveDb, list.map(([v]) => v));
           return list.map(([vid, startMs, durSec]) => { const t = radioIndex.byId.get(vid), a = ai.get(vid); return { videoId: vid, title: t?.title ?? null, artist: t?.artistName ?? null, artistId: t?.artistId ?? null, thumbnail: a?.thumbnail ?? null, durationSec: durSec, startMs, endMs: startMs + durSec * 1000 }; });
