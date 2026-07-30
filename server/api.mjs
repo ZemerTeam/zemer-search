@@ -660,7 +660,7 @@ async function startServer() {
         // convention as community playlists, gotcha #14) + total runtime over the surviving tracks
         const cover = rows.find((r) => r.thumbnail)?.thumbnail ?? null;
         const totalDurationSec = rows.reduce((s, r) => s + (r.durationSec || 0), 0);
-        if (!wantsHtml) return send(res, 200, { playlist: { id: up.id, title: up.title, sharedBy: up.sharedBy, createdAt: up.createdAt, trackCount: rows.length, thumbnail: cover, totalDurationSec }, tracks: rows, source: "zemer-user" });
+        if (!wantsHtml) return send(res, 200, { playlist: { id: up.id, title: up.title, sharedBy: up.sharedBy, createdAt: up.createdAt, updatedAt: up.updatedAt ?? null, trackCount: rows.length, thumbnail: cover, totalDurationSec }, tracks: rows, source: "zemer-user" });
         const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
         const fmtDur = (t) => (t.durationSec ? `${Math.floor(t.durationSec / 60)}:${String(t.durationSec % 60).padStart(2, "0")}` : "");
         const items = rows.slice(0, 200).map((t, i) => `<li><span class="n">${i + 1}</span>${t.thumbnail ? `<img class="art" src="${esc(t.thumbnail)}" loading="lazy" alt="">` : `<span class="art ph"></span>`}<span class="tt"><span class="t">${esc(t.title)}</span><span class="a">${esc(t.artist || "")}</span></span><span class="d">${fmtDur(t)}</span></li>`).join("");
