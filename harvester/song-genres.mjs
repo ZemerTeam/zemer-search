@@ -24,8 +24,18 @@ import fs from "node:fs";
 import { openCorpus, SONG_GENRES_PATH } from "../corpus/store.mjs";
 
 const DRY = process.env.DRY === "1";
-const SLUGS = new Set(["acapella", "chasidish", "yiddish", "israeli", "english", "mizrachi", "yemenite",
-  "chazzanus", "carlebach", "instrumental", "dance", "calm", "kids", "wedding"]);
+// The full Zemer genre vocabulary. A slug outside this set is a derivation bug, not data — it is dropped
+// and counted as malformed so the run reports it loudly instead of writing an unknown label into the corpus.
+const SLUGS = new Set([
+  // style
+  "acapella", "chasidish", "yiddish", "israeli", "english", "mizrachi", "yemenite",
+  "chazzanus", "carlebach", "instrumental", "dance", "calm", "kids", "wedding",
+  // occasion (album-level facts: a release IS a Purim/Pesach/Three-Weeks record)
+  "purim", "pesach", "chanukah", "yamim-noraim", "succos", "shavuos", "lag-baomer",
+  "tu-bishvat", "three-weeks", "rosh-chodesh", "shabbos", "melave-malka",
+  // non-music — the point is EXCLUSION (never air a shiur/story/podcast on a music station)
+  "spoken", "story", "comedy", "podcast",
+]);
 let doc;
 try { doc = JSON.parse(fs.readFileSync(SONG_GENRES_PATH, "utf8")); }
 catch { console.log(`song-genres: no ${SONG_GENRES_PATH} — nothing to apply`); process.exit(0); }
@@ -35,8 +45,14 @@ if (!items.length) { console.log("song-genres: file has no items — nothing to 
 const db = openCorpus();
 const known = new Set(db.prepare("SELECT videoId FROM track").all().map((r) => r.videoId));
 const upd = db.prepare("UPDATE track SET genres=? WHERE videoId=? AND (genres IS NULL OR genres<>?)");
-let changed = 0, missing = 0, skipped = 0;
+// REPLACE-WHOLESALE: the JSON is the source of truth, so a song the file no longer lists must LOSE its
+// genres. Updating only listed ids would leave a stale label behind whenever the derivation tightens
+// (it has: every hardening pass drops songs that no longer meet the proof bar).
+const keep = new Set(items.map((it) => it?.videoId).filter(Boolean));
+const clr = db.prepare("UPDATE track SET genres=NULL WHERE genres IS NOT NULL AND videoId NOT IN (SELECT value FROM json_each(?))");
+let changed = 0, missing = 0, skipped = 0, cleared = 0;
 db.transaction(() => {
+  if (!DRY) cleared = clr.run(JSON.stringify([...keep])).changes;
   for (const it of items) {
     const v = it?.videoId;
     const gs = (it?.genres || []).filter((g) => SLUGS.has(g)).sort(); // unknown slug = data error, dropped
@@ -47,4 +63,4 @@ db.transaction(() => {
 })();
 const have = db.prepare("SELECT COUNT(*) c FROM track WHERE genres IS NOT NULL").get().c;
 db.close();
-console.log(`song-genres: ${items.length} in file | ${DRY ? "would update" : `updated ${changed}`} | not in corpus ${missing} | malformed ${skipped} | tracks carrying genres: ${have}`);
+console.log(`song-genres: ${items.length} in file | ${DRY ? "would update" : `updated ${changed}, cleared ${cleared}`} | not in corpus ${missing} | malformed ${skipped} | tracks carrying genres: ${have}`);

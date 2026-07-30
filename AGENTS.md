@@ -288,9 +288,21 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
     exists to guarantee.
 
 22. **Genre is a property of a RELEASE — anchor it to an ALBUM, never to a track alone.** `track.genres`
-    (comma-separated style slugs) is derived by identifying an album↔album pair (unique artist + normalized
-    title, corroborated by **≥2 member tracks agreeing on name AND duration**) and applying the release's
-    genres to OUR album's members. Track-level matching was tried and **fails on exactly the case that
+    (comma-separated slugs, 26 of them: style + occasion + non-music) is derived by proving an album↔album
+    identity from **SHARED TRACK SETS** — ≥3 member tracks agreeing on name AND duration (±2s), ≥60%
+    **mutual** overlap, album sizes within 2×, and no runner-up with equal overlap but different genres —
+    then applying the release's genres to OUR album's members. Five rules exist because each one closed a
+    real hole: (a) the ratio denominator is the LARGER album — dividing by the smaller lets a 3-track
+    release sit inside a 40-track compilation at a perfect 1.0 and inherit its genres (containment ≠
+    identity); (b) size sanity; (c) a song on several of OUR albums whose matched albums DISAGREE is
+    dropped, never unioned (union invents a hybrid nobody asserted); (d) the skeleton-matched artist tier
+    is excluded entirely — same-script skeletons collide (gotcha #7's "Asher Weiss"/"Sarah Shasho" case);
+    (e) an unknown slug is reported as malformed, never written. **Titles are NOT used to match**, which
+    makes title agreement independent evidence: 70% exact/contains, and every residual inspected was the
+    same album formatted differently (`Regesh, Vol. 3 - Shabbos` ↔ `Regesh 03 (Shabbos)`) — track-matching
+    finds correct pairs that title-matching MISSES. Measured: 752 pairs, avg 12 shared tracks at 91% mutual
+    overlap, 9,860 songs (13.8%), zero size mismatches / ties / conflicts. **Apply is REPLACE-WHOLESALE** —
+    a song the JSON no longer lists loses its genres, or a tightened derivation leaves stale labels behind. Track-level matching was tried and **fails on exactly the case that
     matters**: an acapella cut and the regular cut of the same song run the *same length*, so the duration
     proof that validates a title alias cannot tell them apart — a song that also appears on an acapella
     compilation gets tagged acapella while our stored recording is the regular version. Album identity IS
