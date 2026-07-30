@@ -52,8 +52,8 @@ const sharded = (prefix, rows, n, keyOf) => {
 // index is unaffected.
 one("artists", db.prepare("SELECT id,name,thumbnail,isFemale,isChasid,isKidZone,isDJ,isAmerican,isFamous,altName FROM artist ORDER BY id").all()
   .map((a) => [a.id, a.name, a.thumbnail ?? null, (a.isFemale ? 1 : 0) | (a.isChasid ? 2 : 0) | (a.isKidZone ? 4 : 0) | (a.isDJ ? 8 : 0) | (a.isAmerican ? 16 : 0) | (a.isFamous ? 32 : 0), a.altName ?? null]));
-sharded("tracks", db.prepare("SELECT videoId,title,altTitle,genres,artistId,isVideo,explicit,durationSec,playCount,uploadDate FROM track ORDER BY videoId").all()
-  .map((t) => [t.videoId, t.title, t.artistId, (t.isVideo ? 1 : 0) | (t.explicit ? 2 : 0), t.durationSec ?? null, t.playCount ?? null, t.uploadDate ?? null, t.altTitle ?? null, t.genres ?? null]), NB.tracks, (r) => r[0]);
+sharded("tracks", db.prepare("SELECT videoId,title,altTitle,genres,energy,artistId,isVideo,explicit,durationSec,playCount,uploadDate FROM track ORDER BY videoId").all()
+  .map((t) => [t.videoId, t.title, t.artistId, (t.isVideo ? 1 : 0) | (t.explicit ? 2 : 0), t.durationSec ?? null, t.playCount ?? null, t.uploadDate ?? null, t.altTitle ?? null, t.genres ?? null, t.energy ?? null]), NB.tracks, (r) => r[0]);
 sharded("albums", db.prepare("SELECT id,playlistId,title,artistId,type,year,thumbnail,uploadDate FROM album ORDER BY id").all()
   .map((al) => [al.id, al.playlistId ?? null, al.title, al.artistId, al.type, al.year ?? null, al.thumbnail ?? null, al.uploadDate ?? null]), NB.albums, (r) => r[0]);
 sharded("albumtracks", db.prepare("SELECT albumId,videoId,pos FROM album_track ORDER BY albumId,pos,videoId").all()

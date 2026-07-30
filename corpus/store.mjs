@@ -228,6 +228,11 @@ export function openCorpus(file = DB_PATH) {
   // A song may carry several; absent = unknown, never "none of these".
   if (!db.prepare("PRAGMA table_info(track)").all().some((c) => c.name === "genres"))
     db.exec("ALTER TABLE track ADD COLUMN genres TEXT");
+  // track.energy: 0..1 acoustic INTENSITY (mellow → driving) — never tempo; see gotcha #23 for the
+  // non-circular validation behind it. Applied from data/track-energy.json (harvester/track-energy.mjs);
+  // the harvest never writes it, so re-harvest keeps it. NULL = unknown.
+  if (!db.prepare("PRAGMA table_info(track)").all().some((c) => c.name === "energy"))
+    db.exec("ALTER TABLE track ADD COLUMN energy REAL");
   // album.uploadDate: the release's REAL date (ISO-8601), dated via one /player on a sample track (see
   // harvester/releases.mjs). Browse pages only carry a year; this is what makes New Releases accurate.
   if (!db.prepare("PRAGMA table_info(album)").all().some((c) => c.name === "uploadDate"))
@@ -361,7 +366,7 @@ export function claimArtistRefresh(db, artistId, cutoffMs, now = Date.now()) {
 // All tracks in the denormalized shape the index/bench/subset already expect.
 export function allTracks(db) {
   return db.prepare(`
-    SELECT t.videoId, t.title, t.altTitle, t.genres, t.artistId, a.name AS artistName,
+    SELECT t.videoId, t.title, t.altTitle, t.genres, t.energy, t.artistId, a.name AS artistName,
            t.isVideo, t.explicit, t.durationSec, t.playCount,
            COALESCE(t.uploadDate, MAX(al.uploadDate)) AS releaseDate,
            a.isFemale, a.isChasid, a.isKidZone, a.isDJ, a.isAmerican, a.isFamous, a.altName
@@ -378,6 +383,7 @@ export function allTracks(db) {
     artistAltName: r.altName || null, // second searchable artist name (other script) — see index/search.mjs
     altTitle: r.altTitle || null,     // second searchable TITLE (other script), same rules
     genres: r.genres ? r.genres.split(",") : [], // style slugs (album-anchored); [] = unknown, not "none"
+    energy: r.energy ?? null,        // 0..1 acoustic intensity; null = unknown (see gotcha #23)
   }));
 }
 
@@ -590,6 +596,8 @@ export const ALT_TITLES_PATH = process.env.ALT_TITLES || path.resolve(HERE, "../
 // Durable per-song style genres applied by harvester/song-genres.mjs → track.genres. Gitignored; the
 // harvest cannot regenerate it, so it is the source of truth for the field.
 export const SONG_GENRES_PATH = process.env.SONG_GENRES || path.resolve(HERE, "../data/song-genres.json");
+// Durable per-song acoustic intensity applied by harvester/track-energy.mjs → track.energy. Gitignored.
+export const TRACK_ENERGY_PATH = process.env.TRACK_ENERGY || path.resolve(HERE, "../data/track-energy.json");
 export const PLAYER_VIDEO_IDS_PATH = process.env.PLAYER_VIDEO_IDS || path.resolve(HERE, "../data/player-video-ids.json");
 export const loadPlayerVideoIds = () => { try { return new Set(JSON.parse(fs.readFileSync(PLAYER_VIDEO_IDS_PATH, "utf8")).videoIds || []); } catch { return new Set(); } };
 export function loadRadioGraph() { try { const g = JSON.parse(fs.readFileSync(RADIO_GRAPH_PATH, "utf8")); return { pop: g.pop || {}, lib: g.lib || {}, sess: g.sess || {}, art: g.art || {}, skip: g.skip || {}, builtAt: g.builtAt || 0 }; } catch { return { pop: {}, lib: {}, sess: {}, art: {}, skip: {}, builtAt: 0 }; } }

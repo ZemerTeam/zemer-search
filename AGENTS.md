@@ -59,6 +59,7 @@ DRY=1 node harvester/backfill-track-meta.mjs               # extract track durat
 DRY=1 node harvester/backfill-durations-player.mjs         # fill remaining durations from cached /player videoDetails.lengthSeconds (the dating pass caches /player for videos+standalone); LIVE=1 fetches the few uncached (IP-safe)
 DRY=1 node harvester/backfill-video-type-player.mjs        # detect STANDALONE songs that are really VIDEOS via /player musicVideoType (ATV=audio, else video — catches videos harvested off a Songs shelf that the listed-as-video backfill can't see, e.g. a wedding-recap clip that aired on a Station) → gitignored data/player-video-ids.json (union-merged), a STATIONS-ONLY exclusion list (pool filter + /station serve-time) — deliberately NOT a corpus isVideo flip, so search categories/blockVideos are untouched; album members skipped (songs by construction); LIVE=1 fetches uncached (IP-safe; use the residential PROXY_URL from a datacenter)
 node harvester/playlists.mjs                                  # discover COMMUNITY playlists (SEEDS=both FIRSTNAMES=1 N=4000 = full sweep; REVALIDATE=1 prunes stale; DRY=1 = preview — full pass, would-admit/would-remove counts, zero DB writes)
+node harvester/track-energy.mjs                               # apply data/track-energy.json → track.energy (0..1 acoustic INTENSITY, mellow↔driving — the only audio attribute that survived validation; NO tempo, see gotcha #23). Idempotent, replace-wholesale, DRY=1 previews
 node harvester/song-genres.mjs                                # apply data/song-genres.json → track.genres (per-song STYLE slugs: acapella/chasidish/dance/calm/instrumental/chazzanus/wedding/kids/israeli/english/mizrachi/yiddish/carlebach/yemenite). ALBUM-ANCHORED — see gotcha #22; idempotent, DRY=1 previews
 node harvester/alt-titles.mjs                                 # apply data/alt-titles.json → track.altTitle (a song's title in the OTHER script, indexed as a second searchable title; the harvest can't produce it, so this is the durable source — idempotent, DRY=1 previews)
 node harvester/zemer-playlists.mjs                            # apply hand-curated data/zemer-playlists.json → /zemer-playlists (offline; REPLACES wholesale; DRY=1 validates + reports unknown ids)
@@ -314,6 +315,17 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
     them as corroboration only. **Artist-level genre was rejected outright**: it means "has ≥1 release in
     this category", so prolific artists accumulate 9–12 genres and it agreed with curated `isKidZone` just
     15% of the time. Absent genres = UNKNOWN, never "none of these".
+
+23. **`track.energy` is INTENSITY (0..1, mellow ↔ driving) — never treat or present it as tempo.** Its
+    validation is built to be NON-CIRCULAR, which is the subtle part: `energy` and `genres` describe the
+    SAME albums, so checking one against the other measures their mutual consistency and says nothing about
+    whether either is right for a given song. Energy is trusted because it passed on evidence independent of
+    both fields: community-playlist titles written by real users (**77.5%**, d=1.03, n=1296/1822), our own
+    song titles (71.7%), the curated `isDJ` flag (58%, n=44), a **permutation null** (shuffling the values
+    across songs scores 45–54%, so the 77.5% cannot be a sampling artifact), and an album-coherence check
+    (**ICC 0.537** — half the variance is explained by which album a song is on, which a wrong binding could
+    not produce). Values bind through PROVEN album pairs (gotcha #22) with a strict 1-second per-song
+    duration match, so a value cannot drift onto a different cut of the same song. Absent = unknown.
 
 ## Editing the matcher safely
 
