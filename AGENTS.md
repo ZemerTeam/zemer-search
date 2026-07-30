@@ -59,6 +59,7 @@ DRY=1 node harvester/backfill-track-meta.mjs               # extract track durat
 DRY=1 node harvester/backfill-durations-player.mjs         # fill remaining durations from cached /player videoDetails.lengthSeconds (the dating pass caches /player for videos+standalone); LIVE=1 fetches the few uncached (IP-safe)
 DRY=1 node harvester/backfill-video-type-player.mjs        # detect STANDALONE songs that are really VIDEOS via /player musicVideoType (ATV=audio, else video — catches videos harvested off a Songs shelf that the listed-as-video backfill can't see, e.g. a wedding-recap clip that aired on a Station) → gitignored data/player-video-ids.json (union-merged), a STATIONS-ONLY exclusion list (pool filter + /station serve-time) — deliberately NOT a corpus isVideo flip, so search categories/blockVideos are untouched; album members skipped (songs by construction); LIVE=1 fetches uncached (IP-safe; use the residential PROXY_URL from a datacenter)
 node harvester/playlists.mjs                                  # discover COMMUNITY playlists (SEEDS=both FIRSTNAMES=1 N=4000 = full sweep; REVALIDATE=1 prunes stale; DRY=1 = preview — full pass, would-admit/would-remove counts, zero DB writes)
+node harvester/song-genres.mjs                                # apply data/song-genres.json → track.genres (per-song STYLE slugs: acapella/chasidish/dance/calm/instrumental/chazzanus/wedding/kids/israeli/english/mizrachi/yiddish/carlebach/yemenite). ALBUM-ANCHORED — see gotcha #22; idempotent, DRY=1 previews
 node harvester/alt-titles.mjs                                 # apply data/alt-titles.json → track.altTitle (a song's title in the OTHER script, indexed as a second searchable title; the harvest can't produce it, so this is the durable source — idempotent, DRY=1 previews)
 node harvester/zemer-playlists.mjs                            # apply hand-curated data/zemer-playlists.json → /zemer-playlists (offline; REPLACES wholesale; DRY=1 validates + reports unknown ids)
 STATS_URL=… STATS_KEY=… node harvester/auto-playlists.mjs    # generate DATA-DRIVEN playlists (Top 50 / Trending / Favorites) from zemer-stats /stats → data/zemer-playlists-auto.json (gitignored) + apply merged; fail-safe, no-op when unchanged; DRY=1 previews. Twice daily via zemer-autoplaylists.timer (Shabbat-gated)
@@ -285,6 +286,22 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
     **Both fields are in the on-device subset** (appended last on the artist/track rows) — otherwise the
     offline fallback answers Hebrew queries worse than the server, which is exactly the parity `index/`
     exists to guarantee.
+
+22. **Genre is a property of a RELEASE — anchor it to an ALBUM, never to a track alone.** `track.genres`
+    (comma-separated style slugs) is derived by identifying an album↔album pair (unique artist + normalized
+    title, corroborated by **≥2 member tracks agreeing on name AND duration**) and applying the release's
+    genres to OUR album's members. Track-level matching was tried and **fails on exactly the case that
+    matters**: an acapella cut and the regular cut of the same song run the *same length*, so the duration
+    proof that validates a title alias cannot tell them apart — a song that also appears on an acapella
+    compilation gets tagged acapella while our stored recording is the regular version. Album identity IS
+    the version. Validation of the album-anchored output against independent evidence: **100/109 acapella
+    songs confirmed** (99 because the ALBUM TITLE in our own corpus says Acapella — evidence independent of the genre labels),
+    the 9 residual all one Three Weeks release (acapella by halacha); `english` corroborates 100% and
+    `chasidish` 88% against curated artist flags. NOTE those artist-flag checks compare a SONG genre to an
+    ARTIST attribute, so disagreement is not error (a non-KidZone artist can release a kids album) — treat
+    them as corroboration only. **Artist-level genre was rejected outright**: it means "has ≥1 release in
+    this category", so prolific artists accumulate 9–12 genres and it agreed with curated `isKidZone` just
+    15% of the time. Absent genres = UNKNOWN, never "none of these".
 
 ## Editing the matcher safely
 
