@@ -10,7 +10,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, trackAlbumInfo, tracksByIds, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistList, communityKeptCounts, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, tracksNeedingDate, setTrackUploadDate, recentAlbums, recentTracks, setFemaleSet, applyZemerPlaylists, zemerPlaylistList, zemerPlaylistDetail, applyHomeRank, homeRows, setMeta, getMeta, createUserPlaylist, getUserPlaylist, countUserPlaylistsByDevice } from "./store.mjs";
+import { openCorpus, upsertArtistCatalog, artistDetail, albumDetail, trackAlbumInfo, tracksByIds, whitelistedChannelIds, pruneArtists, prunePlan, pruneBlocklisted, stats, upsertCommunityPlaylist, removeCommunityPlaylist, allCommunityPlaylists, communityPlaylistList, communityKeptCounts, communityPlaylistMeta, communityPlaylistIds, albumsNeedingDate, setAlbumUploadDate, datedAlbumCount, tracksNeedingDate, setTrackUploadDate, recentAlbums, recentTracks, setFemaleSet, applyZemerPlaylists, zemerPlaylistList, zemerPlaylistDetail, applyHomeRank, homeRows, setMeta, getMeta, createUserPlaylist, getUserPlaylist, updateUserPlaylist, countUserPlaylistsByDevice } from "./store.mjs";
 import { parseDurationSec, parsePlays } from "../harness/browse.mjs";
 
 const seed = (db) => upsertArtistCatalog(db, { id: "UCmusic", name: "Test Artist" }, {
@@ -855,4 +855,19 @@ test("user-shared playlists: immutable snapshot round-trip + device rate counter
   assert.equal(countUserPlaylistsByDevice(db, dev, 2000), 0, "windowed");
   // duplicate id must throw (capability ids are unique)
   assert.throws(() => createUserPlaylist(db, { id: "AbC123xYz9Qw", title: "x", tracks: ["c"] }));
+});
+
+test("user-shared playlists: owner-token update in place; token never served", () => {
+  const db = openCorpus(":memory:");
+  createUserPlaylist(db, { id: "LiveShare1234", title: "v1", tracks: ["aaaaaaaaaaa"], ownerToken: "sekret-token", createdAt: 1000 });
+  assert.equal(getUserPlaylist(db, "LiveShare1234").ownerToken, undefined, "token never in reads");
+  assert.equal(updateUserPlaylist(db, { id: "LiveShare1234", ownerToken: "wrong", title: "x", tracks: ["b"] }), "forbidden");
+  assert.equal(updateUserPlaylist(db, { id: "nope00000000", ownerToken: "sekret-token", title: "x", tracks: ["b"] }), "missing");
+  assert.equal(updateUserPlaylist(db, { id: "LiveShare1234", ownerToken: "sekret-token", title: "v2", tracks: ["bbbbbbbbbbb", "aaaaaaaaaaa"], sharedBy: "Avi" }), "ok");
+  const up = getUserPlaylist(db, "LiveShare1234");
+  assert.equal(up.title, "v2"); assert.deepEqual(up.tracks, ["bbbbbbbbbbb", "aaaaaaaaaaa"]);
+  assert.equal(up.sharedBy, "Avi"); assert.ok(up.updatedAt > 0, "updatedAt stamped");
+  // legacy row without a token is never updatable
+  createUserPlaylist(db, { id: "LegacyRow9999", title: "old", tracks: ["ccccccccccc"] });
+  assert.equal(updateUserPlaylist(db, { id: "LegacyRow9999", ownerToken: "anything", title: "x", tracks: ["d"] }), "forbidden");
 });

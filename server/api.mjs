@@ -26,7 +26,7 @@ import os from "node:os";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, homeRows, artistDetail, albumDetail, tracksByIds, trackAlbumInfo, allAlbumTracks, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, loadRadioGraph, claimArtistRefresh, createUserPlaylist, getUserPlaylist, countUserPlaylistsByDevice, blocklist, BLOCKED_IDS_PATH, RADIO_GRAPH_PATH, STATIONS_PATH, AUTO_HISTORY_PATH, ZEMER_PLAYLISTS_PATH, ACAPELLA_AUTO_PATH } from "../corpus/store.mjs";
+import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, homeRows, artistDetail, albumDetail, tracksByIds, trackAlbumInfo, allAlbumTracks, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, loadRadioGraph, claimArtistRefresh, createUserPlaylist, getUserPlaylist, updateUserPlaylist, countUserPlaylistsByDevice, blocklist, BLOCKED_IDS_PATH, RADIO_GRAPH_PATH, STATIONS_PATH, AUTO_HISTORY_PATH, ZEMER_PLAYLISTS_PATH, ACAPELLA_AUTO_PATH } from "../corpus/store.mjs";
 import { pickAnchor, applyBadges, applyRanks, chartedBefore, firstCharted, formulaOf, chartWeek } from "./chart-badges.mjs";
 import { buildCategories, searchCategories } from "../index/categories.mjs";
 import { buildRadioIndex, radio } from "../index/radio.mjs";
@@ -601,9 +601,38 @@ async function startServer() {
             const valid = j.videoIds.filter((v) => typeof v === "string" && /^[\w-]{11}$/.test(v) && radioIndex.byId.has(v) && !cats.blocked.global.has(v));
             if (!valid.length) return send(res, 400, { error: "no whitelisted tracks in playlist" });
             const id = crypto.randomBytes(12).toString("base64url").replace(/[-_]/g, "").slice(0, 14); // unguessable capability
-            createUserPlaylist(liveDb, { id, title, tracks: valid, device, sharedBy });
-            return send(res, 200, { id, url: `https://${PUBLIC_HOST}/user_playlist/${id}`, kept: valid.length, dropped: j.videoIds.length - valid.length });
+            const ownerToken = crypto.randomBytes(24).toString("base64url"); // returned ONCE — the app's proof of ownership for PUT updates
+            createUserPlaylist(liveDb, { id, title, tracks: valid, device, sharedBy, ownerToken });
+            return send(res, 200, { id, url: `https://${PUBLIC_HOST}/user_playlist/${id}`, ownerToken, kept: valid.length, dropped: j.videoIds.length - valid.length });
           } catch (e) { console.error("user-playlist create failed:", e.message); try { send(res, 500, { error: "server error" }); } catch { /* res gone */ } }
+        });
+        return;
+      }
+      if (u.pathname.startsWith("/user-playlist/") && req.method === "PUT") {
+        // LIVE-UPDATING share (app request 2026-07-30): in-place replace of the snapshot — same id, same
+        // URL, receivers see the current state on next open. ownerToken (minted at create, returned once,
+        // never served) is the ownership proof; wrong/absent token → 403, unknown id → 404. Validation is
+        // identical to create. No rate pool: updates add no rows and require the token capability.
+        const id = u.pathname.slice(15);
+        if (!/^[A-Za-z0-9]{8,20}$/.test(id)) return send(res, 400, { error: "bad id" });
+        const chunks = []; let bytes = 0;
+        req.on("error", () => { /* client abort — never crash the worker */ });
+        req.on("data", (c) => { bytes += c.length; if (bytes > 262144) req.destroy(); else chunks.push(c); });
+        req.on("end", () => {
+          try {
+            let j; try { j = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { return send(res, 400, { error: "bad json" }); }
+            const title = String(j.title || "").trim().slice(0, 120);
+            if (!title) return send(res, 400, { error: "missing title" });
+            if (!Array.isArray(j.videoIds) || !j.videoIds.length || j.videoIds.length > 500) return send(res, 400, { error: "videoIds must be 1..500" });
+            let sharedBy = String(j.sharedBy || "").trim().slice(0, 40) || null;
+            if (sharedBy) { const low = sharedBy.toLowerCase(); if (blocklist().playlistTerms.some((t) => low.includes(t))) sharedBy = null; }
+            const valid = j.videoIds.filter((v) => typeof v === "string" && /^[\w-]{11}$/.test(v) && radioIndex.byId.has(v) && !cats.blocked.global.has(v));
+            if (!valid.length) return send(res, 400, { error: "no whitelisted tracks in playlist" });
+            const r = updateUserPlaylist(liveDb, { id, ownerToken: typeof j.ownerToken === "string" ? j.ownerToken : null, title, tracks: valid, sharedBy });
+            if (r === "missing") return send(res, 404, { error: "playlist not found" });
+            if (r === "forbidden") return send(res, 403, { error: "bad owner token" });
+            return send(res, 200, { id, url: `https://${PUBLIC_HOST}/user_playlist/${id}`, kept: valid.length, dropped: j.videoIds.length - valid.length });
+          } catch (e) { console.error("user-playlist update failed:", e.message); try { send(res, 500, { error: "server error" }); } catch { /* res gone */ } }
         });
         return;
       }

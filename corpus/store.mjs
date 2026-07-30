@@ -196,6 +196,11 @@ export function openCorpus(file = DB_PATH) {
   // optional sharer display name ("shared by …"), shown to receivers on web + app
   if (!db.prepare("PRAGMA table_info(user_playlist)").all().some((c) => c.name === "sharedBy"))
     db.exec("ALTER TABLE user_playlist ADD COLUMN sharedBy TEXT");
+  // live-updating shares (app request 2026-07-30): the ownerToken (returned ONCE at create, never served)
+  // is the ownership proof for in-place updates — same id, same URL, receivers see the current snapshot.
+  for (const col of ["ownerToken", "updatedAt"])
+    if (!db.prepare("PRAGMA table_info(user_playlist)").all().some((c) => c.name === col))
+      db.exec(`ALTER TABLE user_playlist ADD COLUMN ${col} TEXT`);
 
   // Style/curation tags from the whitelist (2026-07-29): DJ / American-vs-Israeli / famous — stamped from
   // whitelist.json on every harvest upsert (same flow as isFemale/isChasid/isKidZone). Consumers: radio's
@@ -293,13 +298,22 @@ export function upsertArtistCatalog(db, artist, catalog, ts = Date.now()) {
 
 // User-shared playlists (link sharing, zemer-app#176). Create = insert an immutable snapshot; read = the
 // row (member enrichment/filtering happens in the API against the live corpus).
-export function createUserPlaylist(db, { id, title, tracks, device = null, sharedBy = null, createdAt = Date.now() }) {
-  db.prepare("INSERT INTO user_playlist(id,title,tracks,device,sharedBy,createdAt) VALUES(?,?,?,?,?,?)")
-    .run(id, title, JSON.stringify(tracks), device, sharedBy, createdAt);
+export function createUserPlaylist(db, { id, title, tracks, device = null, sharedBy = null, ownerToken = null, createdAt = Date.now() }) {
+  db.prepare("INSERT INTO user_playlist(id,title,tracks,device,sharedBy,ownerToken,createdAt) VALUES(?,?,?,?,?,?,?)")
+    .run(id, title, JSON.stringify(tracks), device, sharedBy, ownerToken, createdAt);
 }
-export function getUserPlaylist(db, id) {
-  const r = db.prepare("SELECT id,title,tracks,sharedBy,createdAt FROM user_playlist WHERE id=?").get(id);
-  return r ? { id: r.id, title: r.title, tracks: JSON.parse(r.tracks), sharedBy: r.sharedBy || null, createdAt: r.createdAt } : null;
+export function getUserPlaylist(db, id) { // ownerToken deliberately NEVER selected — it must never be served
+  const r = db.prepare("SELECT id,title,tracks,sharedBy,createdAt,updatedAt FROM user_playlist WHERE id=?").get(id);
+  return r ? { id: r.id, title: r.title, tracks: JSON.parse(r.tracks), sharedBy: r.sharedBy || null, createdAt: r.createdAt, updatedAt: r.updatedAt ? Number(r.updatedAt) : null } : null;
+}
+// In-place update, token-gated: returns "ok" | "forbidden" (row exists, wrong/absent token) | "missing".
+// A row created before tokens existed (ownerToken NULL) is not updatable — the app mints a fresh share.
+export function updateUserPlaylist(db, { id, ownerToken, title, tracks, sharedBy = null, updatedAt = Date.now() }) {
+  if (!ownerToken) return "forbidden";
+  const info = db.prepare("UPDATE user_playlist SET title=?, tracks=?, sharedBy=?, updatedAt=? WHERE id=? AND ownerToken=?")
+    .run(title, JSON.stringify(tracks), sharedBy, String(updatedAt), id, ownerToken);
+  if (info.changes === 1) return "ok";
+  return db.prepare("SELECT 1 FROM user_playlist WHERE id=?").get(id) ? "forbidden" : "missing";
 }
 export const countUserPlaylistsByDevice = (db, device, sinceMs) =>
   db.prepare("SELECT COUNT(*) c FROM user_playlist WHERE device=? AND createdAt>=?").get(device, sinceMs).c;
