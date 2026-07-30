@@ -282,6 +282,9 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
     **`track.altTitle` is durable, not harvestable:** a browse page shows exactly one title, so the track
     upsert deliberately never writes the column and `harvester/alt-titles.mjs` re-applies it from the
     gitignored `data/alt-titles.json` (idempotent, `DRY=1` previews). Re-harvest can't wipe it.
+    **Both fields are in the on-device subset** (appended last on the artist/track rows) — otherwise the
+    offline fallback answers Hebrew queries worse than the server, which is exactly the parity `index/`
+    exists to guarantee.
 
 ## Editing the matcher safely
 

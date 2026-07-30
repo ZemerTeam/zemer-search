@@ -46,7 +46,9 @@ one level down — the song's title in the other script, indexed under the TITLE
 song-title recall **12.7% → 80.3%** ("lecha dodi" finds לכה דודי). Unlike `altName` (which rides the
 whitelist), `altTitle` cannot be harvested — a browse page shows one title — so it is applied from the
 durable gitignored `data/alt-titles.json` by `harvester/alt-titles.mjs`, and the track upsert never
-touches the column so re-harvest can't wipe it.
+touches the column so re-harvest can't wipe it. **Both fields ship in the on-device subset** (appended
+last on the artist/track rows, nullable) — the offline fallback must answer cross-script queries the same
+way production does, or it silently regresses Hebrew search when the network drops.
 
 Two hard rules make it safe (both measured — see gotcha #21):
 
