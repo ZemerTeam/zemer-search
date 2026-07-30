@@ -21,7 +21,8 @@ artist (
 user_playlist (                  -- user-SHARED playlists (zemer-app#176): person-to-person link sharing
   id TEXT PRIMARY KEY,           --   unguessable base62 capability (the link IS the access control)
   title TEXT, tracks TEXT,       --   immutable snapshot; tracks = JSON videoId array, order preserved
-  device TEXT, createdAt INTEGER --   sharer's anonymous uuid (rate limiting only, never served)
+  device TEXT, createdAt INTEGER,--   sharer's anonymous uuid (rate limiting only, never served)
+  sharedBy TEXT                  --   optional display name ("shared by …"), term-screened at create
 )                                --   members corpus-validated at create; filters applied at serve
 track (
   videoId TEXT PRIMARY KEY, title TEXT, artistId TEXT REFERENCES artist(id),

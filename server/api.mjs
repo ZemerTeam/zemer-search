@@ -26,7 +26,7 @@ import os from "node:os";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, homeRows, artistDetail, albumDetail, tracksByIds, trackAlbumInfo, allAlbumTracks, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, loadRadioGraph, claimArtistRefresh, createUserPlaylist, getUserPlaylist, countUserPlaylistsByDevice, BLOCKED_IDS_PATH, RADIO_GRAPH_PATH, STATIONS_PATH, AUTO_HISTORY_PATH, ZEMER_PLAYLISTS_PATH, ACAPELLA_AUTO_PATH } from "../corpus/store.mjs";
+import { openCorpus, DB_PATH, allTracks, allArtists, allAlbums, allPlaylists, allCommunityPlaylists, communityPlaylistMeta, communityPlaylistList, communityKeptCounts, zemerPlaylistList, zemerPlaylistDetail, homeRows, artistDetail, albumDetail, tracksByIds, trackAlbumInfo, allAlbumTracks, whitelistedChannelIds, recentTracks, recentAlbums, stats, setFemaleSet, loadBlockedIds, loadRadioGraph, claimArtistRefresh, createUserPlaylist, getUserPlaylist, countUserPlaylistsByDevice, blocklist, BLOCKED_IDS_PATH, RADIO_GRAPH_PATH, STATIONS_PATH, AUTO_HISTORY_PATH, ZEMER_PLAYLISTS_PATH, ACAPELLA_AUTO_PATH } from "../corpus/store.mjs";
 import { pickAnchor, applyBadges, applyRanks, chartedBefore, firstCharted, formulaOf, chartWeek } from "./chart-badges.mjs";
 import { buildCategories, searchCategories } from "../index/categories.mjs";
 import { buildRadioIndex, radio } from "../index/radio.mjs";
@@ -585,16 +585,23 @@ async function startServer() {
             let j; try { j = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { return send(res, 400, { error: "bad json" }); }
             const title = String(j.title || "").trim().slice(0, 120);
             if (!title) return send(res, 400, { error: "missing title" });
+            // optional sharer display name — free text shown to receivers, so it gets the same term screen
+            // the community titles/curators get (blocklist.playlistTerms); a screened name just drops silently
+            let sharedBy = String(j.sharedBy || "").trim().slice(0, 40) || null;
+            if (sharedBy) { const low = sharedBy.toLowerCase(); if (blocklist().playlistTerms.some((t) => low.includes(t))) sharedBy = null; }
             if (!Array.isArray(j.videoIds) || !j.videoIds.length || j.videoIds.length > 500) return send(res, 400, { error: "videoIds must be 1..500" });
             const device = typeof j.device === "string" && /^[0-9a-f-]{36}$/i.test(j.device) ? j.device.toLowerCase() : null;
             // storage hygiene (not security): per-device + global daily brakes on permanent rows
             if (device && countUserPlaylistsByDevice(liveDb, device, Date.now() - 86400000) >= 50) return send(res, 429, { error: "daily share limit reached" });
             if (liveDb.prepare("SELECT COUNT(*) c FROM user_playlist WHERE createdAt>=?").get(Date.now() - 86400000).c >= 2000) return send(res, 429, { error: "busy, try later" });
-            // keep only corpus members, order preserved — the link can never carry a non-whitelisted track
-            const valid = j.videoIds.filter((v) => typeof v === "string" && /^[\w-]{11}$/.test(v) && radioIndex.byId.has(v));
+            // keep only corpus members, order preserved — the link can never carry a non-whitelisted track.
+            // GLOBALLY-blocked ids also drop at create (app-side reply Q3: covers the ~10-min window before a
+            // block reaches the corpus; folded into `dropped`). `female`-tagged blocks stay in the snapshot —
+            // they're receiver-conditional and filtered per-request at open, like everywhere else.
+            const valid = j.videoIds.filter((v) => typeof v === "string" && /^[\w-]{11}$/.test(v) && radioIndex.byId.has(v) && !cats.blocked.global.has(v));
             if (!valid.length) return send(res, 400, { error: "no whitelisted tracks in playlist" });
             const id = crypto.randomBytes(12).toString("base64url").replace(/[-_]/g, "").slice(0, 14); // unguessable capability
-            createUserPlaylist(liveDb, { id, title, tracks: valid, device });
+            createUserPlaylist(liveDb, { id, title, tracks: valid, device, sharedBy });
             return send(res, 200, { id, url: `https://${PUBLIC_HOST}/user_playlist/${id}`, kept: valid.length, dropped: j.videoIds.length - valid.length });
           } catch (e) { console.error("user-playlist create failed:", e.message); try { send(res, 500, { error: "server error" }); } catch { /* res gone */ } }
         });
@@ -620,20 +627,40 @@ async function startServer() {
         const wantsHtml = String(req.headers.accept || "").includes("text/html") && u.searchParams.get("format") !== "json";
         const ai = trackAlbumInfo(liveDb, kept);
         const rows = kept.map((v) => { const t = radioIndex.byId.get(v), a = ai.get(v); return { videoId: v, title: t.title, artist: t.artistName, artistId: t.artistId, thumbnail: a?.thumbnail ?? null, durationSec: t.durationSec, explicit: t.explicit, isVideo: t.isVideo }; });
-        if (!wantsHtml) return send(res, 200, { playlist: { id: up.id, title: up.title, createdAt: up.createdAt, trackCount: rows.length }, tracks: rows, source: "zemer-user" });
+        // playlist header metadata: track-derived COVER (first surviving member's album art — same
+        // convention as community playlists, gotcha #14) + total runtime over the surviving tracks
+        const cover = rows.find((r) => r.thumbnail)?.thumbnail ?? null;
+        const totalDurationSec = rows.reduce((s, r) => s + (r.durationSec || 0), 0);
+        if (!wantsHtml) return send(res, 200, { playlist: { id: up.id, title: up.title, sharedBy: up.sharedBy, createdAt: up.createdAt, trackCount: rows.length, thumbnail: cover, totalDurationSec }, tracks: rows, source: "zemer-user" });
         const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-        const items = rows.slice(0, 200).map((t, i) => `<li><span class="n">${i + 1}</span><span class="t">${esc(t.title)}</span><span class="a">${esc(t.artist || "")}</span></li>`).join("");
+        const fmtDur = (t) => (t.durationSec ? `${Math.floor(t.durationSec / 60)}:${String(t.durationSec % 60).padStart(2, "0")}` : "");
+        const items = rows.slice(0, 200).map((t, i) => `<li><span class="n">${i + 1}</span>${t.thumbnail ? `<img class="art" src="${esc(t.thumbnail)}" loading="lazy" alt="">` : `<span class="art ph"></span>`}<span class="tt"><span class="t">${esc(t.title)}</span><span class="a">${esc(t.artist || "")}</span></span><span class="d">${fmtDur(t)}</span></li>`).join("");
+        const mins = Math.round(totalDurationSec / 60);
+        // In-browser "Open in the app": a plain https link to the SAME page never re-triggers App Links
+        // (they only fire on taps from OTHER apps) — Android needs an intent:// URI with the package. Other
+        // platforms keep the https link (harmless no-op pre-App-Links, correct after).
+        const isAndroid = /android/i.test(String(req.headers["user-agent"] || ""));
+        const openHref = isAndroid
+          ? `intent://${PUBLIC_HOST}/user_playlist/${esc(up.id)}#Intent;scheme=https;package=com.jtech.zemer;end`
+          : `https://${PUBLIC_HOST}/user_playlist/${esc(up.id)}`;
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" });
-        return res.end(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(up.title)} · Zemer</title><style>
+        return res.end(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(up.title)} · Zemer</title>
+<meta property="og:title" content="${esc(up.title)}"><meta property="og:description" content="${rows.length} songs · ${mins} min${up.sharedBy ? ` · shared by ${esc(up.sharedBy)}` : ""} · on Zemer">${cover ? `<meta property="og:image" content="${esc(cover)}">` : ""}<style>
 body{margin:0;font-family:'Segoe UI',Roboto,Arial,sans-serif;background:linear-gradient(135deg,#132a4d,#1f66c2);color:#fff;min-height:100vh}
 .wrap{max-width:560px;margin:0 auto;padding:32px 20px 60px}
-h1{font-size:1.7rem;margin:18px 0 4px}.sub{opacity:.75;margin-bottom:18px}
-.open{display:block;text-align:center;background:#fff;color:#1f66c2;font-weight:700;text-decoration:none;border-radius:12px;padding:14px;margin:18px 0 26px;font-size:1.05rem}
-ol{list-style:none;margin:0;padding:0}li{display:flex;gap:10px;align-items:baseline;padding:9px 2px;border-bottom:1px solid rgba(255,255,255,.12)}
-.n{opacity:.5;min-width:22px;text-align:right}.t{flex:1;font-weight:600}.a{opacity:.7;font-size:.85rem}
+.hdr{display:flex;gap:16px;align-items:center;margin-top:14px}
+.cover{width:96px;height:96px;border-radius:14px;object-fit:cover;box-shadow:0 6px 18px rgba(0,0,0,.35);flex:none}
+h1{font-size:1.55rem;margin:0 0 4px}.sub{opacity:.75}
+.open{display:block;text-align:center;background:#fff;color:#1f66c2;font-weight:700;text-decoration:none;border-radius:12px;padding:14px;margin:20px 0 26px;font-size:1.05rem}
+ol{list-style:none;margin:0;padding:0}li{display:flex;gap:10px;align-items:center;padding:8px 2px;border-bottom:1px solid rgba(255,255,255,.12)}
+.n{opacity:.5;min-width:20px;text-align:right;font-size:.85rem}
+.art{width:40px;height:40px;border-radius:7px;object-fit:cover;flex:none}.art.ph{background:rgba(255,255,255,.12);display:inline-block}
+.tt{flex:1;min-width:0;display:flex;flex-direction:column}.t{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.a{opacity:.7;font-size:.82rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.d{opacity:.6;font-size:.82rem;font-variant-numeric:tabular-nums}
 .brand{margin-top:30px;text-align:center;letter-spacing:6px;font-weight:600;opacity:.8;font-size:.85rem}</style></head><body><div class="wrap">
-<div class="brand">ZEMER</div><h1>${esc(up.title)}</h1><div class="sub">${rows.length} songs · shared playlist</div>
-<a class="open" href="https://${PUBLIC_HOST}/user_playlist/${esc(up.id)}">Open in the Zemer app</a>
+<div class="brand">ZEMER</div>
+<div class="hdr">${cover ? `<img class="cover" src="${esc(cover)}" alt="">` : ""}<div><h1>${esc(up.title)}</h1><div class="sub">${rows.length} songs · ${mins} min${up.sharedBy ? ` · shared by ${esc(up.sharedBy)}` : " · shared playlist"}</div></div></div>
+<a class="open" href="${openHref}">Open in the Zemer app</a>
 <ol>${items}</ol><div class="brand">ZEMER</div></div></body></html>`);
       }
       if (u.pathname === "/.well-known/assetlinks.json") {
