@@ -229,7 +229,10 @@ async function startServer() {
     try { for (const v of ((JSON.parse(fs.readFileSync(ZEMER_PLAYLISTS_PATH, "utf8")).playlists || []).find((p) => p?.id === "acapella")?.videoIds || [])) acapella.add(v); } catch { /* none */ }
     try { for (const v of (JSON.parse(fs.readFileSync(ACAPELLA_AUTO_PATH, "utf8")).videoIds || [])) acapella.add(v); } catch { /* none */ }
     const CLEAR_ACAP = /a[\s-]?c+app?ell?a|\bvocal\s+version\b|\(\s*vocal\s*\)|ווקאל|וואקאל|אקפלה/i;
-    for (const t of tracks) if (CLEAR_ACAP.test(t.title || "")) acapella.add(t.videoId);
+    // Three independent evidence sources, unioned: the curated list, the strict title marker, and the
+    // song's own release genre (track.genres — itself curated-seeded, so a superset of the first).
+    // Over-exclusion is the safe direction: a missed acapella song airs where the product forbids it.
+    for (const t of tracks) if (CLEAR_ACAP.test(t.title || "") || (t.genres || []).includes("acapella")) acapella.add(t.videoId);
     radioIndex = buildRadioIndex({ tracks, artists, albumTracks: allAlbumTracks(liveDb), graph: loadRadioGraph(), matcher, blocked, acapella });
     indexedCount = tracks.length; indexedAt = Date.now();
     whitelistTotal = countWhitelist();

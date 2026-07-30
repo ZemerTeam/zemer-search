@@ -105,3 +105,17 @@ test("scheduleAt finds the entry at a wall-clock instant (and -1 outside)", () =
   const last = entries[entries.length - 1];
   assert.equal(scheduleAt(entries, last[1] + last[2] * 1000 + 1), -1);
 });
+
+// Acapella veto: a song must be excluded if ANY evidence source trips — curated list, strict title
+// marker, or its release genre. Pinned because the product rule is absolute (no station plays acapella)
+// and because genre coverage is partial: requiring the genre alone would let uncovered songs through.
+test("acapella veto unions curated / title-marker / genre evidence", () => {
+  const CLEAR_ACAP = /a[\s-]?c+app?ell?a|\bvocal\s+version\b|\(\s*vocal\s*\)|ווקאל|וואקאל|אקפלה/i;
+  const curated = new Set(["curatedOnly"]);
+  const excluded = (t) => curated.has(t.videoId) || (t.genres || []).includes("acapella") || CLEAR_ACAP.test(t.title || "");
+  assert.equal(excluded({ videoId: "curatedOnly", title: "Plain Title", genres: [] }), true, "curated list alone must veto");
+  assert.equal(excluded({ videoId: "x", title: "Shir (Acapella)", genres: [] }), true, "title marker alone must veto");
+  assert.equal(excluded({ videoId: "y", title: "Plain Title", genres: ["acapella"] }), true, "release genre alone must veto");
+  assert.equal(excluded({ videoId: "z", title: "אבא - ווקאלי", genres: ["israeli"] }), true, "Hebrew marker vetoes even when the genre says otherwise");
+  assert.equal(excluded({ videoId: "w", title: "Plain Title", genres: ["israeli", "dance"] }), false, "an ordinary song stays in the pool");
+});

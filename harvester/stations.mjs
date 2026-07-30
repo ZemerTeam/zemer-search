@@ -59,6 +59,10 @@ try { for (const v of ((JSON.parse(fs.readFileSync(ZEMER_PLAYLISTS_PATH, "utf8")
 try { for (const v of (JSON.parse(fs.readFileSync(ACAPELLA_AUTO_PATH, "utf8")).videoIds || [])) acapella.add(v); } catch { /* none */ }
 const CLEAR_ACAP = /a[\s-]?c+app?ell?a|\bvocal\s+version\b|\(\s*vocal\s*\)|ווקאל|וואקאל|אקפלה/i;
 const playerVideo = loadPlayerVideoIds(); // /player-classified real videos stored isVideo=0 — audio-only pools drop them
+// Third evidence source for the acapella veto, alongside the curated list and the title marker: a song
+// whose RELEASE is an acapella release (track.genres, gotcha #22 — itself seeded from the curated list, so
+// this is a superset). Over-exclusion is the safe direction here: missing one airs acapella on a station.
+const genreAcapella = (t) => (t.genres || []).includes("acapella");
 const now = Date.now();
 
 let doc = { stations: {} };
@@ -91,7 +95,7 @@ for (const st of STATIONS) {
   // data/player-video-ids.json (backfill-video-type-player.mjs; stations-only, no corpus flip).
   const pool = tracks.filter((t) => tagged.has(t.artistId) && !t.isVideo && !playerVideo.has(t.videoId) && !female.has(t.videoId)
     && !blocked.global.has(t.videoId) && !blocked.female.has(t.videoId) && (t.durationSec || 0) >= 30
-    && !acapella.has(t.videoId) && !CLEAR_ACAP.test(t.title || ""))
+    && !acapella.has(t.videoId) && !genreAcapella(t) && !CLEAR_ACAP.test(t.title || ""))
     .map((t) => ({ videoId: t.videoId, artistId: t.artistId, durationSec: t.durationSec }));
   const prev = prevStations[st.id] || {};
   const idHash = [...st.id].reduce((h, ch) => (Math.imul(h ^ ch.charCodeAt(0), 16777619)) >>> 0, 2166136261); // per-ID stream (length-only collided)

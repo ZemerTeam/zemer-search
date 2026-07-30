@@ -294,7 +294,7 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
     not the broad chasidish genre, so a chasidish-pop singer legitimately has zero `nigunim` songs; reading
     that as a contradiction of `artist.isChasid` produced a list of "wrong" flags for artists whose flags
     were right. Same trap avoided for `dance` vs `electronic` vs `workout`, `calm` vs `lullaby`, and
-    `wedding` vs `march`. Artist flags and song genres are DIFFERENT LEVELS and are deliberately not merged is derived by proving an album↔album
+    `wedding` vs `march`. Artist flags and song genres are DIFFERENT LEVELS and are deliberately not merged (resolution rules: [`docs/genres.md`](docs/genres.md)) is derived by proving an album↔album
     identity from **SHARED TRACK SETS** — ≥3 member tracks agreeing on name AND duration (±2s), ≥60%
     **mutual** overlap, album sizes within 2×, and no runner-up with equal overlap but different genres —
     then applying the release's genres to OUR album's members. Five rules exist because each one closed a
