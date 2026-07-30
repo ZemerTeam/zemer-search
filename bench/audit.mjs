@@ -17,7 +17,12 @@ import { plainTokens, skeletonTokens, damerau } from "../index/normalize.mjs";
 import { openCorpus, allTracks, allArtists, allAlbums, allPlaylists } from "../corpus/store.mjs";
 
 const db = openCorpus();
-const cats = buildCategories({ tracks: allTracks(db), artists: allArtists(db), albums: allAlbums(db), playlists: allPlaylists(db) });
+const artistRows = allArtists(db);
+const cats = buildCategories({ tracks: allTracks(db), artists: artistRows, albums: allAlbums(db), playlists: allPlaylists(db) });
+// An artist may carry a second name in the other script; a result matched through it is GENUINE even
+// though the row displays only the primary name. Without this the audit flags correct cross-script hits
+// ("ber" → יענקי ברלינגר, whose other-script name begins with "Ber") as false positives.
+const altByName = new Map(artistRows.filter((a) => a.name && a.altName).map((a) => [a.name, a.altName]));
 
 const queries = [
   "avr", "shl", "ber", "yos", "men", "dav", "chai", "yid", "sim",          // short prefixes
@@ -43,8 +48,12 @@ let totalSus = 0;
 for (const query of queries) {
   const r = searchCategories(cats, query, { k: 8 });
   const all = [];
-  for (const [cat, items] of Object.entries(r)) for (const it of items) all.push({ cat, text: `${it.name || it.title || ""} ${it.artist || ""}`.trim() });
-  const sus = all.filter((x) => !genuine(query, x.text));
+  for (const [cat, items] of Object.entries(r)) for (const it of items) {
+    const primary = `${it.name || it.title || ""} ${it.artist || ""}`.trim();
+    const alt = altByName.get(it.name) || altByName.get(it.artist) || ""; // other-script name, when known
+    all.push({ cat, text: primary, match: alt ? `${primary} ${alt}` : primary });
+  }
+  const sus = all.filter((x) => !genuine(query, x.match));
   totalSus += sus.length;
   const tag = sus.length ? `  ⚠ ${sus.length} SUSPICIOUS → ${sus.slice(0, 3).map((x) => `${x.cat}:${x.text.slice(0, 28)}`).join(" | ")}` : "";
   console.log(`"${query}"`.padEnd(24) + `${all.length} results${tag}`);

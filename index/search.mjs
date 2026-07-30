@@ -59,9 +59,15 @@ function put(field, tok, doc, bit) {
   if (!m) { m = new Map(); field.inv.set(tok, m); }
   m.set(doc, (m.get(doc) || 0) | bit);
 }
-function finalize(field, N) {
+// altOnly = tokens contributed ONLY by an artist's other-script name. They are indexed for EXACT and
+// PREFIX matching but deliberately kept OUT of the bigram index, so fuzzy can never reach them: adding a
+// second name per artist densely populates Hebrew token space, and one-letter neighbours then fuzz into
+// each other ("לולי ה'" fuzzing onto רולי/שולי — 26 false positives when they were fuzzy-reachable).
+// Same principle as skeleton fuzzy being off entirely (gotcha #2): a second alignment must not also relax.
+function finalize(field, N, altOnly = new Set()) {
   for (const [tok, postings] of field.inv) {
     field.idf.set(tok, Math.log(1 + N / postings.size)); // rare token → high idf
+    if (altOnly.has(tok)) continue;
     for (const g of bigrams(tok)) { let s = field.bg.get(g); if (!s) { s = new Set(); field.bg.set(g, s); } s.add(tok); }
   }
   field.sorted = [...field.inv.keys()].sort();
@@ -70,19 +76,36 @@ function finalize(field, N) {
 export function buildIndex(tracks, synonyms = []) {
   const N = tracks.length || 1;
   const plain = newField(), skel = newField();
-  const titleP = [], titleS = [], artistP = [], artistS = [];
+  const titleP = [], titleS = [], artistP = [], artistS = [], altP = [], altS = [];
+  const altTokP = new Set(), altTokS = new Set(), realTokP = new Set(), realTokS = new Set();
   tracks.forEach((t, i) => {
     const tp = uniq(plainTokens(t.title)), ap = uniq(plainTokens(t.artistName || ""));
     const ts = uniq(skeletonTokens(t.title)), as = uniq(skeletonTokens(t.artistName || ""));
+    // The artist's name in the other script, when known: indexed as a SECOND artist name under the same
+    // ARTIST mask, so a Hebrew query matches a romanized-named artist (and vice-versa) EXACTLY instead of
+    // relying on skeleton approximation. Its position-boost keys are kept SEPARATE (altP/altS) and applied
+    // as a max against the primary — never merged into artistP/artistS, whose word-aligned skeletonKey
+    // must stay one-name-per-slot (gotcha #3).
+    const alt = t.artistAltName || "";
+    const bp = uniq(plainTokens(alt)), bs = uniq(skeletonTokens(alt));
+    for (const tok of bp) altTokP.add(tok);
+    for (const tok of bs) altTokS.add(tok);
+    for (const tok of tp) realTokP.add(tok); for (const tok of ap) realTokP.add(tok);
+    for (const tok of ts) realTokS.add(tok); for (const tok of as) realTokS.add(tok);
     for (const tok of tp) put(plain, tok, i, TITLE);
     for (const tok of ap) put(plain, tok, i, ARTIST);
+    for (const tok of bp) put(plain, tok, i, ARTIST);
     for (const tok of ts) put(skel, tok, i, TITLE);
     for (const tok of as) put(skel, tok, i, ARTIST);
+    for (const tok of bs) put(skel, tok, i, ARTIST);
     titleP.push(tp.join(" ")); artistP.push(ap.join(" "));
     titleS.push(skeletonKey(t.title)); artistS.push(skeletonKey(t.artistName || ""));
+    altP.push(bp.join(" ")); altS.push(alt ? skeletonKey(alt) : "");
   });
-  finalize(plain, N); finalize(skel, N);
-  return { tracks, plain, skel, synonyms, keys: { titleP, artistP, titleS, artistS } };
+  for (const t of realTokP) altTokP.delete(t); // a token that also occurs in a real title/primary name stays fuzzy-eligible
+  for (const t of realTokS) altTokS.delete(t);
+  finalize(plain, N, altTokP); finalize(skel, N, altTokS);
+  return { tracks, plain, skel, synonyms, keys: { titleP, artistP, titleS, artistS, altP, altS } };
 }
 
 function prefixMatches(sorted, qt) {
@@ -166,6 +189,10 @@ export function search(index, query, k = 10) {
     let boost = 1 + (cov >= origCount ? 0.4 : 0);                                            // matched the whole query
     // Rank by MATCH POSITION: exact > begins-with > contains. begins-with is checked BEFORE the contains
     // tier so a name/title that merely CONTAINS the query never ties one that BEGINS WITH it.
+    // NOTE: the other-script name grants NO position boost. It exists to make the artist RETRIEVABLE in
+    // the other script; letting it also boost re-ranked established results (a romanized alias pulling an
+    // artist's albums above a genuine begins-with match) and cost 2 begins>contains violations on the
+    // bench. Retrieval-only keeps ranking byte-identical to before for every query that already worked.
     if (K.artistP[doc] === qpKey || (skKey && K.artistS[doc] === skKey)) boost += 2.5;       // exact artist
     else if (startsWith(K.artistP[doc], qpKey) || startsWith(K.artistS[doc], skKey)) boost += 1.6; // artist BEGINS WITH
     else if (artistCov >= origCount) boost += 0.8;                                           // artist CONTAINS query

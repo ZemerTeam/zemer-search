@@ -91,6 +91,10 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
 - **IDF** — a match on a rare/distinctive token outweighs a common one ("live", "feat", a year).
 - **Two scripts** — plain Latin tokens **and** a Hebrew-aware **consonant skeleton** (so romanized
   "kevakarat" → `kbkrt` aligns with Hebrew "כבקרת" → `kbkrt`).
+- **Second artist name (`artist.altName`)** — an artist's name in the OTHER script, when known: indexed
+  as an additional searchable artist name so a Hebrew query lands on a romanized-named artist (and
+  vice-versa) by EXACT alignment instead of skeleton approximation. Cross-script artist recall 66% → 100%.
+  **Retrieval-only and never fuzzy** — see gotcha #21.
 - **Position boost: exact > begins-with > contains** (for both title and artist fields).
 - **As-you-type** — the *last* query token is treated as a near-exact **prefix** (the word being typed).
 - **Precision-first** — better to return fewer/no results than wrong ones (`REL_FLOOR`).
@@ -260,6 +264,19 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
     drifts as the VPS harvests — a stale local corpus silently leaves everything harvested since undated),
     and **back up the VPS corpus BEFORE shipping the UPDATEs** (timestamped `sqlite3 .backup` — never write
     into the production DB without a same-day restore point).
+
+21. **A second artist name is RETRIEVAL-ONLY and must never be fuzzy-reachable.** `artist.altName` (the
+    artist's name in the other script) is indexed under the ARTIST mask so the artist is findable in either
+    script — but it grants **no position boost** and its tokens are **kept out of the bigram index**
+    (`finalize(field, N, altOnly)`), so fuzzy can never reach them. Both rules are measured, not stylistic:
+    letting a second name boost re-ranked queries that already worked (+2 `begins>contains` violations —
+    a romanized alias pulled an artist's albums above a genuine begins-with match), and making its tokens
+    fuzzy-reachable doubled Hebrew token density so one-letter neighbours fuzzed into each other
+    ("לולי ה'" → רולי/שולי, **26** false positives). Same principle as skeleton fuzzy being off (gotcha #2):
+    a second alignment must not also relax. Position-boost keys stay SEPARATE (`altP`/`altS`) — never merged
+    into `artistP`/`artistS`, whose word-aligned `skeletonKey` must stay one-name-per-slot (gotcha #3).
+    `bench/audit.mjs` is alias-aware (a row displays only its primary name, so a correct cross-script hit
+    would otherwise read as a false positive).
 
 ## Editing the matcher safely
 

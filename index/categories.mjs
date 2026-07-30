@@ -33,7 +33,9 @@ export function buildCategories({ tracks = [], artists = [], albums = [], playli
   const songs = enriched.filter((t) => !t.isVideo);
   const videos = enriched.filter((t) => t.isVideo);
   const albumDocs = albums.map((a) => ({ ...a, femaleInvolved: a.isFemale || isFemaleInvolved(a.title, a.artistName, a.isFemale, m) }));
-  const artistDocs = artists.map((a) => ({ ...a, title: a.name, artistName: "", femaleInvolved: a.isFemale }));
+  // artistAltName = the artist's name in the other script (when known): a second searchable name so a
+  // Hebrew query finds a romanized-named artist card and vice-versa (see index/search.mjs).
+  const artistDocs = artists.map((a) => ({ ...a, title: a.name, artistName: "", artistAltName: a.altName || null, femaleInvolved: a.isFemale }));
   const playlistDocs = playlists.map((p) => ({ ...p, femaleInvolved: p.isFemale })); // artist-owned: the owner's gender
   // A community playlist that IS a female artist's own playlist (same id as a female-owned artist playlist,
   // or curated under a female artist's name) is female-owned — member-survival alone would keep it alive on a

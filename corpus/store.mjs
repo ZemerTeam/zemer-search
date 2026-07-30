@@ -208,6 +208,12 @@ export function openCorpus(file = DB_PATH) {
   for (const col of ["isDJ", "isAmerican", "isFamous"])
     if (!db.prepare("PRAGMA table_info(artist)").all().some((c) => c.name === col))
       db.exec(`ALTER TABLE artist ADD COLUMN ${col} INTEGER`);
+  // artist.altName: the artist's name in the OTHER script (Hebrew ⇄ romanized), from the whitelist.
+  // Indexed by the matcher as a SECOND searchable artist name, so a Hebrew query lands on a
+  // romanized-named artist (and vice-versa) by exact alignment rather than skeleton approximation.
+  // NULL = unknown (the vast majority stay NULL; absence must never be treated as a name).
+  if (!db.prepare("PRAGMA table_info(artist)").all().some((c) => c.name === "altName"))
+    db.exec("ALTER TABLE artist ADD COLUMN altName TEXT");
   // album.uploadDate: the release's REAL date (ISO-8601), dated via one /player on a sample track (see
   // harvester/releases.mjs). Browse pages only carry a year; this is what makes New Releases accurate.
   if (!db.prepare("PRAGMA table_info(album)").all().some((c) => c.name === "uploadDate"))
@@ -266,11 +272,12 @@ export function upsertArtistCatalog(db, artist, catalog, ts = Date.now()) {
     albumTracks = albumTracks.filter((at) => !bl.videoIds.has(at.videoId));
   }
   const upArtist = db.prepare(
-    `INSERT INTO artist(id,name,thumbnail,regularChannelId,isFemale,isChasid,isKidZone,isDJ,isAmerican,isFamous,refreshedAt) VALUES(@id,@name,@thumbnail,@regularChannelId,@isFemale,@isChasid,@isKidZone,@isDJ,@isAmerican,@isFamous,@refreshedAt)
+    `INSERT INTO artist(id,name,thumbnail,regularChannelId,isFemale,isChasid,isKidZone,isDJ,isAmerican,isFamous,altName,refreshedAt) VALUES(@id,@name,@thumbnail,@regularChannelId,@isFemale,@isChasid,@isKidZone,@isDJ,@isAmerican,@isFamous,@altName,@refreshedAt)
      ON CONFLICT(id) DO UPDATE SET name=excluded.name, thumbnail=COALESCE(excluded.thumbnail, artist.thumbnail),
        regularChannelId=COALESCE(excluded.regularChannelId, artist.regularChannelId),
        isFemale=excluded.isFemale, isChasid=excluded.isChasid, isKidZone=excluded.isKidZone,
-       isDJ=excluded.isDJ, isAmerican=excluded.isAmerican, isFamous=excluded.isFamous, refreshedAt=excluded.refreshedAt`);
+       isDJ=excluded.isDJ, isAmerican=excluded.isAmerican, isFamous=excluded.isFamous,
+       altName=COALESCE(excluded.altName, artist.altName), refreshedAt=excluded.refreshedAt`);
   const insTrack = db.prepare(
     `INSERT INTO track(videoId,title,artistId,isVideo,explicit,harvestedAt,durationSec,playCount) VALUES(@videoId,@title,@artistId,@isVideo,@explicit,@harvestedAt,@durationSec,@playCount)
      ON CONFLICT(videoId) DO UPDATE SET title=excluded.title, isVideo=MAX(track.isVideo, excluded.isVideo),
@@ -286,7 +293,7 @@ export function upsertArtistCatalog(db, artist, catalog, ts = Date.now()) {
     `INSERT INTO album_track(albumId,videoId,pos) VALUES(@albumId,@videoId,@pos)
      ON CONFLICT(albumId,videoId) DO UPDATE SET pos=excluded.pos`);
   const tx = db.transaction(() => {
-    upArtist.run({ id: artist.id, name: artist.name ?? null, thumbnail, regularChannelId, isFemale: artist.isFemale ? 1 : 0, isChasid: artist.isChasid ? 1 : 0, isKidZone: artist.isKidZone ? 1 : 0, isDJ: artist.isDJ ? 1 : 0, isAmerican: artist.isAmerican ? 1 : 0, isFamous: artist.isFamous ? 1 : 0, refreshedAt: ts });
+    upArtist.run({ id: artist.id, name: artist.name ?? null, thumbnail, regularChannelId, isFemale: artist.isFemale ? 1 : 0, isChasid: artist.isChasid ? 1 : 0, isKidZone: artist.isKidZone ? 1 : 0, isDJ: artist.isDJ ? 1 : 0, isAmerican: artist.isAmerican ? 1 : 0, isFamous: artist.isFamous ? 1 : 0, altName: artist.altName || null, refreshedAt: ts });
     for (const t of tracks) insTrack.run({ videoId: t.videoId, title: t.title, artistId: artist.id, isVideo: t.isVideo ? 1 : 0, explicit: t.explicit ? 1 : 0, harvestedAt: ts, durationSec: t.durationSec ?? null, playCount: t.playCount ?? null });
     for (const al of albums) insAlbum.run({ id: al.id, playlistId: al.playlistId ?? null, title: al.title, artistId: artist.id, type: al.type || "album", year: al.year ?? null, thumbnail: al.thumbnail ?? null });
     for (const pl of playlists) insPlaylist.run({ id: pl.id, title: pl.title, artistId: artist.id, thumbnail: pl.thumbnail ?? null });
@@ -343,7 +350,7 @@ export function allTracks(db) {
     SELECT t.videoId, t.title, t.artistId, a.name AS artistName,
            t.isVideo, t.explicit, t.durationSec, t.playCount,
            COALESCE(t.uploadDate, MAX(al.uploadDate)) AS releaseDate,
-           a.isFemale, a.isChasid, a.isKidZone, a.isDJ, a.isAmerican, a.isFamous
+           a.isFemale, a.isChasid, a.isKidZone, a.isDJ, a.isAmerican, a.isFamous, a.altName
     FROM track t JOIN artist a ON a.id = t.artistId
     LEFT JOIN album_track at ON at.videoId = t.videoId
     LEFT JOIN album al ON al.id = at.albumId
@@ -354,26 +361,27 @@ export function allTracks(db) {
     releaseDate: r.releaseDate || null,
     isFemale: !!r.isFemale, isChasid: !!r.isChasid, isKidZone: !!r.isKidZone,
     isDJ: !!r.isDJ, isAmerican: !!r.isAmerican, isFamous: !!r.isFamous,
+    artistAltName: r.altName || null, // second searchable artist name (other script) — see index/search.mjs
   }));
 }
 
 export const allArtists = (db) => db.prepare(
-  "SELECT id, name, thumbnail, isFemale, isChasid, isKidZone, isDJ, isAmerican, isFamous FROM artist WHERE name IS NOT NULL").all()
-  .map((r) => ({ id: r.id, name: r.name, thumbnail: r.thumbnail, isFemale: !!r.isFemale, isChasid: !!r.isChasid, isKidZone: !!r.isKidZone, isDJ: !!r.isDJ, isAmerican: !!r.isAmerican, isFamous: !!r.isFamous }));
+  "SELECT id, name, thumbnail, isFemale, isChasid, isKidZone, isDJ, isAmerican, isFamous, altName FROM artist WHERE name IS NOT NULL").all()
+  .map((r) => ({ id: r.id, name: r.name, thumbnail: r.thumbnail, isFemale: !!r.isFemale, isChasid: !!r.isChasid, isKidZone: !!r.isKidZone, isDJ: !!r.isDJ, isAmerican: !!r.isAmerican, isFamous: !!r.isFamous, altName: r.altName || null }));
 
 export const allAlbums = (db) => db.prepare(`
   SELECT al.id, al.playlistId, al.title, al.artistId, al.type, al.year, al.thumbnail, al.uploadDate,
-         a.name AS artistName, a.isFemale, a.isChasid, a.isKidZone,
+         a.name AS artistName, a.altName, a.isFemale, a.isChasid, a.isKidZone,
          COUNT(at.videoId) AS trackCount, SUM(t.durationSec) AS totalDurationSec
   FROM album al JOIN artist a ON a.id = al.artistId
   LEFT JOIN album_track at ON at.albumId = al.id LEFT JOIN track t ON t.videoId = at.videoId
   GROUP BY al.id`).all()
-  .map((r) => ({ id: r.id, playlistId: r.playlistId, title: r.title, artistId: r.artistId, artistName: r.artistName, type: r.type, year: r.year, thumbnail: r.thumbnail, releaseDate: r.uploadDate || null, trackCount: r.trackCount, totalDurationSec: r.totalDurationSec ?? null, isFemale: !!r.isFemale, isChasid: !!r.isChasid, isKidZone: !!r.isKidZone }));
+  .map((r) => ({ id: r.id, playlistId: r.playlistId, title: r.title, artistId: r.artistId, artistName: r.artistName, artistAltName: r.altName || null, type: r.type, year: r.year, thumbnail: r.thumbnail, releaseDate: r.uploadDate || null, trackCount: r.trackCount, totalDurationSec: r.totalDurationSec ?? null, isFemale: !!r.isFemale, isChasid: !!r.isChasid, isKidZone: !!r.isKidZone }));
 
 export const allPlaylists = (db) => db.prepare(`
-  SELECT pl.id, pl.title, pl.artistId, pl.thumbnail, a.name AS artistName, a.isFemale, a.isChasid, a.isKidZone
+  SELECT pl.id, pl.title, pl.artistId, pl.thumbnail, a.name AS artistName, a.altName, a.isFemale, a.isChasid, a.isKidZone
   FROM playlist pl JOIN artist a ON a.id = pl.artistId`).all()
-  .map((r) => ({ id: r.id, title: r.title, artistId: r.artistId, artistName: r.artistName, thumbnail: r.thumbnail, isFemale: !!r.isFemale, isChasid: !!r.isChasid, isKidZone: !!r.isKidZone }));
+  .map((r) => ({ id: r.id, title: r.title, artistId: r.artistId, artistName: r.artistName, artistAltName: r.altName || null, thumbnail: r.thumbnail, isFemale: !!r.isFemale, isChasid: !!r.isChasid, isKidZone: !!r.isKidZone }));
 
 // Community playlists (pilot) ---------------------------------------------------------------------
 // YTM playlists curated by community members (not owned by a whitelisted artist). Stored apart from the

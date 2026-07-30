@@ -37,6 +37,26 @@ distinction:** matching uses `skeletonTokens` (filtered); the exact/begins boost
 Without it, "Yoni Shlomo" → `"slm"` (Yoni drops) would *exactly equal* the one-word query "shlomo" →
 `"slm"` and steal a false exact-match boost. With it, "Yoni Shlomo" → `"n slm"` ≠ `"slm"`. (Gotcha #3.)
 
+### artist.altName — the second artist name (cross-script retrieval)
+An artist's name in the OTHER script (Hebrew ⇄ romanized), when known. The skeleton lever above aligns
+scripts *approximately*; a known second name aligns them **exactly**, so `עדי רן` finds `Adi Ran` and
+`Yanky Berlinger` finds `יענקי ברלינגר` with no approximation at all. Measured: cross-script artist
+recall **66% → 100%** (527/527 Hebrew→romanized, 172/172 the reverse).
+
+Two hard rules make it safe (both measured — see gotcha #21):
+
+- **Retrieval-only, no position boost.** It makes an artist *findable* in the other script; it must never
+  re-rank queries that already worked. Letting it boost cost 2 `begins>contains` violations (a romanized
+  second name pulled an artist's albums above a genuine begins-with match).
+- **Never fuzzy-reachable.** Its tokens are indexed for exact/prefix but kept OUT of the bigram index
+  (`finalize(field, N, altOnly)`). A second name per artist doubles Hebrew token density, and one-letter
+  neighbours then fuzz into each other — `"לולי ה'"` matching `רולי`/`שולי`, **26** false positives.
+  Same principle as skeleton fuzzy being off entirely (gotcha #2): a second alignment must not also relax.
+
+Its boost keys are kept separate (`altP`/`altS`) and never merged into `artistP`/`artistS`, whose
+word-aligned `skeletonKey` must stay one-name-per-slot (gotcha #3). A token that ALSO occurs in a real
+title or primary name stays fuzzy-eligible — only alias-exclusive tokens are withheld.
+
 ### damerau(a, b, max)
 Damerau-Levenshtein (optimal string alignment) with an early cap. **Adjacent transposition = 1 edit** —
 the single most common real typo. Used for typo tolerance on Latin/plain tokens only.

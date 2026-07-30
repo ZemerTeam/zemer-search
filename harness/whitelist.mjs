@@ -60,6 +60,10 @@ do {
       isDJ: !!f.isDJ?.booleanValue,
       isAmerican: !!f.isAmerican?.booleanValue,
       isFamous: !!f.isFamous?.booleanValue,
+      // The artist's name in the OTHER script (Hebrew ⇄ romanized), when known. Indexed as a second
+      // searchable artist name so a Hebrew query finds a romanized-named artist and vice-versa —
+      // exact alignment where the skeleton matcher could only approximate. Absent → null.
+      altName: val(f.altName) || null,
     });
   }
   pageToken = j.nextPageToken;
