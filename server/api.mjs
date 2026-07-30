@@ -324,7 +324,8 @@ async function startServer() {
   // ONE color system for every generated cover — playlists AND stations share this map + palette (same
   // stability rule: keyed to the id, never collides within its surface, never shifts when the set changes).
   const FIXED_COLOR = { "auto-top-50": "#1f66c2", "auto-trending": "#d13b3a", "auto-favorites": "#c93f86", "auto-downloaded": "#0e8a8a", "auto-acapella-top-50": "#5b41c7", "acapella": "#d9591f",
-    "station:chasidish": "#5b41c7", "station:dj": "#d9591f", "station:israeli": "#1f66c2" };
+    "station:chasidish": "#5b41c7", "station:dj": "#d9591f", "station:israeli": "#1f66c2",
+    "station:nigunim": "#0e8a8a", "station:calm": "#2e7d4f" };
   const darken = (hex, f) => "#" + hex.slice(1).match(/../g).map((x) => Math.round(parseInt(x, 16) * (1 - f)).toString(16).padStart(2, "0")).join("");
   function coverColor(id) {
     if (FIXED_COLOR[id]) return FIXED_COLOR[id];
@@ -415,7 +416,7 @@ async function startServer() {
 
   const send = (res, code, obj) => { const body = JSON.stringify(obj); res.writeHead(code, CORS); res.end(body); return body; };
   const cacheSet = (key, body) => { cache.set(key, body); if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value); };
-  const CACHEABLE = new Set(["/search", "/artist", "/album", "/playlist", "/community", "/zemer-playlists", "/home-rows"]); // /new self-caches via the feed TTL
+  const CACHEABLE = new Set(["/search", "/artist", "/album", "/playlist", "/community", "/zemer-playlists", "/home-rows", "/genres"]); // /new self-caches via the feed TTL
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -824,7 +825,7 @@ ol{list-style:none;margin:0;padding:0}li{display:flex;gap:10px;align-items:cente
             for (const g of t.genres) counts.set(g, (counts.get(g) || 0) + 1); }
           const genres = [...counts].filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1])
             .map(([id, trackCount]) => ({ id, title: GENRE_TITLES[id] || id, trackCount, kind: GENRE_KIND[id] || "style" }));
-          return send(res, 200, { count: genres.length, genres });
+          return cacheSet(cKey, send(res, 200, { count: genres.length, genres }));
         }
         const limit = Math.min(200, Math.max(1, Number(u.searchParams.get("limit")) || 100));
         const offset = Math.max(0, Number(u.searchParams.get("offset")) || 0);
@@ -861,14 +862,14 @@ ol{list-style:none;margin:0;padding:0}li{display:flex;gap:10px;align-items:cente
                    durationSec: t.durationSec, explicit: t.explicit, isVideo: t.isVideo, releaseDate: t.releaseDate,
                    genres: t.genres, album: a ? { id: a.albumId, name: a.albumName } : null }; };
         const rows = page.map(songRow);
-        return send(res, 200, {
+        return cacheSet(cKey, send(res, 200, {
           genre: { id: gid, title: GENRE_TITLES[gid] || gid, trackCount: all.length, kind: GENRE_KIND[gid] || "style",
                    artistCount: byArtist.size, albumCount: albums.length, singleCount: singles.length },
           artists, albums, singles,
+          // songs/videos only — an earlier flat `tracks` mirror doubled a 100KB page for no new information
           songs: rows.filter((r) => !r.isVideo), videos: rows.filter((r) => r.isVideo),
-          tracks: rows, // flat list, all kinds, in reach order (kept for simple clients)
           offset, nextOffset: offset + page.length < all.length ? offset + page.length : null,
-        });
+        }));
       }
       if (u.pathname === "/radio") {
         // Zemer Radio — corpus-native "what plays next" (index/radio.mjs). Either a fresh seed
