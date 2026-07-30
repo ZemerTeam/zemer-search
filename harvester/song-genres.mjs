@@ -10,7 +10,12 @@
 
 // Apply data/song-genres.json → track.genres (comma-separated Zemer style slugs).
 //
-// WHY ALBUM-ANCHORED: a genre is a property of a RELEASE, and album identity is the only thing that
+// TWO SOURCES OF TRUTH, in priority order. Hand-curated Zemer playlists whose membership IS a genre (the
+// master `acapella` list, plus the strict-title-marker `acapella-auto` list) are AUTHORITATIVE — a human
+// verified those songs, which beats any derivation — and they ADD their slug without replacing derived
+// ones, because a song can legitimately be both an Israeli release and an acapella cut.
+//
+// WHY ALBUM-ANCHORED (for everything else): a genre is a property of a RELEASE, and album identity is the only thing that
 // distinguishes an acapella cut from the regular one — both run the same length, so duration cannot.
 // Each genre therefore rides an album↔album identification (unique artist+title, corroborated by ≥2
 // member tracks agreeing on name AND duration), never a bare track guess.

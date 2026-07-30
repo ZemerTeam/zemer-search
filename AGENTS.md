@@ -308,7 +308,14 @@ Per query, every result gets `score = (idf-weighted token matches + coverage + m
     same album formatted differently (`Regesh, Vol. 3 - Shabbos` ↔ `Regesh 03 (Shabbos)`) — track-matching
     finds correct pairs that title-matching MISSES. Measured: 752 pairs, avg 12 shared tracks at 91% mutual
     overlap, 9,860 songs (13.8%), zero size mismatches / ties / conflicts. **Apply is REPLACE-WHOLESALE** —
-    a song the JSON no longer lists loses its genres, or a tightened derivation leaves stale labels behind. Track-level matching was tried and **fails on exactly the case that
+    a song the JSON no longer lists loses its genres, or a tightened derivation leaves stale labels behind.
+    **Hand-curated lists outrank derivation:** a Zemer playlist whose membership IS a genre (the master
+    `acapella` list + the strict-marker `acapella-auto` list) seeds its slug directly — human-verified
+    membership beats any inference — and it ADDS rather than replaces, since a song can be both an Israeli
+    release and an acapella cut. That seeding took acapella from 605 → 2,261 songs and made the field agree
+    with the curated list by construction. Measured against that list beforehand: of curated songs carrying
+    any derived genre, **98% (484/496)** already had `acapella`; the 12 exceptions were albums categorised by
+    language rather than form, i.e. incomplete rather than wrong. Track-level matching was tried and **fails on exactly the case that
     matters**: an acapella cut and the regular cut of the same song run the *same length*, so the duration
     proof that validates a title alias cannot tell them apart — a song that also appears on an acapella
     compilation gets tagged acapella while our stored recording is the regular version. Album identity IS
