@@ -827,24 +827,21 @@ ol{list-style:none;margin:0;padding:0}li{display:flex;gap:10px;align-items:cente
             .map(([id, trackCount]) => ({ id, title: GENRE_TITLES[id] || id, trackCount, kind: GENRE_KIND[id] || "style" }));
           return cacheSet(cKey, send(res, 200, { count: genres.length, genres }));
         }
-        const limit = Math.min(200, Math.max(1, Number(u.searchParams.get("limit")) || 100));
-        const offset = Math.max(0, Number(u.searchParams.get("offset")) || 0);
         const all = (radioIndex.genreTracks?.get(gid) || []).filter((v) => ok(radioIndex.byId.get(v)));
         if (!all.length) return send(res, 404, { error: "unknown or empty genre" });
         // A genre is BROWSABLE, not just a track list: the app opens it like an artist page. Artists and
         // releases are derived from the surviving member tracks, so every count here is reachable and the
         // content filters apply once, at the song level, rather than being re-derived per entity.
-        const k = Math.min(60, Math.max(1, Number(u.searchParams.get("k")) || 20));
+
+        // FULL artist list (reach-ordered via `all`, which is popSorted), never truncated here — the header
+        // must report the true total and `facet=artists` must be able to page ALL of them.
         const byArtist = new Map();
         for (const v of all) { const t = radioIndex.byId.get(v); if (!t?.artistId) continue;
           let e = byArtist.get(t.artistId); if (!e) byArtist.set(t.artistId, e = { id: t.artistId, name: t.artistName, trackCount: 0 });
           e.trackCount++; }
-        const artistThumb = new Map(liveDb.prepare(`SELECT id, thumbnail FROM artist WHERE id IN (SELECT value FROM json_each(?))`)
-          .all(JSON.stringify([...byArtist.keys()])).map((r) => [r.id, r.thumbnail]));
-        const artists = [...byArtist.values()].sort((a, b) => b.trackCount - a.trackCount).slice(0, k)
-          .map((a) => ({ ...a, thumbnail: artistThumb.get(a.id) ?? null }));
-        // Releases: an album counts for the genre when ≥2 of ITS surviving members carry it (one stray
-        // member is not a genre) — mirroring the album-anchored derivation the genres came from.
+        const allArtists = [...byArtist.values()].sort((a, b) => b.trackCount - a.trackCount);
+        // FULL release lists (album counts for the genre only when ≥2 of ITS members carry it — one stray
+        // member is not a genre — mirroring the album-anchored derivation the genres came from).
         const albRows = liveDb.prepare(`
           SELECT al.id, al.playlistId, al.title, al.type, al.year, al.thumbnail, al.uploadDate, a.name AS artistName,
                  COUNT(*) AS hits
@@ -853,20 +850,53 @@ ol{list-style:none;margin:0;padding:0}li{display:flex;gap:10px;align-items:cente
           GROUP BY al.id HAVING hits >= 2 ORDER BY hits DESC`).all(JSON.stringify(all));
         const relRow = (r) => ({ id: r.id, playlistId: r.playlistId, title: r.title, artist: r.artistName,
           year: r.year, thumbnail: r.thumbnail, releaseDate: r.uploadDate || null, trackCount: r.hits });
-        const albums = albRows.filter((r) => r.type !== "single").slice(0, k).map(relRow);
-        const singles = albRows.filter((r) => r.type === "single").slice(0, k).map(relRow);
+        const allAlbums = albRows.filter((r) => r.type !== "single").map(relRow);
+        const allSingles = albRows.filter((r) => r.type === "single").map(relRow);
+        const header = { id: gid, title: GENRE_TITLES[gid] || gid, trackCount: all.length, kind: GENRE_KIND[gid] || "style",
+          artistCount: allArtists.length, albumCount: allAlbums.length, singleCount: allSingles.length,
+          songCount: all.length - all.filter((v) => radioIndex.byId.get(v)?.isVideo).length,
+          videoCount: all.filter((v) => radioIndex.byId.get(v)?.isVideo).length };
+
+        // thumbnails resolved once, only for the artist rows a response actually returns (below)
+        const withThumbs = (list) => { if (!list.length) return list;
+          const tm = new Map(liveDb.prepare(`SELECT id, thumbnail FROM artist WHERE id IN (SELECT value FROM json_each(?))`)
+            .all(JSON.stringify(list.map((a) => a.id))).map((r) => [r.id, r.thumbnail]));
+          return list.map((a) => ({ ...a, thumbnail: tm.get(a.id) ?? null })); };
+        const songRows = (vids) => { const ai2 = trackAlbumInfo(liveDb, vids);
+          return vids.map((v) => { const t = radioIndex.byId.get(v), a = ai2.get(v);
+            return { videoId: v, title: t.title, artist: t.artistName, artistId: t.artistId, thumbnail: a?.thumbnail ?? null,
+                     durationSec: t.durationSec, explicit: t.explicit, isVideo: t.isVideo, releaseDate: t.releaseDate,
+                     genres: t.genres, album: a ? { id: a.albumId, name: a.albumName } : null }; }); };
+
+        // FACET mode: page ONE entity list fully, so the app's "See all artists / albums / …" screens can
+        // reach every row regardless of the summary cap. `{genre, facet, items, offset, nextOffset}`.
+        const facet = u.searchParams.get("facet");
+        if (facet) {
+          const limit = Math.min(200, Math.max(1, Number(u.searchParams.get("limit")) || 100));
+          const offset = Math.max(0, Number(u.searchParams.get("offset")) || 0);
+          let full;
+          if (facet === "artists") full = withThumbs(allArtists);
+          else if (facet === "albums") full = allAlbums;
+          else if (facet === "singles") full = allSingles;
+          else if (facet === "songs") full = all.filter((v) => !radioIndex.byId.get(v)?.isVideo);
+          else if (facet === "videos") full = all.filter((v) => radioIndex.byId.get(v)?.isVideo);
+          else return send(res, 400, { error: "bad facet (artists|albums|singles|songs|videos)" });
+          const slice = full.slice(offset, offset + limit);
+          const items = (facet === "songs" || facet === "videos") ? songRows(slice) : slice;
+          return cacheSet(cKey, send(res, 200, { genre: header, facet, items, offset,
+            nextOffset: offset + slice.length < full.length ? offset + slice.length : null }));
+        }
+
+        // DEFAULT summary page: top-`k` of each entity list for the card, plus the first page of songs.
+        // Counts in `header` are the TRUE totals; use facet paging to walk past `k`.
+        const k = Math.min(60, Math.max(1, Number(u.searchParams.get("k")) || 20));
+        const limit = Math.min(200, Math.max(1, Number(u.searchParams.get("limit")) || 100));
+        const offset = Math.max(0, Number(u.searchParams.get("offset")) || 0);
         const page = all.slice(offset, offset + limit);
-        const ai2 = trackAlbumInfo(liveDb, page);
-        const songRow = (v) => { const t = radioIndex.byId.get(v), a = ai2.get(v);
-          return { videoId: v, title: t.title, artist: t.artistName, artistId: t.artistId, thumbnail: a?.thumbnail ?? null,
-                   durationSec: t.durationSec, explicit: t.explicit, isVideo: t.isVideo, releaseDate: t.releaseDate,
-                   genres: t.genres, album: a ? { id: a.albumId, name: a.albumName } : null }; };
-        const rows = page.map(songRow);
+        const rows = songRows(page);
         return cacheSet(cKey, send(res, 200, {
-          genre: { id: gid, title: GENRE_TITLES[gid] || gid, trackCount: all.length, kind: GENRE_KIND[gid] || "style",
-                   artistCount: byArtist.size, albumCount: albums.length, singleCount: singles.length },
-          artists, albums, singles,
-          // songs/videos only — an earlier flat `tracks` mirror doubled a 100KB page for no new information
+          genre: header,
+          artists: withThumbs(allArtists.slice(0, k)), albums: allAlbums.slice(0, k), singles: allSingles.slice(0, k),
           songs: rows.filter((r) => !r.isVideo), videos: rows.filter((r) => r.isVideo),
           offset, nextOffset: offset + page.length < all.length ? offset + page.length : null,
         }));
