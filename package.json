@@ -18,7 +18,7 @@
     "playlists": "node harvester/playlists.mjs",
     "releases": "node harvester/releases.mjs",
     "maintain": "bash scripts/maintain.sh",
-    "test": "node --test index/ corpus/ harvester/ server/",
+    "test": "node --test index/ corpus/ harvester/ server/ harness/",
     "bench": "node bench/bench.mjs",
     "relevance": "node bench/relevance.mjs",
     "category-relevance": "node bench/category-relevance.mjs",

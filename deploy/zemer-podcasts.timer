@@ -1,0 +1,17 @@
+# Harvest whitelisted podcasts a few times a day (~every 6h at :15 — 01/07/13/19 UTC, clear of the
+# 00/06/12/18:30 all-artist sweep, the 03:00 deep refresh, 04:30 dating, 05:00 discovery, and 08/20:00
+# auto-playlists so the single-writer DB never contends). Podcasts drop episodes far slower than music, so a
+# 6h refresh cadence keeps new episodes browsable without hammering /podcast. Cheap when nothing is new (one
+# whitelist read + show-page mtime checks -> exit 0). Shabbat is handled IN CODE (the service's
+# ExecCondition), so this runs all week and no-ops through Shabbat.
+[Unit]
+Description=Harvest whitelisted podcasts ~every 6h (onboard + prune + refresh new episodes)
+
+[Timer]
+Unit=zemer-podcasts.service
+OnCalendar=*-*-* 01,07,13,19:15:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

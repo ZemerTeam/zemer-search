@@ -1,0 +1,15 @@
+# Top up podcast episode durations + real ISO publishedAt daily via the residential proxy (one /player per
+# episode, datacenter-blocked otherwise). Runs at 05:45 UTC — after the 04:30 release-dating run (which
+# shares the same proxy) and clear of the 06:30 sweep, so the two proxy jobs don't overlap. The service's
+# ExecConditions still gate Shabbat/Yom Tov and skip gracefully when the residential proxy host is unreachable.
+[Unit]
+Description=Date podcast episodes daily via the residential proxy (podcast-durations.mjs -> durationSec + publishedAt)
+
+[Timer]
+Unit=zemer-podcast-durations.service
+OnCalendar=*-*-* 05:45:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

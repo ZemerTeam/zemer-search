@@ -34,6 +34,12 @@ ExecStart=-/usr/bin/env node harvester/auto-playlists.mjs
 # without the '-' that would abort the oneshot before stations.mjs (which is fully offline and needs no
 # creds) ever ran, silently darkening all stations within 48h.
 ExecStart=-/usr/bin/env node harvester/radio-graph.mjs
+#
+# Data-driven PODCAST surfaces (Top Podcasts / Trending Episodes) — same /stats source, rolled up to shows
+# via the corpus episode→show map → data/podcast-surfaces.json (gitignored). /podcasts?sort=top +
+# /podcasts/trending read it live; fall back to alphabetical when absent. Fail-safe/no-op like the others.
+# Leading '-': independent — a down/empty /stats leaves the last-good surfaces and must not abort stations.
+ExecStart=-/usr/bin/env node harvester/podcast-surfaces.mjs
 # Zemer Stations: rewrite the un-aired future + extend each synchronized schedule to +48h (the playing +
 # imminent 10-min window is immutable — live listeners never jump). Offline (corpus + radio-graph
 # artifacts). 12h cadence vs 48h horizon = 4× margin.

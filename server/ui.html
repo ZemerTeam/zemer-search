@@ -170,9 +170,9 @@ const CHECK = '<svg class="ck" viewBox="0 0 24 24"><path d="M9 16.2 4.8 12l-1.4 
 // category chips (app order, albums-first per your earlier note) + which entity each maps to
 const CATS = [
   ['all','All'], ['artists','Artists'], ['albums','Albums'], ['songs','Songs'],
-  ['singles','Singles & EPs'], ['videos','Videos'], ['playlists','Playlists'], ['community','Community'], ['zemer','Zemer Playlists'], ['new','New Releases'],
+  ['singles','Singles & EPs'], ['videos','Videos'], ['playlists','Playlists'], ['community','Community'], ['podcasts','Podcasts'], ['episodes','Episodes'], ['zemer','Zemer Playlists'], ['new','New Releases'],
 ];
-let sel = 'all', lastData = null, newData = null, newSel = 'all', communityData = null, newSource = null;
+let sel = 'all', lastData = null, newData = null, newSel = 'all', communityData = null, newSource = null, podcastData = null;
 
 // New Releases view: categorized (songs/videos/albums/singles), each row dated "added Xd ago".
 const NEWCATS = [['songs','Songs'], ['videos','Videos'], ['albums','Albums'], ['singles','Singles & EPs']];
@@ -246,7 +246,16 @@ function renderChips() {
     `<div class="chip ${k===sel?'sel':''}" onclick="pick('${k}')">${k===sel?CHECK:''}${label}</div>`).join('');
 }
 const hasQuery = () => $('#q').value.trim().length >= 3;
-function pick(k) { sel = k; renderChips(); if (k === 'new') loadNew(); else if (k === 'community' && !hasQuery()) loadCommunity(); else if (k === 'zemer') loadZemer(); else render(); }
+function pick(k) { sel = k; renderChips(); if (k === 'new') loadNew(); else if (k === 'community' && !hasQuery()) loadCommunity(); else if (k === 'podcasts' && !hasQuery()) loadPodcasts(); else if (k === 'zemer') loadZemer(); else render(); }
+
+// Podcasts chip "show all without a search" — browse every podcast show (same shape as Community).
+async function loadPodcasts() {
+  closeDetail();
+  try { const d = await (await fetch('/podcasts')).json(); podcastData = d.podcasts || []; }
+  catch { podcastData = []; }
+  $('#meta').textContent = `${podcastData.length} podcasts`;
+  if (sel === 'podcasts') render();
+}
 
 // Zemer Playlists chip — browse the curated + auto lists (no search; same shape as the app's section).
 let zemerData = null;
@@ -319,7 +328,20 @@ function chartLabel(rank, t) {
 // `t.rank` is the position on the RAW chart; the row index is only a fallback for a list that isn't a
 // ranked chart. Using the index on a filtered list would contradict the delta ("up 5, now number 12").
 function rowZemerTrack(t, i) { return songRow(t, '', t.rank != null ? chartCell(t.rank, t) : chartCell(i + 1, t)); }
-const RENDER = { songs:rowSong, videos:rowSong, albums:rowAlbum, singles:rowAlbum, artists:rowArtist, playlists:rowPlaylist, community:rowPlaylist };
+// Podcast show card → opens the show; subtitle = author + episode count (both optional).
+function rowPodcast(p) {
+  const sub = [esc(p.author||'Podcast'), p.episodeCountText||''].filter(Boolean).join(' · ');
+  return row(`openPodcast('${p.id}')`, p.thumbnail, false, esc(p.name), sub, 'open');
+}
+// Podcast episode row — plays in the app (kind 'song' → listen dialog). Numbered by list position,
+// subtitle = show name + publish date, duration from durationSeconds. `i` is the .map() index.
+function rowEpisode(e, i) {
+  const sub = [esc(e.podcastName||'Episode'), fmtDate(e.publishedAt)].filter(Boolean).join(' · ');
+  const num = (typeof i === 'number') ? `<span class="tno">${i+1}</span>` : '';
+  return row(`https://music.youtube.com/watch?v=${e.videoId}`, e.thumbnail||yt(e.videoId), false,
+    num + esc(e.title), sub, 'song', fmtDur(e.durationSeconds));
+}
+const RENDER = { songs:rowSong, videos:rowSong, albums:rowAlbum, singles:rowAlbum, artists:rowArtist, playlists:rowPlaylist, community:rowPlaylist, podcasts:rowPodcast, episodes:rowEpisode };
 
 function row(action, img, round, title, sub, kind, meta, lead) {
   // Songs don't link out to YouTube Music — playback is in the app; show the "get the app" dialog instead.
@@ -371,6 +393,14 @@ function render() {
       : `<div class="empty">No community playlists yet — run <code>npm run playlists</code>.</div>`;
     return;
   }
+  // Podcasts chip with no active query → browse ALL podcast shows (no search needed).
+  if (sel === 'podcasts' && !hasQuery()) {
+    closeDetail();
+    const items = podcastData || [];
+    $('#results').innerHTML = items.length ? items.map(rowPodcast).join('')
+      : `<div class="empty">No podcasts yet.</div>`;
+    return;
+  }
   const c = lastData?.categories;
   if (!c) { $('#results').innerHTML = ''; return; }
   if (sel === 'all') {
@@ -403,6 +433,7 @@ async function go() {
   if (q.length < 3) {
     lastData = null;
     if (sel === 'community') return loadCommunity(); // empty box on the Community chip → show all
+    if (sel === 'podcasts') return loadPodcasts();   // empty box on the Podcasts chip → show all
     if (sel === 'zemer') return loadZemer();         // empty box on the Zemer chip → show all
     $('#results').innerHTML = q ? '<div class="empty">Keep typing — at least 3 characters.</div>' : '';
     $('#meta').textContent = ''; return;
@@ -438,7 +469,7 @@ function renderDetail() {
   let any = false;
   for (const s of nonEmpty) {
     if (v.dsel !== 'all' && s.key !== v.dsel) continue;
-    any = true; html += `<div class="sechead">${s.label}</div>` + s.items.map(s.render).join('');
+    any = true; html += `<div class="sechead">${s.label}</div>` + s.items.map(s.render).join('') + (s.more || '');
   }
   if (!any) html += `<div class="empty">No items.</div>`;
   const el = $('#detail'); el.innerHTML = html; el.style.display='block'; $('#view').style.display='none'; window.scrollTo(0,0);
@@ -470,6 +501,37 @@ async function openZemer(id) {
     { key:'tracks', label:'Tracks', items:(d.tracks||[]), render:rowZemerTrack },
     { key:'albums', label:'Albums', items:d.albums||[], render:rowAlbum },
   ] });
+}
+// Podcast show detail — header + numbered/dated episode list, paged via nextOffset ("Show more").
+function updatePodcastMore(v) {
+  v._epSection.more = v._nextOffset != null
+    ? `<div class="feednote" style="padding:12px 14px"><button class="back" style="margin:0" onclick="podcastMore()">Show more episodes</button></div>`
+    : '';
+}
+async function openPodcast(id) {
+  let d;
+  try { d = await (await fetch('/podcast?id='+encodeURIComponent(id))).json(); } catch { return; }
+  if (!d || d.error || !d.podcast) return;
+  const p = d.podcast;
+  const sub = [esc(p.author||'Podcast'), (p.categories&&p.categories.length)?p.categories.join(' · '):'']
+    .filter(Boolean).join(' · ');
+  const epSection = { key:'episodes', label:'Episodes', items:(d.episodes||[]), render:rowEpisode };
+  const v = { title:p.name, sub, thumb:p.thumbnail, sections:[epSection],
+    _podId:id, _epSection:epSection, _nextOffset:(d.nextOffset!=null?d.nextOffset:null) };
+  updatePodcastMore(v);
+  pushView(v);
+}
+async function podcastMore() {
+  const v = stack[stack.length-1];
+  if (!v || !v._podId || v._nextOffset == null) return;
+  let d;
+  try { d = await (await fetch('/podcast?id='+encodeURIComponent(v._podId)+'&offset='+encodeURIComponent(v._nextOffset))).json(); }
+  catch { return; }
+  const eps = (d && d.episodes) || [];
+  for (const e of eps) v._epSection.items.push(e);
+  v._nextOffset = (d && d.nextOffset != null) ? d.nextOffset : null;
+  updatePodcastMore(v);
+  renderDetail();
 }
 async function openPlaylist(id) {
   const d = await (await fetch('/playlist?id='+encodeURIComponent(id))).json();

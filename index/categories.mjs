@@ -21,7 +21,7 @@ import { femaleNameKey, makeFemaleOwned } from "./female-owned.mjs";
 // primary-only `isFemale` so a male-primary track that features a female is dropped under allowFemale=0.
 // `matcher` may be passed (the server builds it once for its SQL paths too); else it's built here. Tracks
 // may arrive with `femaleInvolved` precomputed (server path) — reused as-is.
-export function buildCategories({ tracks = [], artists = [], albums = [], playlists = [], community = [] }, synonyms = [], matcher = null) {
+export function buildCategories({ tracks = [], artists = [], albums = [], playlists = [], community = [], podcasts = [], episodes = [] }, synonyms = [], matcher = null) {
   const m = matcher || buildFemaleMatcher(artists);
   const femaleVideoIds = new Set();
   const tdoc = (t) => {
@@ -45,6 +45,10 @@ export function buildCategories({ tracks = [], artists = [], albums = [], playli
   const femaleNames = new Set(artists.filter((a) => a.isFemale && a.name).map((a) => femaleNameKey(a.name)));
   const isFemaleOwned = makeFemaleOwned(femaleOwnedPl, femaleNames);
   const communityDocs = community.map((c) => ({ ...c, femaleOwned: isFemaleOwned(c) }));
+  // Podcasts ride the SAME matcher (skeleton cross-script + fuzzy + IDF) — a SHOW doc is titled by its name
+  // (curator/author as the "artist" field), an EPISODE doc by its title (its show name as the "artist").
+  const podcastDocs = podcasts.map((p) => ({ ...p, title: p.name, artistName: p.author || "" }));
+  const episodeDocs = episodes.map((e) => ({ ...e, title: e.title, artistName: e.podcastName || "" }));
   const cats = {
     artists: buildIndex(artistDocs, synonyms),
     songs: buildIndex(songs, synonyms),
@@ -53,6 +57,8 @@ export function buildCategories({ tracks = [], artists = [], albums = [], playli
     videos: buildIndex(videos, synonyms),
     playlists: buildIndex(playlistDocs, synonyms),    // artist-owned playlists
     community: buildIndex(communityDocs, synonyms),    // community-curated playlists (own chip)
+    podcasts: buildIndex(podcastDocs, synonyms),       // podcast shows
+    episodes: buildIndex(episodeDocs, synonyms),       // podcast episodes
   };
   cats.femaleVideoIds = femaleVideoIds; // for the server's SQL paths (temp _female); harmless elsewhere
   return cats;
@@ -70,7 +76,7 @@ const allowed = (t, o) => (o.allowFemale === false ? !(t.femaleInvolved ?? t.isF
 // that survives on one token male track, or a female collaborator not named in a track's text).
 const blockedDoc = (d, o, b) => {
   if (!b) return false;
-  for (const id of [d.videoId, d.id, d.playlistId]) {
+  for (const id of [d.videoId, d.id, d.playlistId, d.channelId]) {
     if (id && (b.global.has(id) || (o.allowFemale === false && b.female.has(id)))) return true;
   }
   return false;
@@ -115,5 +121,9 @@ export function searchCategories(cats, q, o = {}) {
     // with no track surviving the content filter (all-female list when female is blocked, etc.).
     community: search(cats.community, q, k * 4).map((r) => r.track).filter((p) => communitySurvives(p, o) && !blockedDoc(p, o, b)).slice(0, k)
       .map((p) => ({ id: p.id, title: p.title, artist: p.author || "", thumbnail: p.thumbnail, source: "community", whitelisted: p.whitelisted })),
+    // Podcasts (own chips) — same matcher/filters. Guarded: a caller that built no podcast index (unit tests,
+    // music-only) simply gets empty groups. Episodes carry the playable videoId + duration + real ISO date.
+    ...(cats.podcasts ? { podcasts: pick(cats.podcasts, (p) => ({ id: p.id, name: p.name, author: p.author || undefined, channelId: p.channelId || undefined, thumbnail: p.thumbnail || undefined, episodeCountText: p.episodeCountText || undefined })) } : {}),
+    ...(cats.episodes ? { episodes: pick(cats.episodes, (e) => ({ videoId: e.videoId, title: e.title, podcastId: e.showId, podcastName: e.podcastName || undefined, channelId: e.channelId || undefined, thumbnail: e.thumbnail || undefined, durationSeconds: e.durationSec ?? 0, publishedAt: e.publishedAt || undefined })) } : {}),
   };
 }

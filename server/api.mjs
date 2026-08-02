@@ -32,6 +32,7 @@ import { buildCategories, searchCategories } from "../index/categories.mjs";
 import { buildRadioIndex, radio } from "../index/radio.mjs";
 import { scheduleAt } from "../index/station.mjs";
 import { inThreeWeeks } from "../corpus/season.mjs";
+import { ensurePodcastSchema, allPodcastShows, podcastDetail, podcastChannelDetail, newPodcastEpisodes, allPodcastShowDocs, allPodcastEpisodeDocs, loadPodcastSurfaces, topPodcastShows, trendingPodcastEpisodes } from "../corpus/podcasts.mjs";
 import { buildFemaleMatcher, collectFemaleVideoIds } from "../index/credits.mjs";
 import { loadDefaultSynonyms } from "../index/synonyms.mjs";
 import { postBrowse, parsePlaylistPage, parseArtistItemsContinuation } from "../harness/browse.mjs";
@@ -150,7 +151,9 @@ if (cluster.isPrimary && WORKERS > 1) {
 
 async function startServer() {
   const liveDb = openCorpus(); // persistent WAL reader → sees the harvest's latest per-artist commits
+  ensurePodcastSchema(liveDb);  // idempotent: creates the podcast_* tables on a corpus that predates them
   const WL_PATH = path.join(HERE, "../data/whitelist.json");
+  const PODCASTS_WL_PATH = path.join(HERE, "../data/podcasts-whitelist.json"); // podcast version gate lives here
   const STATUS_PATH = process.env.MAINTAIN_STATUS || path.join(HERE, "../data/.maintain-status.json");
   // Total whitelisted artists (the harvest target) — re-read on each reload so a freshly-fetched
   // whitelist isn't stale beyond one cycle.
@@ -241,7 +244,7 @@ async function startServer() {
     const blocked = loadBlockedIds();
     setFemaleSet(liveDb, [...collectFemaleVideoIds(tracks, matcher), ...blocked.female]);
     // Artist-owned playlists and community-discovered playlists are indexed separately → separate chips.
-    cats = buildCategories({ tracks, artists, albums: allAlbums(liveDb), playlists: allPlaylists(liveDb), community: allCommunityPlaylists(liveDb) }, loadDefaultSynonyms(), matcher);
+    cats = buildCategories({ tracks, artists, albums: allAlbums(liveDb), playlists: allPlaylists(liveDb), community: allCommunityPlaylists(liveDb), podcasts: allPodcastShowDocs(liveDb), episodes: allPodcastEpisodeDocs(liveDb) }, loadDefaultSynonyms(), matcher);
     cats.blocked = blocked; // consumed by searchCategories; also reused by the detail endpoints (dropId)
     // Zemer Radio index — co-occurrence graph (data/radio-graph.json, its own fetch timer) + corpus, reusing
     // the same female matcher + blocked-ids so radio filters identically. Missing graph → same-artist+pop fallback.
@@ -416,7 +419,7 @@ async function startServer() {
 
   const send = (res, code, obj) => { const body = JSON.stringify(obj); res.writeHead(code, CORS); res.end(body); return body; };
   const cacheSet = (key, body) => { cache.set(key, body); if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value); };
-  const CACHEABLE = new Set(["/search", "/artist", "/album", "/playlist", "/community", "/zemer-playlists", "/home-rows", "/genres"]); // /new self-caches via the feed TTL
+  const CACHEABLE = new Set(["/search", "/artist", "/album", "/playlist", "/community", "/zemer-playlists", "/home-rows", "/genres", "/podcasts", "/podcast", "/podcast-channel"]); // /new self-caches via the feed TTL
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -481,6 +484,8 @@ async function startServer() {
           const counts = communityKeptCounts(liveDb, categories.community.map((p) => p.id), o);
           if (counts) for (const p of categories.community) { const c = counts.get(p.id); if (c) { p.whitelisted = c.kept; if (c.cover) p.thumbnail = c.cover; } }
         }
+        // Podcasts fold in via searchCategories (real matcher: skeleton cross-script + fuzzy + IDF), already
+        // in `categories` as .podcasts/.episodes with content-filter + blocked-ids applied like every group.
         return cacheSet(req.url, send(res, 200, { q, count: Object.values(categories).reduce((n, a) => n + a.length, 0), categories }));
       }
       if (u.pathname === "/new") {
@@ -971,6 +976,59 @@ ol{list-style:none;margin:0;padding:0}li{display:flex;gap:10px;align-items:cente
         // never shows a filtered-out (e.g. female) member's art. Artist-owned playlists keep their own cover.
         if (isCommunity && tracks.length) playlist.thumbnail = `https://i.ytimg.com/vi/${tracks[0].videoId}/mqdefault.jpg`;
         return cacheSet(req.url, send(res, 200, { playlist, tracks, total: songs.length, whitelisted: tracks.length }));
+      }
+      // ---- PODCASTS (discovery-only; playback stays InnerTube via each episode's videoId) ----
+      // KidZone mode (kidZone=1) shows only kid-vetted content; podcasts carry no kid flag, so they are
+      // hidden in kids mode — on browse AND search alike (searchCategories' allowed() already drops them),
+      // keeping the two endpoint families consistent (gotcha #7).
+      if (u.pathname === "/podcasts") {
+        const cf = contentFlags(u.searchParams);
+        let version = null; try { version = JSON.parse(fs.readFileSync(PODCASTS_WL_PATH, "utf8")).version ?? null; } catch { /* no gate yet */ }
+        if (cf.kidZoneOnly) return cacheSet(req.url, send(res, 200, { podcasts: [], version }));
+        // sort=top → telemetry-ranked (Top Podcasts) when a surfaces artifact exists, else alphabetical.
+        const shows = u.searchParams.get("sort") === "top" ? topPodcastShows(liveDb, loadPodcastSurfaces()) : allPodcastShows(liveDb);
+        const list = shows.filter((p) => !idDropped(p.id, cats.blocked, cf.allowFemale) && !idDropped(p.channelId, cats.blocked, cf.allowFemale));
+        return cacheSet(req.url, send(res, 200, { podcasts: list, version }));
+      }
+      if (u.pathname === "/podcasts/trending") {
+        const cf = contentFlags(u.searchParams);
+        if (cf.kidZoneOnly) return send(res, 200, { episodes: [] });
+        const k = Math.min(200, Math.max(1, Number(u.searchParams.get("k") || 50)));
+        const eps = trendingPodcastEpisodes(liveDb, loadPodcastSurfaces(), k).filter((e) => !idDropped(e.videoId, cats.blocked, cf.allowFemale));
+        return send(res, 200, { episodes: eps });
+      }
+      if (u.pathname === "/podcasts/version") {
+        let version = null; try { version = JSON.parse(fs.readFileSync(PODCASTS_WL_PATH, "utf8")).version ?? null; } catch { /* none */ }
+        return send(res, 200, { version });
+      }
+      if (u.pathname === "/podcasts/new-episodes") {
+        const cf = contentFlags(u.searchParams);
+        if (cf.kidZoneOnly) return send(res, 200, { episodes: [] });
+        const k = Math.min(200, Math.max(1, Number(u.searchParams.get("k") || 50)));
+        const eps = newPodcastEpisodes(liveDb, k).filter((e) => !idDropped(e.videoId, cats.blocked, cf.allowFemale));
+        return send(res, 200, { episodes: eps });
+      }
+      if (u.pathname === "/podcast") {
+        const id = u.searchParams.get("id");
+        if (!id) return send(res, 400, { error: "missing id" });
+        const cf = contentFlags(u.searchParams);
+        if (cf.kidZoneOnly || idDropped(id, cats.blocked, cf.allowFemale)) return send(res, 404, { error: "not found" });
+        const offset = Math.max(0, Number(u.searchParams.get("offset") || 0));
+        const d = podcastDetail(liveDb, id, offset, 30);
+        if (!d) return send(res, 404, { error: "not found" });
+        d.episodes = d.episodes.filter((e) => !idDropped(e.videoId, cats.blocked, cf.allowFemale));
+        return cacheSet(req.url, send(res, 200, d));
+      }
+      if (u.pathname === "/podcast-channel") {
+        const id = u.searchParams.get("id");
+        if (!id) return send(res, 400, { error: "missing id" });
+        const cf = contentFlags(u.searchParams);
+        if (cf.kidZoneOnly || idDropped(id, cats.blocked, cf.allowFemale)) return send(res, 404, { error: "not found" });
+        const d = podcastChannelDetail(liveDb, id);
+        if (!d) return send(res, 404, { error: "not found" });
+        d.shows = d.shows.filter((s) => !idDropped(s.id, cats.blocked, cf.allowFemale) && !idDropped(s.channelId, cats.blocked, cf.allowFemale));
+        d.episodes = (d.episodes || []).filter((e) => !idDropped(e.videoId, cats.blocked, cf.allowFemale));
+        return cacheSet(req.url, send(res, 200, d));
       }
       send(res, 404, { error: "not found" });
     } catch (e) { send(res, 500, { error: e.message }); }
