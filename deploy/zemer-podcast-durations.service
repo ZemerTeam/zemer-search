@@ -28,6 +28,9 @@ ExecCondition=/usr/bin/env node harness/shabbat.mjs
 ExecCondition=/usr/bin/bash -c '[[ "$$PROXY_URL" =~ ^http://([^:/]+):([0-9]+) ]] && timeout 3 bash -c "</dev/tcp/$${BASH_REMATCH[1]}/$${BASH_REMATCH[2]}" 2>/dev/null || exit 1'
 # Serialize with the other corpus writers: skip politely (exit 0) if the maintenance flock is held —
 # same lock file as scripts/maintain.sh (ZEMER_LOCK); podcast-durations.mjs UPDATEs episode durationSec/publishedAt.
-ExecStart=/usr/bin/bash -c 'exec 9>"$${ZEMER_LOCK:-/tmp/zemer-maintain.lock}"; flock -n 9 || { echo "maintenance lock held - skipping this podcast-durations run"; exit 0; }; exec node harvester/podcast-durations.mjs'
+# Run (not exec) so the exit code is inspectable: 75 = the IP-safe anti-bot breaker aborted AFTER saving a
+# partial fill — an expected, self-resuming outcome during the multi-night backfill, so map it to exit 0
+# (graceful skip) rather than have systemd flag the unit failed every morning. Any other non-zero still fails.
+ExecStart=/usr/bin/bash -c 'exec 9>"$${ZEMER_LOCK:-/tmp/zemer-maintain.lock}"; flock -n 9 || { echo "maintenance lock held - skipping this podcast-durations run"; exit 0; }; node harvester/podcast-durations.mjs; ec=$$?; if [ $$ec -eq 75 ]; then echo "anti-bot block: partial fill saved, resumes next run (expected, not a failure)"; exit 0; fi; exit $$ec'
 # A normal daily run tops up a handful of new episodes (minutes); a large backlog at ~2 req/s can take a while.
 TimeoutStartSec=4h
