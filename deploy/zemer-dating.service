@@ -26,8 +26,11 @@ ExecCondition=/usr/bin/env node harness/shabbat.mjs
 # waits for the next tick.
 # ($$ = escape systemd's own ${...} expansion so bash receives the real variables)
 ExecCondition=/usr/bin/bash -c '[[ "$$PROXY_URL" =~ ^http://([^:/]+):([0-9]+) ]] && timeout 3 bash -c "</dev/tcp/$${BASH_REMATCH[1]}/$${BASH_REMATCH[2]}" 2>/dev/null || exit 1'
-# Serialize with the other corpus writers: skip politely (exit 0) if the maintenance flock is held —
-# same lock file as scripts/maintain.sh (ZEMER_LOCK); releases.mjs UPDATEs album/track uploadDate.
-ExecStart=/usr/bin/bash -c 'exec 9>"$${ZEMER_LOCK:-/tmp/zemer-maintain.lock}"; flock -n 9 || { echo "maintenance lock held - skipping this dating run"; exit 0; }; exec node harvester/releases.mjs'
+# Serialize with the other corpus writers on the maintenance flock (same file as scripts/maintain.sh,
+# ZEMER_LOCK; releases.mjs UPDATEs album/track uploadDate). WAIT up to 90 min for the lock instead of
+# skipping on contention: the daily/sweep refreshes routinely still hold it at this hour, and a plain
+# `flock -n` skip meant dating lost the WHOLE night, letting an undated backlog build. Waiting just queues
+# dating behind the refresh; only a truly stuck lock (>90 min) still skips gracefully (exit 0).
+ExecStart=/usr/bin/bash -c 'exec 9>"$${ZEMER_LOCK:-/tmp/zemer-maintain.lock}"; flock -w 5400 9 || { echo "maintenance lock still held after 90m wait - skipping this dating run"; exit 0; }; exec node harvester/releases.mjs'
 # A normal daily run dates a handful of new items (minutes); a large backlog at ~2 req/s can take a while.
 TimeoutStartSec=4h
