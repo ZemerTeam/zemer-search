@@ -15,6 +15,7 @@ import {
   ensurePodcastSchema, upsertPodcast, upsertPodcastChannel, setEpisodePlayerMeta,
   prunePodcasts, allPodcastShows, podcastDetail, podcastChannelDetail,
   newPodcastEpisodes, allPodcastShowDocs, allPodcastEpisodeDocs, podcastStats, existingShowIds,
+  isDeadShowArt, makeShowArtResolver,
 } from "./podcasts.mjs";
 
 const fresh = () => { const db = new Database(":memory:"); ensurePodcastSchema(db); return db; };
@@ -201,6 +202,43 @@ test("allPodcastShowDocs / allPodcastEpisodeDocs return joined raw docs for the 
   assert.equal(epDocs[0].title, "Episode One");
   assert.equal(epDocs[0].podcastName, "Show One"); // joined from the show
   assert.equal(epDocs[0].channelId, "UCa");
+});
+
+// ---- durable show art (the pl_c / podcasts_artwork 404 fix) --------------
+const DEAD_PLC = "https://i.ytimg.com/pl_c/PLxxx/studio_square_thumbnail.jpg?sqp=a&rs=b";
+const DEAD_ART2 = "https://i.ytimg.com/podcasts_artwork/xxx/auto_created_podcast_show_avatar.jpg?sqp=a";
+const AVATAR = "https://yt3.googleusercontent.com/abc=w544-c-h544-l90-rj";
+
+test("isDeadShowArt flags the two dead YouTube shapes (and null), not durable urls", () => {
+  assert.equal(isDeadShowArt(DEAD_PLC), true);
+  assert.equal(isDeadShowArt(DEAD_ART2), true);
+  assert.equal(isDeadShowArt(null), true);
+  assert.equal(isDeadShowArt(AVATAR), false);
+  assert.equal(isDeadShowArt("https://i.ytimg.com/vi/v1/hqdefault.jpg"), false);
+});
+
+test("resolver: dead show art -> host-channel avatar; good art kept as-is", () => {
+  const db = fresh();
+  upsertPodcastChannel(db, { id: "UCa", name: "A", thumbnail: AVATAR });
+  upsertPodcast(db, { id: "MPSP1", name: "Dead", channelId: "UCa", thumbnail: DEAD_PLC }, [ep("v1", "E1", { thumbnail: "https://i.ytimg.com/vi/v1/hqdefault.jpg" })]);
+  upsertPodcast(db, { id: "MPSP2", name: "Good", channelId: "UCa", thumbnail: AVATAR }, [ep("v2", "E2")]);
+  const art = makeShowArtResolver(db);
+  assert.equal(art({ id: "MPSP1", channelId: "UCa", thumbnail: DEAD_PLC }), AVATAR, "dead -> channel avatar");
+  assert.equal(art({ id: "MPSP2", channelId: "UCa", thumbnail: AVATAR }), AVATAR, "good stored art untouched");
+  // and it flows through the served DTOs
+  const byId = Object.fromEntries(allPodcastShows(db).map((s) => [s.id, s.thumbnail]));
+  assert.equal(byId["MPSP1"], AVATAR);
+  assert.equal(byId["MPSP2"], AVATAR);
+  assert.equal(podcastDetail(db, "MPSP1").podcast.thumbnail, AVATAR);
+  assert.equal(allPodcastShowDocs(db).find((s) => s.id === "MPSP1").thumbnail, AVATAR);
+});
+
+test("resolver: no channel avatar -> falls back to a first-episode /vi thumbnail", () => {
+  const db = fresh();
+  upsertPodcast(db, { id: "MPSP3", name: "NoAvatar", channelId: "UCx", thumbnail: DEAD_ART2 },
+    [ep("v9", "E9", { thumbnail: "https://i.ytimg.com/vi/v9/hqdefault.jpg" })]);
+  const art = makeShowArtResolver(db);
+  assert.equal(art({ id: "MPSP3", channelId: "UCx", thumbnail: DEAD_ART2 }), "https://i.ytimg.com/vi/v9/hqdefault.jpg");
 });
 
 test("podcastStats counts shows/episodes/channels/withDur/withCh", () => {

@@ -77,9 +77,39 @@ const epRow = (e) => ({
   publishedText: e.publishedText || undefined,
 });
 
+// A show's harvested art can be a YouTube shape that is ADVERTISED but never SERVED — `pl_c/…/
+// studio_square_thumbnail` and `podcasts_artwork/…/auto_created_podcast_show_avatar` both 404 even bare
+// (not an expired sqp signature; the path itself is dead). ~89% of shows carry one. So resolve show art to a
+// DURABLE url at read time: keep a good stored value, else the host-channel yt3 avatar (via channelId, which
+// every show has and which returns 200), else a first-episode /vi thumbnail (always durable). Read-time so it
+// SELF-HEALS — a re-harvest re-storing the dead url can't regress it. Wire contract is unchanged: same
+// `thumbnail` field, only the value is made to resolve.
+const DEAD_ART = /\/pl_c\/|\/podcasts_artwork\//;
+export const isDeadShowArt = (u) => !u || DEAD_ART.test(u);
+
+// Factory: loads the channel-avatar map once, returns resolver(show)->url. Cheap (≈160 channel rows); the
+// endpoints that use it are LRU-cached in the API anyway.
+export function makeShowArtResolver(db) {
+  const chAvatar = new Map(
+    db.prepare(`SELECT id,thumbnail FROM podcast_channel`).all().map((c) => [c.id, c.thumbnail])
+  );
+  const firstEp = db.prepare(`SELECT thumbnail FROM podcast_episode WHERE showId=? ORDER BY pos LIMIT 1`);
+  return (show) => {
+    if (!isDeadShowArt(show.thumbnail)) return show.thumbnail || undefined; // good stored art (the ~11% yt3)
+    const av = show.channelId ? chAvatar.get(show.channelId) : null;        // host-channel avatar (the ~89%)
+    if (!isDeadShowArt(av)) return av;
+    const ep = firstEp.get(show.id)?.thumbnail;                             // last-resort episode thumbnail
+    if (!isDeadShowArt(ep)) return ep;
+    return show.thumbnail || undefined;                                     // nothing better (0 shows in practice)
+  };
+}
+
 // /podcasts — browse all whitelisted shows (alphabetical).
-export const allPodcastShows = (db) =>
-  db.prepare(`SELECT id,name,author,channelId,thumbnail,episodeCountText FROM podcast_show ORDER BY name`).all().map(showRow);
+export const allPodcastShows = (db) => {
+  const art = makeShowArtResolver(db);
+  return db.prepare(`SELECT id,name,author,channelId,thumbnail,episodeCountText FROM podcast_show ORDER BY name`)
+    .all().map((s) => ({ ...showRow(s), thumbnail: art(s) }));
+};
 
 // /podcast?id= — one show + a page of its episodes (newest-first by pos), with nextOffset.
 export function podcastDetail(db, id, offset = 0, limit = 30) {
@@ -88,8 +118,9 @@ export function podcastDetail(db, id, offset = 0, limit = 30) {
   const eps = db.prepare(`SELECT videoId,showId,title,thumbnail,durationSec,publishedText,publishedAt
       FROM podcast_episode WHERE showId=? ORDER BY pos LIMIT ? OFFSET ?`).all(id, limit + 1, offset);
   const more = eps.length > limit;
+  const art = makeShowArtResolver(db);
   return {
-    podcast: { ...showRow(s), description: s.description || undefined,
+    podcast: { ...showRow(s), thumbnail: art(s), description: s.description || undefined,
       categories: s.categories ? JSON.parse(s.categories) : [] },
     episodes: eps.slice(0, limit).map(epRow),
     nextOffset: more ? offset + limit : null,
@@ -104,10 +135,14 @@ export function podcastChannelDetail(db, id) {
   const eps = db.prepare(`SELECT e.videoId,e.showId,e.title,e.thumbnail,e.durationSec,e.publishedText,e.publishedAt, s.name podcastName
       FROM podcast_episode e JOIN podcast_show s ON s.id=e.showId
       WHERE s.channelId=? AND e.publishedAt IS NOT NULL ORDER BY e.publishedAt DESC LIMIT 30`).all(id);
+  const art = makeShowArtResolver(db);
+  // Channel header art: the podcast_channel avatar is a durable yt3 url; guard it anyway (dead/unharvested →
+  // fall back to the first show's resolved art) so the channel page header never falls to a placeholder.
+  const chArt = !isDeadShowArt(ch?.thumbnail) ? ch.thumbnail : art(shows[0]);
   return {
     channel: { id, name: (ch?.name) || shows[0].author || undefined,
-      thumbnail: ch?.thumbnail || undefined, banner: ch?.banner || undefined, description: ch?.description || undefined },
-    shows: shows.map(showRow),
+      thumbnail: chArt, banner: ch?.banner || undefined, description: ch?.description || undefined },
+    shows: shows.map((s) => ({ ...showRow(s), thumbnail: art(s) })),
     episodes: eps.map((e) => epRow({ ...e, channelId: id })),
   };
 }
@@ -122,8 +157,11 @@ export const newPodcastEpisodes = (db, limit = 50) =>
 // Index doc-loaders — feed the SAME matcher music uses (index/search.mjs), so podcast search gets skeleton
 // cross-script (Hebrew↔romanized), Damerau fuzzy, and IDF ranking instead of a substring match. buildCategories
 // shapes these into {title, artistName, …} docs. Loaded whole (small) and rebuilt on each index reload.
-export const allPodcastShowDocs = (db) =>
-  db.prepare(`SELECT id,name,author,channelId,thumbnail,episodeCountText FROM podcast_show`).all();
+export const allPodcastShowDocs = (db) => {
+  const art = makeShowArtResolver(db);
+  return db.prepare(`SELECT id,name,author,channelId,thumbnail,episodeCountText FROM podcast_show`)
+    .all().map((s) => ({ ...s, thumbnail: art(s) })); // durable art for the /search-folded podcast group too
+};
 export const allPodcastEpisodeDocs = (db) =>
   db.prepare(`SELECT e.videoId,e.showId,e.title,e.thumbnail,e.durationSec,e.publishedText,e.publishedAt,
       s.name podcastName, s.channelId

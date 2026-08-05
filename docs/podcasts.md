@@ -46,6 +46,16 @@ podcastsWhitelist (Firestore)  →  harvest (InnerTube browse, IP-safe)  →  co
 
 - **`podcast_show`** `id`(MPSP…, PK), `name`, `author`, `channelId`, `thumbnail`, `description`, `categories`
   (JSON), `episodeCountText`, `harvestedAt`.
+  - **Durable show art (read-time).** The harvested `thumbnail` is often a YouTube shape that is *advertised
+    but never served* — `i.ytimg.com/pl_c/…/studio_square_thumbnail.jpg` and `…/podcasts_artwork/…/
+    auto_created_podcast_show_avatar.jpg` both 404 even bare (dead path, not an expired `sqp` signature);
+    ~89% of shows carried one. So every show/channel DTO resolves art at read time (`makeShowArtResolver` /
+    `isDeadShowArt` in `corpus/podcasts.mjs`): keep a durable stored value, else the **host-channel yt3
+    avatar** (via `channelId`, always 200), else a **first-episode `/vi` thumbnail**. Read-time so a
+    re-harvest re-storing the dead url can't regress it; the wire contract is unchanged (same `thumbnail`
+    field). Applied on `/podcasts`, `/podcast`, `/podcast-channel` (shows shelf + channel header), and the
+    `/search`-folded podcast group (`allPodcastShowDocs`). The `content.zemer.io` mirror carries the same
+    resolved value in its `podcastsWhitelist.thumbnailUrl` (backfilled from the same source).
 - **`podcast_episode`** `videoId`(PK — the playable id), `showId`, `title`, `thumbnail`, `durationSec`,
   `publishedText` (raw label), `publishedAt` (ISO, from `/player`), `pos` (newest-first on the show page),
   `harvestedAt`.
