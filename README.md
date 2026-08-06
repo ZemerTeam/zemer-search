@@ -56,10 +56,13 @@ All content surfaces are **whitelist-pure** and apply the same content filters (
   aggregated graph from `zemer-stats`, replacing `YouTube.next()`.
 - **Zemer Stations** (`/stations`, `/station`): synchronized broadcast radio (one shared wall-clock program
   per station), audio-only pools, pure clock-math tune-in.
-- **Podcasts** (`/podcasts`, `/podcast`, `/podcast-channel`, `/podcasts/new-episodes`, `/podcasts/trending`,
-  `/podcasts/version`): corpus-native podcast discovery (shows, episodes, host channels) with a `/player`
-  duration and date top-up and data-driven Top Podcasts / Trending Episodes. **Server-side and live; the app
-  client is on a branch and not yet released.**
+- **Podcasts** (`/podcast-channels`, `/podcast-genres`, `/podcasts`, `/podcast`, `/podcast-channel`,
+  `/podcasts/new-episodes`, `/podcasts/trending`, `/podcasts/version`): corpus-native podcast discovery
+  whitelisted by **host channel** (the same model as the artist whitelist, approve a publisher and its whole
+  catalog is kosher, with full-catalog auto-discovery), a browsable channel grid, per-show **genre** slugs
+  (`/podcast-genres`, mirroring `/genres`), durable show/channel art, a `/player` duration and date top-up,
+  and data-driven Top Podcasts / Trending Episodes. Female/KidZone stay per item. **Server-side and live; the
+  app client is on a branch and not yet released.**
 - **User-shared playlists** (`/user-playlist` POST, `/user_playlist/<id>`): person-to-person unguessable
   links, members corpus-validated at create, filters applied at serve. **Server-side implemented; the app
   client is not shipped yet.**
@@ -118,8 +121,9 @@ pacing), `MAX_AGE_H` (refresh TTL), `STATS_URL`/`STATS_KEY` (telemetry generator
   gate (`shabbat.mjs`).
 - `harvester/` : per-artist harvest (`core.mjs`, `harvest.mjs`, `onboard.mjs`, `refresh.mjs`, `prune.mjs`,
   `reconcile.mjs`), community playlists, releases dating, the telemetry generators (`auto-playlists.mjs`,
-  `radio-graph.mjs`, `stations.mjs`), and the podcast pipeline (`podcasts.mjs`, `podcast-durations.mjs`,
-  `podcast-surfaces.mjs`). IP-safe: cached, paced, aborts on the first anti-bot block.
+  `radio-graph.mjs`, `stations.mjs`), and the podcast pipeline (`podcasts.mjs`, `podcast-channels.mjs`
+  channel-catalog discovery, `podcast-genres.mjs`, `podcast-durations.mjs`, `podcast-surfaces.mjs`). IP-safe:
+  cached, paced, aborts on the first anti-bot block.
 - `corpus/store.mjs` : the **SQLite** source-of-truth (artist, track, album, playlist, community, curated
   playlists, home ranks, durations and play counts, genres, energy). `corpus/podcasts.mjs` adds the podcast
   tables and read layer in the same DB.
@@ -130,7 +134,7 @@ pacing), `MAX_AGE_H` (refresh TTL), `STATS_URL`/`STATS_KEY` (telemetry generator
 - `server/api.mjs` : the HTTP API (SQLite to in-memory matcher, cluster, LRU cache, content-filter scoping)
   plus `ui.html`, a small web UI. Endpoints: `/search`, `/artist`, `/album`, `/playlist`, `/new`,
   `/community`, `/zemer-playlists`, `/home-rows`, `/genres`, `/radio`, `/stations`+`/station`,
-  `/user-playlist`+`/user_playlist/<id>`, `/podcasts`+`/podcast`+`/podcast-channel`+`/podcasts/*`,
+  `/user-playlist`+`/user_playlist/<id>`, `/podcast-channels`+`/podcast-genres`+`/podcasts`+`/podcast`+`/podcast-channel`+`/podcasts/*`,
   `/subset/manifest`+`/subset/<shard>`, `/health`, `/reload`.
 - `scripts/`, `deploy/` : the maintenance orchestrator (`maintain.sh`) plus systemd timer/service units, all
   Shabbat-gated.

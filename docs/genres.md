@@ -1,5 +1,9 @@
 # Genres & style — two layers, resolved at read time
 
+> This doc is about MUSIC genres (`track.genres`, served by `/genres`). **Podcasts have their own parallel**,
+> per-show Zemer slugs (`podcast_show.genres`, served by `/podcast-genres`), curated in `data/podcast-genres.json`;
+> see [`docs/podcasts.md`](podcasts.md). Same idea, but anchored to the SHOW, not the publisher channel.
+
 Zemer describes style at **two different levels**, on purpose. They are never merged, because they mean
 different things and carry different authority.
 

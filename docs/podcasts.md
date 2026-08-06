@@ -135,8 +135,18 @@ concern — it stays on the app's InnerTube account sync.
 - **Whitelist purity is by construction** — only `podcastsWhitelist` shows are harvested, so a wrong `MPSP` id
   in Firestore harvests wrong content. (Seen: id `MPSPPL-Prl…` "Nexus" = a secular HVAC podcast — a whitelist
   data error, fixed in Firestore, not code. Same class as the music female-mismarks.)
-- **`channelId` load-bearing** — resolved from the show header at harvest; 167/169 shows carry one. A show
-  with no resolvable host ships without it and the client falls back to the show page.
+- **`channelId` load-bearing** (channel-level whitelisting keys on it), resolved from the show header at
+  harvest; some show pages carry NO host-channel link, so the harvest **falls back to the whitelist-provided
+  `channelId`** (`harvester/podcasts.mjs`) rather than shipping it null (which would drop the show to
+  grandfathered). A show with no host UC anywhere is grandfathered (a small show-level allow-set).
+- **Prune is CHANNEL-aware, not show-whitelist-aware.** A show survives `PRUNE` iff its host channel is an
+  approved publisher (or it is grandfathered), NOT iff its `MPSP` is individually whitelisted; otherwise the
+  daily channel-catalog discovery's shows would be deleted on the next prune pass (they aren't individually
+  listed; they live by channel membership). A show on a de-approved channel is still dropped.
+- **A blocked SHOW blocks its EPISODES too.** `blockedContentIds` on a show `MPSP` drops its browse AND its
+  episodes from the cross-show episode lists (`/search` folding, `/podcasts/new-episodes`, `/podcasts/trending`,
+  a channel's latest shelf): those check the episode's `videoId` AND its parent `podcastId`, so a blocked
+  show can't leak via episode search.
 - **`banner` not harvested** — the app uses the avatar; the field exists in the channel shape but is absent.
 - **Whitelist expansion** — YouTube-Music-matching an external RSS list to `MPSP` ids is a one-off research
   task (name search → show-card `MPSP` extraction → name-similarity score, niqqud-stripped); exact-name
