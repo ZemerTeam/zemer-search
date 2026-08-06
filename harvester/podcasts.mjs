@@ -75,6 +75,9 @@ for (const p of todo) {
     // keep the whitelist name if the page title is blank; whitelist thumbnail as a fallback cover
     if (!show.name) show.name = p.name;
     if (!show.thumbnail && p.thumbnailUrl) show.thumbnail = p.thumbnailUrl;
+    // some show pages don't link their host channel (no strapline UC) — trust the whitelist's channelId so
+    // the show is still gated/grouped under its approved publisher instead of falling to grandfathered.
+    if (!show.channelId && p.channelId) show.channelId = p.channelId;
     if (!DRY) upsertPodcast(db, show, episodes);
     if (show.channelId) { channelIds.add(show.channelId); if (show.author) chNameHint.set(show.channelId, show.author); }
     epTotal += episodes.length;
