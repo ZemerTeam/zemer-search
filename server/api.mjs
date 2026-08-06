@@ -454,8 +454,12 @@ async function startServer() {
       // Podcast channel-level gate (shared by /search folding + every podcast endpoint): a show/episode is
       // served iff its host UC is an approved publisher, or its id is a grandfathered channel-less show.
       const showApproved = (channelId, showId) => podcastAllow.channels.has(channelId) || podcastAllow.grandfathered.has(showId);
+      // Drop a show/episode if the EPISODE's own id is blocked, the parent SHOW id is blocked (so a blocked
+      // show's episodes never leak into the cross-show episode lists / search / a channel's latest shelf), or
+      // the show is female-restricted while female is blocked. Same blockedContentIds the music paths use.
       const podFemaleDrop = (showId, videoId, allowFemale) =>
-        idDropped(videoId, cats.blocked, allowFemale) || (allowFemale === false && podcastAllow.femaleShows.has(showId));
+        idDropped(videoId, cats.blocked, allowFemale) || idDropped(showId, cats.blocked, allowFemale) ||
+        (allowFemale === false && podcastAllow.femaleShows.has(showId));
       // no-cache = "store it, but ALWAYS revalidate": the page carries the whole UI inline, so without
       // this a browser's heuristic cache can keep serving a pre-deploy copy (a shipped UI change then
       // looks like it never deployed). ETag makes the revalidation a cheap 304, not a re-download.
@@ -1082,7 +1086,8 @@ ol{list-style:none;margin:0;padding:0}li{display:flex;gap:10px;align-items:cente
         const d = podcastChannelDetail(liveDb, id);
         if (!d) return send(res, 404, { error: "not found" });
         d.shows = d.shows.filter((s) => showApproved(s.channelId, s.id) && !idDropped(s.id, cats.blocked, cf.allowFemale) && !podFemaleDrop(s.id, s.id, cf.allowFemale));
-        d.episodes = (d.episodes || []).filter((e) => !idDropped(e.videoId, cats.blocked, cf.allowFemale));
+        d.episodes = (d.episodes || []).filter((e) => !podFemaleDrop(e.podcastId, e.videoId, cf.allowFemale)); // also drops a blocked show's episodes
+        return cacheSet(req.url, send(res, 200, d));
         return cacheSet(req.url, send(res, 200, d));
       }
       send(res, 404, { error: "not found" });
