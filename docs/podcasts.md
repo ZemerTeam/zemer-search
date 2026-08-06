@@ -80,12 +80,18 @@ de-approved channel's shows stop serving immediately, before prune.
   allow-set (reachable via `/podcasts` + `/podcast?id=`, not the channel grid).
 - `harness/podcasts-whitelist.mjs` fetches the per-show content flags and derives the channel + grandfathered
   lists into the whitelist file; the API also re-derives from the show list so it works with any file version.
-- **Deferred: full-catalog auto-discovery.** Today the channel model serves the *already-harvested* shows
-  grouped by channel; it does NOT yet auto-surface shows a channel published that were never individually
-  whitelisted. Enumerating a channel's complete catalog is blocked on the harvest's unauthenticated YT Music
-  path: the "Podcasts" shelf "more" link returns *"This user doesn't have any public YouTube Music content"*
-  because these host channels expose their shows on the **regular** YouTube channel, not the Music surface
-  (gotcha #13). Measured lower bound of un-surfaced shows: ≥105. The regular-channel enumeration is future work.
+- **Full-catalog auto-discovery** (`harvester/podcast-channels.mjs`): approving a channel surfaces its whole
+  catalog, not just individually-whitelisted shows. For each approved channel it reads the YT Music landing
+  **"Podcasts" shelf** (`parseChannelPodcastShelf`, valid `MPSP` show ids), harvests the shows not yet in the
+  corpus, and they serve immediately (channel-membership gating needs no per-show whitelist entry). The shelf
+  is a capped preview (~10); its "more" link routes to an empty Music view for podcast host channels (their
+  shows live on the **regular** YouTube channel, and the regular-channel `PL` ids don't map to the Music
+  `MPSP` show ids — gotcha #13), so a channel with >~10 shows keeps only its top shelf (one channel in this
+  corpus). **Content note:** channel-level over-approves for podcasts far more than for music, because host
+  channels aggregate unrelated creators. The rollout scan surfaced a mis-whitelisted channel (a Ukrainian
+  tech network) and a mixed channel (a kosher show beside secular ones); both are handled by the standard
+  tools (de-whitelist the channel / `blockedContentIds` per show). Always review a discovery scan's new shows
+  before serving. Runs `DRY=1` for a blast-radius preview.
 - The `content.zemer.io` mirror carries the channel allow-set at `/podcastChannelsWhitelist` (UC-keyed docs:
   `id, name, thumbnailUrl, isFemale, isKidZone, isVerified, showCount`), derived from the show docs by
   `scripts/write-podcast-channels.mjs`; the show-level `/podcastsWhitelist` stays as the harvest work-list.

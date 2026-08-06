@@ -10,7 +10,28 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parsePodcastPage, parsePodcastContinuation } from "./podcast-browse.mjs";
+import { parsePodcastPage, parsePodcastContinuation, parseChannelPodcastShelf } from "./podcast-browse.mjs";
+
+// ---- channel "Podcasts" shelf → MPSP show ids (channel-catalog discovery) ----
+test("parseChannelPodcastShelf extracts MPSP shows from the Podcasts shelf only", () => {
+  const twoRow = (id, name) => ({ musicTwoRowItemRenderer: {
+    title: { runs: [{ text: name }] },
+    thumbnailRenderer: { musicThumbnailRenderer: { thumbnail: { thumbnails: [{ url: `http://t/${id}` }] } } },
+    navigationEndpoint: { browseEndpoint: { browseId: id } },
+  } });
+  const shelf = (title, ...items) => ({ musicCarouselShelfRenderer: {
+    header: { musicCarouselShelfBasicHeaderRenderer: { title: { runs: [{ text: title }] } } },
+    contents: items,
+  } });
+  const json = { contents: { some: [
+    shelf("Latest episodes", twoRow("MPSPzzz", "an episode-ish thing")), // wrong shelf → ignored
+    shelf("Podcasts", twoRow("MPSPaaa", "Show A"), twoRow("MPSPbbb", "Show B"), twoRow("UCnotashow", "not a show")),
+  ] } };
+  const shows = parseChannelPodcastShelf(json);
+  assert.deepEqual(shows.map((s) => s.id), ["MPSPaaa", "MPSPbbb"], "only MPSP items from the Podcasts shelf");
+  assert.equal(shows[0].name, "Show A");
+  assert.match(shows[0].thumbnail, /MPSPaaa/);
+});
 
 // ---- fixture helpers ----------------------------------------------------
 const SEP = " • "; // the InnerTube run separator (harness/lib.mjs)

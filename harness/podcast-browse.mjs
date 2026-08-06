@@ -102,6 +102,36 @@ export function parsePodcastPage(json, id) {
   };
 }
 
+// Parse a host-CHANNEL page's "Podcasts" shelf → [{ id:MPSP…, name, thumbnail }]. This is how channel-level
+// whitelisting discovers a publisher's whole catalog: the YT Music channel landing carries a "Podcasts"
+// carousel of the channel's shows as MPSP ids (valid show ids the harvest can open directly). NOTE the shelf
+// is a capped preview (~10); the "more" link routes to an empty Music view for podcast host channels (their
+// shows live on the regular YouTube channel), so this captures the full catalog only for channels at/under
+// the cap — which is all but the largest few.
+export function parseChannelPodcastShelf(json) {
+  const out = [];
+  const seen = new Set();
+  (function walk(o) {
+    if (!o || typeof o !== "object") return;
+    const sh = o.musicCarouselShelfRenderer;
+    if (sh) {
+      const title = sh.header?.musicCarouselShelfBasicHeaderRenderer?.title?.runs?.map((r) => r.text).join("");
+      if (title === "Podcasts") {
+        for (const c of (sh.contents || [])) {
+          const r = c.musicTwoRowItemRenderer;
+          const id = r?.navigationEndpoint?.browseEndpoint?.browseId;
+          if (id && id.startsWith("MPSP") && !seen.has(id)) {
+            seen.add(id);
+            out.push({ id, name: r.title?.runs?.[0]?.text ?? "", thumbnail: thumbnailUrl(r.thumbnailRenderer) });
+          }
+        }
+      }
+    }
+    for (const k in o) if (typeof o[k] === "object") walk(o[k]);
+  })(json);
+  return out;
+}
+
 // Parse a podcast episode-shelf continuation page → { episodes, continuation }.
 export function parsePodcastContinuation(json) {
   const cc = json?.continuationContents;
