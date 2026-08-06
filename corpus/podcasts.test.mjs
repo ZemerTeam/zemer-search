@@ -15,7 +15,7 @@ import {
   ensurePodcastSchema, upsertPodcast, upsertPodcastChannel, setEpisodePlayerMeta,
   prunePodcasts, allPodcastShows, allPodcastChannels, podcastDetail, podcastChannelDetail,
   newPodcastEpisodes, allPodcastShowDocs, allPodcastEpisodeDocs, podcastStats, existingShowIds,
-  isDeadShowArt, makeShowArtResolver,
+  isDeadShowArt, makeShowArtResolver, applyPodcastGenres,
 } from "./podcasts.mjs";
 
 const fresh = () => { const db = new Database(":memory:"); ensurePodcastSchema(db); return db; };
@@ -264,6 +264,24 @@ test("allPodcastChannels: one tile per APPROVED channel, with show/episode count
     [ep("v9", "E9", { thumbnail: "https://i.ytimg.com/vi/v9/hqdefault.jpg" })]);
   const c = allPodcastChannels(db2, new Set(["UCc"]))[0];
   assert.equal(c.thumbnail, "https://i.ytimg.com/vi/v9/hqdefault.jpg");
+});
+
+// ---- genres (Zemer style slugs per show) ---------------------------------
+test("applyPodcastGenres: replace-wholesale, surfaced on the show DTO", () => {
+  const db = fresh();
+  upsertPodcast(db, { id: "MPSP1", name: "Daf", channelId: "UCa" }, [ep("v1", "E1")]);
+  upsertPodcast(db, { id: "MPSP2", name: "Parsha", channelId: "UCa" }, [ep("v2", "E2")]);
+  applyPodcastGenres(db, { MPSP1: ["gemara"], MPSP2: ["parsha", "chizuk"] });
+  const byId = Object.fromEntries(allPodcastShows(db).map((s) => [s.id, s.genres]));
+  assert.deepEqual(byId["MPSP1"], ["gemara"]);
+  assert.deepEqual(byId["MPSP2"], ["parsha", "chizuk"]);
+  // wholesale: a show dropped from the map loses its genres, a re-harvest keeps genres (upsert never touches them)
+  applyPodcastGenres(db, { MPSP2: ["parsha"] });
+  const after = Object.fromEntries(allPodcastShows(db).map((s) => [s.id, s.genres]));
+  assert.equal(after["MPSP1"], undefined, "MPSP1 cleared (not in the new map)");
+  assert.deepEqual(after["MPSP2"], ["parsha"]);
+  upsertPodcast(db, { id: "MPSP2", name: "Parsha", channelId: "UCa" }, [ep("v2", "E2")]); // re-harvest
+  assert.deepEqual(allPodcastShows(db).find((s) => s.id === "MPSP2").genres, ["parsha"], "genres survive re-harvest");
 });
 
 test("podcastStats counts shows/episodes/channels/withDur/withCh", () => {

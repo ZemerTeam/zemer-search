@@ -96,6 +96,19 @@ de-approved channel's shows stop serving immediately, before prune.
   `id, name, thumbnailUrl, isFemale, isKidZone, isVerified, showCount`), derived from the show docs by
   `scripts/write-podcast-channels.mjs`; the show-level `/podcastsWhitelist` stays as the harvest work-list.
 
+## Genres (`podcast_show.genres`, the podcast `/genres`)
+
+Zemer-style genre slugs **per SHOW** (not per channel — a publisher hosts multiple genres, the same reason
+music genre is a release property, not an artist one; and YouTube's own podcast categories are empty/useless).
+Curated in **`data/podcast-genres.json`** (the durable source of truth) and applied by
+**`harvester/podcast-genres.mjs`** → `podcast_show.genres` (comma-separated), REPLACE-WHOLESALE and idempotent
+(the harvest never touches the column, so it survives re-harvest), `DRY=1` previews. Vocabulary (20):
+`gemara parsha chassidus mussar halacha machshava tefilla stories history kiruv family parnassah health news
+people music chizuk shiur moadim women` (a slug outside the set is dropped + reported, never written). Served
+by **`GET /podcast-genres`** — no `id` = the catalog `{id,title,showCount}` with POST-FILTER counts; `?id=<slug>`
+= the approved shows in that genre — same channel-membership + female/KidZone + blocked gate as `/podcasts`.
+Genres ride the show DTO everywhere and fold into the on-device subset (`podcasts` shard, appended field).
+
 ## Endpoints (`server/api.mjs`)
 
 All whitelist-pure; all honor `allowFemale`/`blockVideos`/`kidZone` (parity) + the `blockedContentIds`

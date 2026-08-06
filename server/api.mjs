@@ -69,6 +69,14 @@ const GENRE_TITLES = {
 const OCCASION = new Set(["purim", "pesach", "chanukah", "yamim-noraim", "succos", "shavuos-simchas-torah",
   "lag-baomer", "tu-bishvat", "three-weeks", "rosh-chodesh", "shabbos", "melave-malka"]);
 const NON_MUSIC = new Set(["shiur", "parsha", "story", "comedy", "podcast"]);
+// Display titles for the PODCAST genre vocabulary (harvester/podcast-genres.mjs). Slugs are already readable;
+// this just gives a couple the nicer spelling. Unknown slug → the slug itself.
+const PODCAST_GENRE_TITLES = {
+  gemara: "Gemara", parsha: "Parsha", chassidus: "Chassidus", mussar: "Mussar", halacha: "Halacha",
+  machshava: "Machshava", tefilla: "Tefilla", stories: "Stories", history: "History", kiruv: "Kiruv",
+  family: "Family", parnassah: "Parnassah", health: "Health", news: "News", people: "Personalities",
+  music: "Music", chizuk: "Chizuk", shiur: "Shiurim", moadim: "Moadim", women: "Women",
+};
 const GENRE_KIND = new Proxy({}, { get: (_, k) => (OCCASION.has(k) ? "occasion" : NON_MUSIC.has(k) ? "non-music" : "style") });
 const PUBLIC_HOST = process.env.PUBLIC_HOST || "search.zemer.io";
 const FEED_TTL_MS = Number(process.env.FEED_TTL_MS || 300000); // ~5 min
@@ -446,7 +454,7 @@ async function startServer() {
 
   const send = (res, code, obj) => { const body = JSON.stringify(obj); res.writeHead(code, CORS); res.end(body); return body; };
   const cacheSet = (key, body) => { cache.set(key, body); if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value); };
-  const CACHEABLE = new Set(["/search", "/artist", "/album", "/playlist", "/community", "/zemer-playlists", "/home-rows", "/genres", "/podcasts", "/podcast-channels", "/podcast", "/podcast-channel"]); // /new self-caches via the feed TTL
+  const CACHEABLE = new Set(["/search", "/artist", "/album", "/playlist", "/community", "/zemer-playlists", "/home-rows", "/genres", "/podcasts", "/podcast-channels", "/podcast-genres", "/podcast", "/podcast-channel"]); // /new self-caches via the feed TTL
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -1034,6 +1042,25 @@ ol{list-style:none;margin:0;padding:0}li{display:flex;gap:10px;align-items:cente
         const channels = allPodcastChannels(liveDb, podcastAllow.channels).filter((c) =>
           !idDropped(c.id, cats.blocked, cf.allowFemale) && !(cf.allowFemale === false && podcastAllow.flags.get(c.id)?.isFemale));
         return cacheSet(req.url, send(res, 200, { channels, version: podVersion() }));
+      }
+      if (u.pathname === "/podcast-genres") {
+        // Browsable Zemer-style genre index over podcast_show.genres (the podcast /genres). Without `id`: the
+        // catalog with POST-FILTER show counts (a viewer never sees a count they can't reach). With `id`: the
+        // approved shows in that genre. Same channel-membership + female/KidZone + blocked gate as /podcasts.
+        const cf = contentFlags(u.searchParams);
+        const gid = u.searchParams.get("id");
+        if (cf.kidZoneOnly) return cacheSet(req.url, send(res, 200, gid ? { genre: null, shows: [] } : { count: 0, genres: [] }));
+        const shows = allPodcastShows(liveDb).filter((p) => showApproved(p.channelId, p.id)
+          && !idDropped(p.channelId, cats.blocked, cf.allowFemale) && !podFemaleDrop(p.id, p.id, cf.allowFemale));
+        if (!gid) {
+          const counts = new Map();
+          for (const s of shows) for (const g of (s.genres || [])) counts.set(g, (counts.get(g) || 0) + 1);
+          const genres = [...counts].sort((a, b) => b[1] - a[1]).map(([id, showCount]) => ({ id, title: PODCAST_GENRE_TITLES[id] || id, showCount }));
+          return cacheSet(req.url, send(res, 200, { count: genres.length, genres }));
+        }
+        const inGenre = shows.filter((s) => (s.genres || []).includes(gid));
+        if (!inGenre.length) return send(res, 404, { error: "unknown or empty genre" });
+        return cacheSet(req.url, send(res, 200, { genre: { id: gid, title: PODCAST_GENRE_TITLES[gid] || gid, showCount: inGenre.length }, shows: inGenre }));
       }
       if (u.pathname === "/podcasts") {
         const cf = contentFlags(u.searchParams);

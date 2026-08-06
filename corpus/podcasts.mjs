@@ -23,8 +23,9 @@ export function ensurePodcastSchema(db) {
       channelId        TEXT,               -- host UC… (resolved at harvest; whitelist rarely carries it)
       thumbnail        TEXT,
       description      TEXT,
-      categories       TEXT,               -- JSON array of category strings
+      categories       TEXT,               -- JSON array of category strings (YouTube's — unpopulated/useless)
       episodeCountText TEXT,               -- display-only ("312 episodes")
+      genres           TEXT,               -- comma-separated Zemer style slugs (harvester/podcast-genres.mjs)
       harvestedAt      INTEGER
     );
     CREATE TABLE IF NOT EXISTS podcast_episode (
@@ -52,6 +53,24 @@ export function ensurePodcastSchema(db) {
   // migration: add publishedAt to a podcast_episode created before this column existed (idempotent)
   const cols = db.prepare(`PRAGMA table_info(podcast_episode)`).all().map((c) => c.name);
   if (!cols.includes("publishedAt")) db.exec(`ALTER TABLE podcast_episode ADD COLUMN publishedAt TEXT`);
+  // migration: add genres to a podcast_show table that predates it (idempotent)
+  const scols = db.prepare(`PRAGMA table_info(podcast_show)`).all().map((c) => c.name);
+  if (!scols.includes("genres")) db.exec(`ALTER TABLE podcast_show ADD COLUMN genres TEXT`);
+}
+
+// Apply Zemer style genres to shows — REPLACE-WHOLESALE (a show absent from the map loses its genres), the
+// same contract as track.genres: the durable JSON (data/podcast-genres.json) is the single source of truth
+// and the harvest never touches the column, so re-applying can't be undone by a re-harvest. `map` = {showId:
+// [slugs]}. Runs in one transaction.
+export function applyPodcastGenres(db, map) {
+  const upd = db.prepare(`UPDATE podcast_show SET genres=? WHERE id=?`);
+  const tx = db.transaction(() => {
+    db.prepare(`UPDATE podcast_show SET genres=NULL`).run(); // wholesale: clear, then set the listed ones
+    let n = 0;
+    for (const [id, slugs] of Object.entries(map)) { const g = (slugs || []).join(","); if (g) { upd.run(g, id); n++; } }
+    return n;
+  });
+  return tx();
 }
 
 // Set both the real ISO date and (if still missing) the duration for one episode — the /player top-up pass.
@@ -66,6 +85,7 @@ export function setEpisodePlayerMeta(db, videoId, { durationSec, publishedAt }) 
 const showRow = (s) => ({
   id: s.id, name: s.name, author: s.author || undefined, channelId: s.channelId || undefined,
   thumbnail: s.thumbnail || undefined, episodeCountText: s.episodeCountText || undefined,
+  genres: s.genres ? s.genres.split(",") : undefined,
 });
 const epRow = (e) => ({
   videoId: e.videoId, title: e.title, podcastId: e.showId, podcastName: e.podcastName || undefined,
@@ -107,7 +127,7 @@ export function makeShowArtResolver(db) {
 // /podcasts — browse all whitelisted shows (alphabetical).
 export const allPodcastShows = (db) => {
   const art = makeShowArtResolver(db);
-  return db.prepare(`SELECT id,name,author,channelId,thumbnail,episodeCountText FROM podcast_show ORDER BY name`)
+  return db.prepare(`SELECT id,name,author,channelId,thumbnail,episodeCountText,genres FROM podcast_show ORDER BY name`)
     .all().map((s) => ({ ...showRow(s), thumbnail: art(s) }));
 };
 
@@ -152,7 +172,7 @@ export function podcastDetail(db, id, offset = 0, limit = 30) {
 
 // /podcast-channel?id= — host channel + its whitelisted shows shelf + a latest-episodes shelf.
 export function podcastChannelDetail(db, id) {
-  const shows = db.prepare(`SELECT id,name,author,channelId,thumbnail,episodeCountText FROM podcast_show WHERE channelId=? ORDER BY name`).all(id);
+  const shows = db.prepare(`SELECT id,name,author,channelId,thumbnail,episodeCountText,genres FROM podcast_show WHERE channelId=? ORDER BY name`).all(id);
   if (!shows.length) return null; // no whitelisted show under this channel → nothing to serve
   const ch = db.prepare(`SELECT * FROM podcast_channel WHERE id=?`).get(id);
   const eps = db.prepare(`SELECT e.videoId,e.showId,e.title,e.thumbnail,e.durationSec,e.publishedText,e.publishedAt, s.name podcastName
@@ -182,7 +202,7 @@ export const newPodcastEpisodes = (db, limit = 50) =>
 // shapes these into {title, artistName, …} docs. Loaded whole (small) and rebuilt on each index reload.
 export const allPodcastShowDocs = (db) => {
   const art = makeShowArtResolver(db);
-  return db.prepare(`SELECT id,name,author,channelId,thumbnail,episodeCountText FROM podcast_show`)
+  return db.prepare(`SELECT id,name,author,channelId,thumbnail,episodeCountText,genres FROM podcast_show`)
     .all().map((s) => ({ ...s, thumbnail: art(s) })); // durable art for the /search-folded podcast group too
 };
 export const allPodcastEpisodeDocs = (db) =>

@@ -81,7 +81,7 @@ one("blocked", { global: [...bl.global], female: [...bl.female] });
 // the flag (podcastchannels row), and per-show exceptions ride the `blocked` shard — the app filters offline
 // exactly as the server filters online. Pinned row layouts (append-only, like the music shards):
 //   podcastchannels : [ id(UC), name, thumbnail(durable), flags(bit0 isFemale|bit1 isKidZone|bit2 isVerified), showCount, episodeCount ]
-//   podcasts        : [ id(MPSP), name, author, channelId(UC), thumbnail(durable), episodeCountText ]
+//   podcasts        : [ id(MPSP), name, author, channelId(UC), thumbnail(durable), episodeCountText, genres(csv) ]
 //   podcastepisodes : [ videoId, showId(MPSP), title, thumbnail, durationSec, publishedAt ]   (sharded by videoId)
 try {
   ensurePodcastSchema(db); // idempotent — safe on a corpus that predates the podcast tables
@@ -103,9 +103,9 @@ try {
 
   // shows on approved channels (+ grandfathered), art resolved to a durable url
   const art = makeShowArtResolver(db);
-  const showRows = db.prepare("SELECT id,name,author,channelId,thumbnail,episodeCountText FROM podcast_show ORDER BY id").all()
+  const showRows = db.prepare("SELECT id,name,author,channelId,thumbnail,episodeCountText,genres FROM podcast_show ORDER BY id").all()
     .filter((s) => (s.channelId && approved.has(s.channelId)) || grandfathered.has(s.id))
-    .map((s) => [s.id, s.name, s.author ?? null, s.channelId ?? null, art(s) ?? null, s.episodeCountText ?? null]);
+    .map((s) => [s.id, s.name, s.author ?? null, s.channelId ?? null, art(s) ?? null, s.episodeCountText ?? null, s.genres ?? null]);
   one("podcasts", showRows);
 
   // their episodes, hash-bucketed by videoId like tracks
