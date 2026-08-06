@@ -80,6 +80,15 @@ de-approved channel's shows stop serving immediately, before prune.
   allow-set (reachable via `/podcasts` + `/podcast?id=`, not the channel grid).
 - `harness/podcasts-whitelist.mjs` fetches the per-show content flags and derives the channel + grandfathered
   lists into the whitelist file; the API also re-derives from the show list so it works with any file version.
+- **Deferred: full-catalog auto-discovery.** Today the channel model serves the *already-harvested* shows
+  grouped by channel; it does NOT yet auto-surface shows a channel published that were never individually
+  whitelisted. Enumerating a channel's complete catalog is blocked on the harvest's unauthenticated YT Music
+  path: the "Podcasts" shelf "more" link returns *"This user doesn't have any public YouTube Music content"*
+  because these host channels expose their shows on the **regular** YouTube channel, not the Music surface
+  (gotcha #13). Measured lower bound of un-surfaced shows: ≥105. The regular-channel enumeration is future work.
+- The `content.zemer.io` mirror carries the channel allow-set at `/podcastChannelsWhitelist` (UC-keyed docs:
+  `id, name, thumbnailUrl, isFemale, isKidZone, isVerified, showCount`), derived from the show docs by
+  `scripts/write-podcast-channels.mjs`; the show-level `/podcastsWhitelist` stays as the harvest work-list.
 
 ## Endpoints (`server/api.mjs`)
 
