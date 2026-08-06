@@ -62,6 +62,25 @@ podcastsWhitelist (Firestore)  →  harvest (InnerTube browse, IP-safe)  →  co
 - **`podcast_channel`** `id`(UC…, PK), `name`, `thumbnail` (avatar), `banner` (unused — avatar suffices),
   `description`, `harvestedAt`.
 
+## Channel-level whitelist (same model as the artist whitelist)
+
+Podcasts are whitelisted by **host channel** (`UC…`), not by show (`MPSP…`): approve a publisher and its whole
+catalog is kosher, exactly like approving a music artist channel. The allow-set is derived at reload from the
+show list in `data/podcasts-whitelist.json` (grouped by `channelId`) into `podcastAllow` (the approved `UC`
+set, per-channel content flags, a grandfathered set, and the wholly-female-channel show set). Every podcast
+endpoint applies a **serve-time channel-membership gate** (like community purity / blocked-ids), so a
+de-approved channel's shows stop serving immediately, before prune.
+
+- **Female / KidZone stay per item** (the music hybrid): a `channel.isFemale`/`isKidZone` flag applies only
+  when *every* show on the channel is that (a wholly-female publisher), and per-item exceptions on a **mixed**
+  channel are handled by `blockedContentIds` (female show `MPSP` / episode `videoId`), just like a whitelisted
+  music artist's one blocked track. KidZone still hides all podcasts (no kid flag) unless a channel is
+  `isKidZone`.
+- **Grandfathered shows**: the few shows YouTube exposes no host `UC` for are kept as a small show-level
+  allow-set (reachable via `/podcasts` + `/podcast?id=`, not the channel grid).
+- `harness/podcasts-whitelist.mjs` fetches the per-show content flags and derives the channel + grandfathered
+  lists into the whitelist file; the API also re-derives from the show list so it works with any file version.
+
 ## Endpoints (`server/api.mjs`)
 
 All whitelist-pure; all honor `allowFemale`/`blockVideos`/`kidZone` (parity) + the `blockedContentIds`
@@ -69,12 +88,13 @@ serve-time pass (matched against `videoId` / show `id` / `channelId`), identical
 
 | Endpoint | Returns |
 |----------|---------|
-| `GET /podcasts` | `{podcasts:[{id,name,author,channelId,thumbnail,episodeCountText}], version}` — replaces the Firestore read |
+| `GET /podcast-channels` | `{channels:[{id:UC…,name,thumbnail,showCount,episodeCount}], version}` — the **channel grid** (approved publishers, durable avatar); the browse entry point |
+| `GET /podcasts` | `{podcasts:[{id,name,author,channelId,thumbnail,episodeCountText}], version}` — the show list (channel-gated) |
 | `GET /podcasts/version` | `{version}` — the `podcastDatabaseNumber/latest` gate, for skip-refetch |
-| `GET /podcast?id=MPSP…&offset=` | `{podcast:{…,description,categories}, episodes:[…], nextOffset}` — 30/page, newest-first by `pos` |
-| `GET /podcast-channel?id=UC…` | `{channel:{id,name,thumbnail,banner?,description?}, shows:[…], episodes:[…latest by date]}` |
-| `GET /podcasts/new-episodes?k=50` | `{episodes:[…]}` — latest across **all** whitelisted shows, newest-first by real `publishedAt` |
-| `/search?q=` | now also returns `categories.podcasts` + `categories.episodes` (substring over show name / episode title) |
+| `GET /podcast?id=MPSP…&offset=` | `{podcast:{…,description,categories}, episodes:[…], nextOffset}` — 30/page, newest-first by `pos`; 404 if the host channel isn't approved |
+| `GET /podcast-channel?id=UC…` | `{channel:{id,name,thumbnail,banner?,description?}, shows:[…], episodes:[…latest by date]}` — 404 unless `UC` is an approved publisher |
+| `GET /podcasts/new-episodes?k=50` | `{episodes:[…]}` — latest across **all** approved shows, newest-first by real `publishedAt` |
+| `/search?q=` | also returns `categories.podcasts` + `categories.episodes` (real matcher), channel-gated like the browse endpoints |
 
 **Episode shape** (every list): `{videoId, title, podcastId, podcastName?, channelId?, thumbnail,
 durationSeconds, publishedAt}`. `durationSeconds` = `0` only when YouTube has no length; `publishedAt` is a

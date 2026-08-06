@@ -111,6 +111,29 @@ export const allPodcastShows = (db) => {
     .all().map((s) => ({ ...showRow(s), thumbnail: art(s) }));
 };
 
+// /podcast-channels — the CHANNEL grid (the whitelist is channel-level like the artist whitelist: approve a
+// publisher, its whole catalog is kosher). `approved` = Set of whitelisted host `UC` ids. Returns one tile
+// per approved channel present in the corpus, with a durable avatar + show/episode counts. Drill-in is the
+// existing `/podcast-channel?id=UC…`.
+export function allPodcastChannels(db, approved) {
+  const art = makeShowArtResolver(db);
+  const counts = db.prepare(`
+    SELECT s.channelId AS id, COUNT(DISTINCT s.id) AS showCount, COUNT(e.videoId) AS episodeCount
+    FROM podcast_show s LEFT JOIN podcast_episode e ON e.showId = s.id
+    WHERE s.channelId IS NOT NULL GROUP BY s.channelId`).all();
+  const meta = new Map(db.prepare(`SELECT id,name,thumbnail FROM podcast_channel`).all().map((c) => [c.id, c]));
+  const firstShow = db.prepare(`SELECT id,channelId,thumbnail FROM podcast_show WHERE channelId=? ORDER BY name LIMIT 1`);
+  return counts
+    .filter((r) => approved.has(r.id))
+    .map((r) => {
+      const ch = meta.get(r.id);
+      let thumbnail = ch?.thumbnail;
+      if (isDeadShowArt(thumbnail)) { const s = firstShow.get(r.id); thumbnail = s ? art(s) : undefined; } // durable avatar
+      return { id: r.id, name: ch?.name || undefined, thumbnail: thumbnail || undefined, showCount: r.showCount, episodeCount: r.episodeCount };
+    })
+    .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
+}
+
 // /podcast?id= — one show + a page of its episodes (newest-first by pos), with nextOffset.
 export function podcastDetail(db, id, offset = 0, limit = 30) {
   const s = db.prepare(`SELECT * FROM podcast_show WHERE id=?`).get(id);

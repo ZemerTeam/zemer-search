@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import Database from "better-sqlite3";
 import {
   ensurePodcastSchema, upsertPodcast, upsertPodcastChannel, setEpisodePlayerMeta,
-  prunePodcasts, allPodcastShows, podcastDetail, podcastChannelDetail,
+  prunePodcasts, allPodcastShows, allPodcastChannels, podcastDetail, podcastChannelDetail,
   newPodcastEpisodes, allPodcastShowDocs, allPodcastEpisodeDocs, podcastStats, existingShowIds,
   isDeadShowArt, makeShowArtResolver,
 } from "./podcasts.mjs";
@@ -239,6 +239,31 @@ test("resolver: no channel avatar -> falls back to a first-episode /vi thumbnail
     [ep("v9", "E9", { thumbnail: "https://i.ytimg.com/vi/v9/hqdefault.jpg" })]);
   const art = makeShowArtResolver(db);
   assert.equal(art({ id: "MPSP3", channelId: "UCx", thumbnail: DEAD_ART2 }), "https://i.ytimg.com/vi/v9/hqdefault.jpg");
+});
+
+// ---- channel grid (channel-level whitelist) ------------------------------
+test("allPodcastChannels: one tile per APPROVED channel, with show/episode counts + durable avatar", () => {
+  const db = fresh();
+  upsertPodcastChannel(db, { id: "UCa", name: "Publisher A", thumbnail: AVATAR });
+  upsertPodcast(db, { id: "MPSP1", name: "S1", channelId: "UCa", thumbnail: DEAD_PLC }, [ep("v1", "E1"), ep("v2", "E2")]);
+  upsertPodcast(db, { id: "MPSP2", name: "S2", channelId: "UCa", thumbnail: AVATAR }, [ep("v3", "E3")]);
+  upsertPodcast(db, { id: "MPSP3", name: "S3", channelId: "UCb", thumbnail: DEAD_PLC }, [ep("v4", "E4")]); // channel NOT approved
+
+  const chans = allPodcastChannels(db, new Set(["UCa"]));
+  assert.equal(chans.length, 1, "only the approved channel UCa surfaces, not UCb");
+  const a = chans[0];
+  assert.equal(a.id, "UCa");
+  assert.equal(a.name, "Publisher A");
+  assert.equal(a.showCount, 2);
+  assert.equal(a.episodeCount, 3);
+  assert.equal(a.thumbnail, AVATAR, "durable channel avatar");
+
+  // an approved channel whose avatar row is missing falls back to a show's resolved (durable) art
+  const db2 = fresh();
+  upsertPodcast(db2, { id: "MPSPx", name: "X", channelId: "UCc", thumbnail: DEAD_PLC },
+    [ep("v9", "E9", { thumbnail: "https://i.ytimg.com/vi/v9/hqdefault.jpg" })]);
+  const c = allPodcastChannels(db2, new Set(["UCc"]))[0];
+  assert.equal(c.thumbnail, "https://i.ytimg.com/vi/v9/hqdefault.jpg");
 });
 
 test("podcastStats counts shows/episodes/channels/withDur/withCh", () => {

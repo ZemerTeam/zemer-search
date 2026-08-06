@@ -32,7 +32,7 @@ import { buildCategories, searchCategories } from "../index/categories.mjs";
 import { buildRadioIndex, radio } from "../index/radio.mjs";
 import { scheduleAt } from "../index/station.mjs";
 import { inThreeWeeks } from "../corpus/season.mjs";
-import { ensurePodcastSchema, allPodcastShows, podcastDetail, podcastChannelDetail, newPodcastEpisodes, allPodcastShowDocs, allPodcastEpisodeDocs, loadPodcastSurfaces, topPodcastShows, trendingPodcastEpisodes } from "../corpus/podcasts.mjs";
+import { ensurePodcastSchema, allPodcastShows, allPodcastChannels, podcastDetail, podcastChannelDetail, newPodcastEpisodes, allPodcastShowDocs, allPodcastEpisodeDocs, loadPodcastSurfaces, topPodcastShows, trendingPodcastEpisodes } from "../corpus/podcasts.mjs";
 import { buildFemaleMatcher, collectFemaleVideoIds } from "../index/credits.mjs";
 import { loadDefaultSynonyms } from "../index/synonyms.mjs";
 import { postBrowse, parsePlaylistPage, parseArtistItemsContinuation } from "../harness/browse.mjs";
@@ -217,6 +217,11 @@ async function startServer() {
     return pickAnchor(anchorCache.runs, Date.now(), playlistId);
   };
   let cats, radioIndex, indexedCount = 0, indexedAt = 0, whitelistTotal = 0;
+  // Podcast CHANNEL allow-set (the whitelist is channel-level, same as the artist whitelist): a show/episode
+  // is kosher iff its host UC is approved (or its show id is a grandfathered channel-less one). `flags` maps
+  // an approved UC → its aggregate content flags ({isFemale, isKidZone}) for a WHOLLY female/kids publisher;
+  // per-item exceptions on a mixed channel are handled by blockedContentIds (like a music artist's bad track).
+  let podcastAllow = { channels: new Set(), flags: new Map(), grandfathered: new Set(), femaleShows: new Set() };
   let lastSig = null;
   // Rebuild the in-memory index ONLY when the corpus actually changed (a fresh corpus.db is synced, or a
   // local harvest wrote to the WAL). The periodic tick then just stats the files — cheap — so a steady
@@ -229,7 +234,8 @@ async function startServer() {
       let w = 0; try { w = fs.statSync(DB_PATH + "-wal").mtimeMs; } catch { /* no -wal */ }
       let bi = 0; try { bi = fs.statSync(BLOCKED_IDS_PATH).mtimeMs; } catch { /* no blocked-ids.json */ }
       let rg = 0; try { rg = fs.statSync(RADIO_GRAPH_PATH).mtimeMs; } catch { /* no radio-graph.json */ }
-      sig = `${a.mtimeMs}:${a.size}:${w}:${bi}:${rg}`; // a fresh override/graph fetch (own timers) re-applies on the next tick
+      let pw = 0; try { pw = fs.statSync(PODCASTS_WL_PATH).mtimeMs; } catch { /* no podcasts-whitelist.json */ }
+      sig = `${a.mtimeMs}:${a.size}:${w}:${bi}:${rg}:${pw}`; // a fresh override/graph/podcast-wl fetch (own timers) re-applies on the next tick
     } catch { /* stat failed → fall through and rebuild */ }
     if (!force && sig && sig === lastSig) return indexedCount; // unchanged → keep the current index
     const tracks = allTracks(liveDb);
@@ -246,6 +252,27 @@ async function startServer() {
     // Artist-owned playlists and community-discovered playlists are indexed separately → separate chips.
     cats = buildCategories({ tracks, artists, albums: allAlbums(liveDb), playlists: allPlaylists(liveDb), community: allCommunityPlaylists(liveDb), podcasts: allPodcastShowDocs(liveDb), episodes: allPodcastEpisodeDocs(liveDb) }, loadDefaultSynonyms(), matcher);
     cats.blocked = blocked; // consumed by searchCategories; also reused by the detail endpoints (dropId)
+    // Podcast channel allow-set (data/podcasts-whitelist.json, regenerated on the podcast whitelist timer;
+    // its mtime is in the reload sig). Derived channel list = approved publishers; grandfathered = the few
+    // shows YouTube exposes no host UC for. femaleShows = MPSP ids on WHOLLY-female channels → folded into
+    // the female filter so a whole female publisher is hidden under !allowFemale even without a blocked-id.
+    // Derive the allow-set from the SHOW list (pw.podcasts) so it works with any whitelist-file version
+    // (an older file without the pre-derived channels/isFemale still yields the channel set — female then
+    // falls back to blocked-ids only, exactly the pre-channel behavior, until the next whitelist fetch).
+    try {
+      const shows = JSON.parse(fs.readFileSync(PODCASTS_WL_PATH, "utf8")).podcasts || [];
+      const byCh = new Map(), grandfathered = new Set();
+      for (const p of shows) {
+        if (!p.channelId) { grandfathered.add(p.id); continue; } // YouTube exposes no host UC → grandfathered
+        if (!byCh.has(p.channelId)) byCh.set(p.channelId, []);
+        byCh.get(p.channelId).push(p);
+      }
+      const flags = new Map();
+      for (const [cid, ss] of byCh) flags.set(cid, { isFemale: ss.every((s) => s.isFemale), isKidZone: ss.every((s) => s.isKidZone) });
+      const femaleShows = new Set();
+      for (const p of shows) { const f = p.channelId && flags.get(p.channelId); if (f?.isFemale || p.isFemale) femaleShows.add(p.id); }
+      podcastAllow = { channels: new Set(byCh.keys()), flags, grandfathered, femaleShows };
+    } catch { podcastAllow = { channels: new Set(), flags: new Map(), grandfathered: new Set(), femaleShows: new Set() }; }
     // Zemer Radio index — co-occurrence graph (data/radio-graph.json, its own fetch timer) + corpus, reusing
     // the same female matcher + blocked-ids so radio filters identically. Missing graph → same-artist+pop fallback.
     // Radio's acapella exclusion set (product rule — no acapella outside the Three Weeks / explicit seeds):
@@ -419,11 +446,16 @@ async function startServer() {
 
   const send = (res, code, obj) => { const body = JSON.stringify(obj); res.writeHead(code, CORS); res.end(body); return body; };
   const cacheSet = (key, body) => { cache.set(key, body); if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value); };
-  const CACHEABLE = new Set(["/search", "/artist", "/album", "/playlist", "/community", "/zemer-playlists", "/home-rows", "/genres", "/podcasts", "/podcast", "/podcast-channel"]); // /new self-caches via the feed TTL
+  const CACHEABLE = new Set(["/search", "/artist", "/album", "/playlist", "/community", "/zemer-playlists", "/home-rows", "/genres", "/podcasts", "/podcast-channels", "/podcast", "/podcast-channel"]); // /new self-caches via the feed TTL
 
   const server = http.createServer(async (req, res) => {
     try {
       const u = new URL(req.url, "http://localhost");
+      // Podcast channel-level gate (shared by /search folding + every podcast endpoint): a show/episode is
+      // served iff its host UC is an approved publisher, or its id is a grandfathered channel-less show.
+      const showApproved = (channelId, showId) => podcastAllow.channels.has(channelId) || podcastAllow.grandfathered.has(showId);
+      const podFemaleDrop = (showId, videoId, allowFemale) =>
+        idDropped(videoId, cats.blocked, allowFemale) || (allowFemale === false && podcastAllow.femaleShows.has(showId));
       // no-cache = "store it, but ALWAYS revalidate": the page carries the whole UI inline, so without
       // this a browser's heuristic cache can keep serving a pre-deploy copy (a shipped UI change then
       // looks like it never deployed). ETag makes the revalidation a cheap 304, not a re-download.
@@ -486,6 +518,10 @@ async function startServer() {
         }
         // Podcasts fold in via searchCategories (real matcher: skeleton cross-script + fuzzy + IDF), already
         // in `categories` as .podcasts/.episodes with content-filter + blocked-ids applied like every group.
+        // Add the channel-level whitelist gate (parity with the browse endpoints): drop any show/episode whose
+        // host channel isn't an approved publisher, or a wholly-female-channel show when female is blocked.
+        if (categories.podcasts?.length) categories.podcasts = categories.podcasts.filter((p) => showApproved(p.channelId, p.id) && !podFemaleDrop(p.id, p.id, o.allowFemale));
+        if (categories.episodes?.length) categories.episodes = categories.episodes.filter((e) => showApproved(e.channelId, e.podcastId) && !podFemaleDrop(e.podcastId, e.videoId, o.allowFemale));
         return cacheSet(req.url, send(res, 200, { q, count: Object.values(categories).reduce((n, a) => n + a.length, 0), categories }));
       }
       if (u.pathname === "/new") {
@@ -978,34 +1014,49 @@ ol{list-style:none;margin:0;padding:0}li{display:flex;gap:10px;align-items:cente
         return cacheSet(req.url, send(res, 200, { playlist, tracks, total: songs.length, whitelisted: tracks.length }));
       }
       // ---- PODCASTS (discovery-only; playback stays InnerTube via each episode's videoId) ----
-      // KidZone mode (kidZone=1) shows only kid-vetted content; podcasts carry no kid flag, so they are
-      // hidden in kids mode — on browse AND search alike (searchCategories' allowed() already drops them),
-      // keeping the two endpoint families consistent (gotcha #7).
+      // CHANNEL-LEVEL whitelist, same model as the artist whitelist: a show/episode is kosher iff its host
+      // UC is an approved publisher (podcastAllow.channels) — or its show id is grandfathered (the few shows
+      // YouTube exposes no host UC for). Serve-time gate (like blocked-ids/community purity) so a de-approved
+      // channel's shows stop serving immediately, before prune. Female: blocked-ids female OR a show on a
+      // WHOLLY-female channel (podcastAllow.femaleShows). KidZone: podcasts carry no kid flag → hidden in kids
+      // mode on browse AND search alike (searchCategories' allowed() drops them), gotcha #7.
+      // showApproved / podFemaleDrop are defined at the top of the handler (shared with /search folding).
+      const podVersion = () => { try { return JSON.parse(fs.readFileSync(PODCASTS_WL_PATH, "utf8")).version ?? null; } catch { return null; } };
+      if (u.pathname === "/podcast-channels") {
+        // The CHANNEL grid — approved publisher channels with a durable avatar + show/episode counts. Drill-in
+        // stays /podcast-channel?id=UC. A wholly-female channel (or a blocked channel id) is hidden per flags.
+        const cf = contentFlags(u.searchParams);
+        if (cf.kidZoneOnly) return cacheSet(req.url, send(res, 200, { channels: [], version: podVersion() }));
+        const channels = allPodcastChannels(liveDb, podcastAllow.channels).filter((c) =>
+          !idDropped(c.id, cats.blocked, cf.allowFemale) && !(cf.allowFemale === false && podcastAllow.flags.get(c.id)?.isFemale));
+        return cacheSet(req.url, send(res, 200, { channels, version: podVersion() }));
+      }
       if (u.pathname === "/podcasts") {
         const cf = contentFlags(u.searchParams);
-        let version = null; try { version = JSON.parse(fs.readFileSync(PODCASTS_WL_PATH, "utf8")).version ?? null; } catch { /* no gate yet */ }
-        if (cf.kidZoneOnly) return cacheSet(req.url, send(res, 200, { podcasts: [], version }));
+        if (cf.kidZoneOnly) return cacheSet(req.url, send(res, 200, { podcasts: [], version: podVersion() }));
         // sort=top → telemetry-ranked (Top Podcasts) when a surfaces artifact exists, else alphabetical.
         const shows = u.searchParams.get("sort") === "top" ? topPodcastShows(liveDb, loadPodcastSurfaces()) : allPodcastShows(liveDb);
-        const list = shows.filter((p) => !idDropped(p.id, cats.blocked, cf.allowFemale) && !idDropped(p.channelId, cats.blocked, cf.allowFemale));
-        return cacheSet(req.url, send(res, 200, { podcasts: list, version }));
+        const list = shows.filter((p) => showApproved(p.channelId, p.id)
+          && !idDropped(p.channelId, cats.blocked, cf.allowFemale) && !podFemaleDrop(p.id, p.id, cf.allowFemale));
+        return cacheSet(req.url, send(res, 200, { podcasts: list, version: podVersion() }));
       }
       if (u.pathname === "/podcasts/trending") {
         const cf = contentFlags(u.searchParams);
         if (cf.kidZoneOnly) return send(res, 200, { episodes: [] });
         const k = Math.min(200, Math.max(1, Number(u.searchParams.get("k") || 50)));
-        const eps = trendingPodcastEpisodes(liveDb, loadPodcastSurfaces(), k).filter((e) => !idDropped(e.videoId, cats.blocked, cf.allowFemale));
+        const eps = trendingPodcastEpisodes(liveDb, loadPodcastSurfaces(), k)
+          .filter((e) => showApproved(e.channelId, e.podcastId) && !podFemaleDrop(e.podcastId, e.videoId, cf.allowFemale));
         return send(res, 200, { episodes: eps });
       }
       if (u.pathname === "/podcasts/version") {
-        let version = null; try { version = JSON.parse(fs.readFileSync(PODCASTS_WL_PATH, "utf8")).version ?? null; } catch { /* none */ }
-        return send(res, 200, { version });
+        return send(res, 200, { version: podVersion() });
       }
       if (u.pathname === "/podcasts/new-episodes") {
         const cf = contentFlags(u.searchParams);
         if (cf.kidZoneOnly) return send(res, 200, { episodes: [] });
         const k = Math.min(200, Math.max(1, Number(u.searchParams.get("k") || 50)));
-        const eps = newPodcastEpisodes(liveDb, k).filter((e) => !idDropped(e.videoId, cats.blocked, cf.allowFemale));
+        const eps = newPodcastEpisodes(liveDb, k)
+          .filter((e) => showApproved(e.channelId, e.podcastId) && !podFemaleDrop(e.podcastId, e.videoId, cf.allowFemale));
         return send(res, 200, { episodes: eps });
       }
       if (u.pathname === "/podcast") {
@@ -1016,6 +1067,8 @@ ol{list-style:none;margin:0;padding:0}li{display:flex;gap:10px;align-items:cente
         const offset = Math.max(0, Number(u.searchParams.get("offset") || 0));
         const d = podcastDetail(liveDb, id, offset, 30);
         if (!d) return send(res, 404, { error: "not found" });
+        // channel-membership + wholly-female-channel gate (a de-approved show 404s before it is pruned)
+        if (!showApproved(d.podcast.channelId, id) || (cf.allowFemale === false && podcastAllow.femaleShows.has(id))) return send(res, 404, { error: "not found" });
         d.episodes = d.episodes.filter((e) => !idDropped(e.videoId, cats.blocked, cf.allowFemale));
         return cacheSet(req.url, send(res, 200, d));
       }
@@ -1024,9 +1077,11 @@ ol{list-style:none;margin:0;padding:0}li{display:flex;gap:10px;align-items:cente
         if (!id) return send(res, 400, { error: "missing id" });
         const cf = contentFlags(u.searchParams);
         if (cf.kidZoneOnly || idDropped(id, cats.blocked, cf.allowFemale)) return send(res, 404, { error: "not found" });
+        // the channel itself must be an approved publisher (and not a wholly-female one when female is blocked)
+        if (!podcastAllow.channels.has(id) || (cf.allowFemale === false && podcastAllow.flags.get(id)?.isFemale)) return send(res, 404, { error: "not found" });
         const d = podcastChannelDetail(liveDb, id);
         if (!d) return send(res, 404, { error: "not found" });
-        d.shows = d.shows.filter((s) => !idDropped(s.id, cats.blocked, cf.allowFemale) && !idDropped(s.channelId, cats.blocked, cf.allowFemale));
+        d.shows = d.shows.filter((s) => showApproved(s.channelId, s.id) && !idDropped(s.id, cats.blocked, cf.allowFemale) && !podFemaleDrop(s.id, s.id, cf.allowFemale));
         d.episodes = (d.episodes || []).filter((e) => !idDropped(e.videoId, cats.blocked, cf.allowFemale));
         return cacheSet(req.url, send(res, 200, d));
       }

@@ -58,6 +58,11 @@ do {
       name,
       channelId: val(f.channelId) || null, // host UC… (may be absent)
       thumbnailUrl: val(f.thumbnailUrl) || null, // whitelist-provided cover (often absent → harvest fills)
+      // per-SHOW content flags (curator-set). Drive per-item female/KidZone filtering; a channel is wholly
+      // female/kids only when ALL its shows are (see channel derivation below).
+      isFemale: f.isFemale?.booleanValue === true,
+      isKidZone: f.isKidZone?.booleanValue === true,
+      isVerified: f.isVerified?.booleanValue === true,
     });
   }
   pageToken = j.nextPageToken;
@@ -76,9 +81,30 @@ try {
   version = updatedAt ?? (update != null ? Number(update) : null);
 } catch { /* version stays null — non-fatal */ }
 
+// --- derive the CHANNEL allow-set (the podcast whitelist is moving from show-level to channel-level, the
+// same model as the artist whitelist — approve a publisher channel, its whole catalog is kosher). Grouped
+// from the show docs until the Firestore collection itself is re-keyed. A channel is wholly-female/kids only
+// when EVERY one of its shows is; per-item exceptions on a mixed channel are handled by blockedContentIds
+// (exactly like a whitelisted music artist's one blocked track). Shows with no host UC (YouTube exposes
+// none) can't be channel-gated, so they are grandfathered as a small show-level allow-set. ---
+const byCh = new Map();
+const grandfathered = [];
+for (const p of all) {
+  if (!p.channelId) { grandfathered.push({ id: p.id, name: p.name, isFemale: p.isFemale, isKidZone: p.isKidZone }); continue; }
+  if (!byCh.has(p.channelId)) byCh.set(p.channelId, []);
+  byCh.get(p.channelId).push(p);
+}
+const channels = [...byCh.entries()].map(([channelId, shows]) => ({
+  channelId,
+  showCount: shows.length,
+  isFemale: shows.every((s) => s.isFemale),   // wholly-female publisher → channel flag; else per-show blocked-ids
+  isKidZone: shows.every((s) => s.isKidZone),
+  isVerified: shows.some((s) => s.isVerified),
+}));
+
 const outDir = path.join(WORKSPACE, "data");
 fs.mkdirSync(outDir, { recursive: true });
-const out = { version, fetchedAt: Date.now(), podcasts: all };
+const out = { version, fetchedAt: Date.now(), podcasts: all, channels, grandfathered };
 fs.writeFileSync(path.join(outDir, "podcasts-whitelist.json"), JSON.stringify(out));
 const withCh = all.filter((p) => p.channelId).length;
-console.log(`wrote ${all.length} podcast whitelist entries -> data/podcasts-whitelist.json (${withCh} with channelId, version ${version})`);
+console.log(`wrote ${all.length} podcast shows -> data/podcasts-whitelist.json (${withCh} with channelId → ${channels.length} channels, ${grandfathered.length} grandfathered channel-less; version ${version})`);
