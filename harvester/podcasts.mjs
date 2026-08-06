@@ -102,9 +102,16 @@ if (!aborted) for (const cid of channelIds) {
 }
 
 // PRUNE de-whitelisted shows (only on a full pass — a limited/NEW run doesn't see the whole set).
+// Whitelisting is CHANNEL-level: a show survives if its host channel is an approved publisher (so channel-
+// catalog-discovered shows are KEPT, not just the individually-listed ones — else the daily discovery run's
+// shows would be deleted here on the next pass), or if it is a grandfathered channel-less whitelisted show.
+// A show on a DE-approved channel (its channel no longer backs any whitelist show) is correctly dropped.
 let pruned = null;
 if (PRUNE && !NEW && LIMIT === Infinity && !aborted) {
-  const keep = new Set(wl.filter((p) => /^MPSP/.test(p.id || "")).map((p) => p.id));
+  const approvedChannels = new Set(wl.filter((p) => p.channelId).map((p) => p.channelId));
+  const grandfathered = new Set(wl.filter((p) => !p.channelId && /^MPSP/.test(p.id || "")).map((p) => p.id));
+  const survives = (s) => (s.channelId && approvedChannels.has(s.channelId)) || grandfathered.has(s.id);
+  const keep = new Set(db.prepare("SELECT id,channelId FROM podcast_show").all().filter(survives).map((s) => s.id));
   pruned = DRY ? { shows: [...new Set(existingShowIds(db))].filter((id) => !keep.has(id)).length, channels: 0 } : prunePodcasts(db, keep);
 } else if (PRUNE) {
   console.warn("  PRUNE skipped — only runs on a full pass (no NEW=, no N=)");
