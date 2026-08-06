@@ -1,0 +1,16 @@
+# Discover new podcast shows on approved channels once a day at 05:00 UTC (the slot the zemer-podcasts.timer
+# comment reserves — clear of the 03:00 deep refresh, 04:30 dating, and the 01/07/13/19:15 podcast harvest).
+# New shows appear far slower than new episodes, so daily is ample; the run is cheap when nothing is new
+# (channel-landing mtime checks under MAX_AGE_H -> exit 0). Shabbat is handled IN CODE (the service's
+# ExecCondition), so this runs all week and no-ops through Shabbat.
+[Unit]
+Description=Discover new podcast shows on approved channels daily (channel-catalog parity with music onboarding)
+
+[Timer]
+Unit=zemer-podcast-discovery.service
+OnCalendar=*-*-* 05:00:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

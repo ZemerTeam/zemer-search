@@ -1,0 +1,29 @@
+[Unit]
+Description=zemer-search podcast CHANNEL-CATALOG discovery (approved channels -> harvest shows not yet in the corpus -> corpus.db)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# --- EDIT these for your deployment (match the API's WorkingDirectory + the app creds path) ---
+WorkingDirectory=/opt/zemer-search
+# The approved-channel set comes from data/podcasts-whitelist.json (refreshed by the zemer-podcasts unit);
+# ZEMER_APP is only needed if this ever refetches the whitelist itself (it does not — it reads the file).
+Environment=ZEMER_APP=/opt/zemer-app
+EnvironmentFile=-/opt/zemer-search/.env
+# Fast-but-IP-safe pacing for the channel-landing + show-page + episode fetches (same profile as the harvest).
+Environment=CONCURRENCY=5
+Environment=MIN_INTERVAL_MS=200
+# Re-fetch each channel landing older than 24h so NEW shows a publisher added are discovered (without this the
+# forever-cache would never re-scan). Show pages/episodes of genuinely-new shows are fetched fresh regardless.
+Environment=MAX_AGE_H=24
+Nice=10
+IOSchedulingClass=idle
+# Shabbat handled IN CODE (skips 20 min before candle lighting until havdalah, Brooklyn zmanim).
+ExecCondition=/usr/bin/env node harness/shabbat.mjs
+# Channel-level parity with music: approving a publisher surfaces its whole catalog (the onboard-analogue for
+# podcasts). Takes the shared maintenance flock (`-n -E 0`: skip cleanly with exit 0 if a full maintain.sh run
+# holds it — the next day retries; nothing lost). Discovered shows serve via channel-membership gating with no
+# per-show whitelist entry; off-topic ones are handled by the curator (de-whitelist / blockedContentIds).
+ExecStart=-/usr/bin/flock -n -E 0 /tmp/zemer-maintain.lock /usr/bin/env node harvester/podcast-channels.mjs
+TimeoutStartSec=1h
