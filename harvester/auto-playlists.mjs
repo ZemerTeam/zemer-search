@@ -545,6 +545,29 @@ await (async () => {
       .slice(0, HOME_ARTISTS_N)
       .map((x) => ({ kind: "artist", refId: x.id, artistId: x.id, score: s(x.devices || 0) }));
 
+    // FILL Featured Videos from the top-ranked artists' own video catalog. Video PLAY telemetry is sparse
+    // (this audience plays audio far more than music videos), so the pure-telemetry row is short (~13). A top
+    // artist's videos are worth featuring even without per-video plays, so: telemetry-ranked videos LEAD, then
+    // ROUND-ROBIN the ranked artists (each artist's videos by play count, one per pass) so the row fills to
+    // HOME_VIDEOS_N and stays DIVERSE (not one artist's 20 clips). As real video plays accrue, more videos are
+    // telemetry-ranked and this artist-derived tail shrinks. Read-time still applies female/kidzone/blocked.
+    if (topVideos.length < HOME_VIDEOS_N && topArtists.length) {
+      const have = new Set(topVideos.map((v) => v.refId));
+      const vq = db.prepare("SELECT videoId FROM track WHERE artistId=? AND isVideo=1 ORDER BY playCount IS NULL, playCount DESC, videoId LIMIT 20");
+      const queues = topArtists.map((a) => ({ a, vids: vq.all(a.refId).map((r) => r.videoId).filter((v) => !have.has(v)) }));
+      let progressed = true;
+      while (progressed && topVideos.length < HOME_VIDEOS_N) {
+        progressed = false;
+        for (const q of queues) {
+          if (topVideos.length >= HOME_VIDEOS_N) break;
+          const v = q.vids.shift();
+          if (!v || have.has(v)) continue;
+          have.add(v); progressed = true;
+          topVideos.push({ kind: "video", refId: v, artistId: q.a.refId, score: q.a.score * 0.5 }); // below telemetry videos
+        }
+      }
+    }
+
     // Only write rows we actually have data for — applyHomeRank replaces just the keys present, so an empty
     // window (or a stats server without the album rollup) leaves the OTHER row's last-good intact instead of
     // blanking it. Both empty → write nothing → the whole table's last-good survives (the fail-safe: home
