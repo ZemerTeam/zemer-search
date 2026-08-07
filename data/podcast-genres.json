@@ -1,1260 +1,1360 @@
 {
- "shows": [
-  {
-   "id": "MPSPPLhFNDAKdA-VXao30aco1k0X0fAQEMxC6W",
-   "name": "ADHD on Fire",
-   "genres": [
-    "health"
-   ]
-  },
-  {
-   "id": "MPSPPLQsqG7b6CWX7GfRUao4NjQedUk7j-kthf",
-   "name": "Among Chassidim",
-   "genres": [
-    "chassidus"
-   ]
-  },
-  {
-   "id": "MPSPPLVaIyPnsPoRyuttJF9GdcEDP8Emu24bE3",
-   "name": "Ari Goldwag's Weekly Parsha Podcast",
-   "genres": [
-    "parsha"
-   ]
-  },
-  {
-   "id": "MPSPPL_VFObgd1MmhrnyuOn-e4e5r9TNpy9psl",
-   "name": "Ari Samet Talk",
-   "genres": [
-    "shiur"
-   ]
-  },
-  {
-   "id": "MPSPPL5icm2fTz2gvwX8IHJ-1ny_N-X4bTptR4",
-   "name": "Asking For A Friend - Timely Issues. Timeless Torah.",
-   "genres": [
-    "halacha"
-   ]
-  },
-  {
-   "id": "MPSPPLBHEVYQ6Ny-RMvCR2KE1xf1O5iUEIHgj_",
-   "name": "Avoda Zara",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLsUBxns_yLbdXNbR5kKsmp3xGLk2RS_Fq",
-   "name": "BAVA BATRA",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLsUBxns_yLbcN9qN57npDaIYAYJtM1OUM",
-   "name": "BAVA KAMMA",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLsUBxns_yLbdiTUd-uMoDXHX2_1-4tPOh",
-   "name": "BAVA METZIA",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLBHEVYQ6Ny-T6jxJ4RxO1n8Gf2mN77Ult",
-   "name": "Baba Batra",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLBHEVYQ6Ny-TCEEBp-ignq-KP6jZEeRoH",
-   "name": "Baba Kama",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLBHEVYQ6Ny-Q3pyRutb7sncKk0Je8T8ul",
-   "name": "Baba Mesia",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLDgOc89QgYN2FIgfdTCzMnhVgRKM2pvAx",
-   "name": "Behind the Bima",
-   "genres": [
-    "shiur",
-    "machshava"
-   ]
-  },
-  {
-   "id": "MPSPPLBHEVYQ6Ny-RK_VJ7omYcE6Nu4JhTkadi",
-   "name": "Berakhot",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLuJGOjKOoDTssPMXgbo0DPDWWp6u980ua",
-   "name": "Between The Lines - Powered By JTeen",
-   "genres": [
-    "kiruv"
-   ]
-  },
-  {
-   "id": "MPSPPLablHYL_gz9TFPR-ud803-WUBaJCU-J86",
-   "name": "Big Questions of Jewish Belief",
-   "genres": [
-    "machshava",
-    "kiruv"
-   ]
-  },
-  {
-   "id": "MPSPPLWF2a7AyZ8dy7UGmUynfXLkvEMU03ZT3q",
-   "name": "Bird's Eye View",
-   "genres": [
-    "shiur"
-   ]
-  },
-  {
-   "id": "MPSPPLjhKwXYlufKdnTS6d5Crys7ThES3L7v41",
-   "name": "Bird's-Eye View",
-   "genres": [
-    "shiur"
-   ]
-  },
-  {
-   "id": "MPSPPLRFqgNq3DiarSv9_9ylVMBIjd013IIR3Q",
-   "name": "Bitachon Daily",
-   "genres": [
-    "chizuk",
-    "mussar"
-   ]
-  },
-  {
-   "id": "MPSPPLVaIyPnsPoRw0ZA-geQFjVy_FkHn-NGRB",
-   "name": "Bitachon Series - Ari Goldwag",
-   "genres": [
-    "chizuk",
-    "mussar"
-   ]
-  },
-  {
-   "id": "MPSPPLOq8yL822A1FRQqho7JJIMl_1kc63euTF",
-   "name": "Breakneck Through the Bible · Rabbi Bentzi Epstein",
-   "genres": [
-    "parsha"
-   ]
-  },
-  {
-   "id": "MPSPPL9f0aKzx4P6zeumKmin-XZSYElPbwvdYz",
-   "name": "CHAZAQ's Torah Talks",
-   "genres": [
-    "shiur"
-   ]
-  },
-  {
-   "id": "MPSPPLVaIyPnsPoRydC8TvOJLsuy07R1v-IFj0",
-   "name": "Call Of Moshiach Podcast",
-   "genres": [
-    "chassidus"
-   ]
-  },
-  {
-   "id": "MPSPPLO8exqe7SH85YA3kz6qGJbuW8wqH0A82A",
-   "name": "Chassidim and their Niggunim",
-   "genres": [
-    "chassidus",
-    "music"
-   ]
-  },
-  {
-   "id": "MPSPPLLL5HQJUtzRR90ethoBGTewh56Q49cSsn",
-   "name": "Chazarah in English by Rabbi Zev Katz",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLvVT0jyFRlNSYAoe4xTboJ2AJc1MmfHl5",
-   "name": "Classes by Mordechai Dinerman",
-   "genres": [
-    "chassidus"
-   ]
-  },
-  {
-   "id": "MPSPPLYUl5slN3ePIhfY0EIiBAVVNkQgSItw2C",
-   "name": "DMC Podcast",
-   "genres": [
-    "chassidus"
-   ]
-  },
-  {
-   "id": "MPSPPLiZU2rL9HnBVlN-qtyCiW7GbDsU7bewtN",
-   "name": "Dating The Smart Way",
-   "genres": [
-    "family"
-   ]
-  },
-  {
-   "id": "MPSPPLJH13XicPhBpKmcS0zYiNsuCV-xyZGfeo",
-   "name": "Derech Hashem",
-   "genres": [
-    "machshava",
-    "mussar"
-   ]
-  },
-  {
-   "id": "MPSPPLW85WlE5Qf0gtFTDyg7v2z5nQH-X2dVSS",
-   "name": "Derher for Kids",
-   "genres": [
-    "chassidus"
-   ]
-  },
-  {
-   "id": "MPSPPLgH0AzWga2I0s3PN8ZWi2Bz_Gbhn3sjeO",
-   "name": "Dirshu",
-   "genres": [
-    "gemara",
-    "halacha"
-   ]
-  },
-  {
-   "id": "MPSPPLqTfLQZ2iFd_VUEmSUVnvW0t9d29Pvrau",
-   "name": "Divrei Hashkafa by Rav Mayer Twersky",
-   "genres": [
-    "machshava"
-   ]
-  },
-  {
-   "id": "MPSPPL0CtQpDuM2SeER8xd7vhIi0XjMYFIVFv1",
-   "name": "Empowered Jewish Living Podcast",
-   "genres": [
-    "chizuk",
-    "women"
-   ]
-  },
-  {
-   "id": "MPSPPLWF2a7AyZ8dyOPJQtrJiDZOa-aQoodCrq",
-   "name": "Emunah at Work",
-   "genres": [
-    "chizuk",
-    "parnassah"
-   ]
-  },
-  {
-   "id": "MPSPPLBHEVYQ6Ny-THEgGGthceAy1YBlSCE06I",
-   "name": "Eruvin",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLOq8yL822A1GGYkY0lqtbocKOyqTFBzrM",
-   "name": "Everyday Judaism Podcast · Rabbi Aryeh Wolbe",
-   "genres": [
-    "halacha"
-   ]
-  },
-  {
-   "id": "MPSPPL69PqCb4M6Q2VqGsmKzRGNPt_rM0NShTp",
-   "name": "Exploring the Parsha",
-   "genres": [
-    "parsha"
-   ]
-  },
-  {
-   "id": "MPSPPLyGTLV3FQfmjYgZfWSZ4IOau2vXgcW79e",
-   "name": "Foods that are assur mederabanan",
-   "genres": [
-    "halacha"
-   ]
-  },
-  {
-   "id": "MPSPPLQ6lySRcyoOl4xOlh-y0jIGqgWtRserIY",
-   "name": "From Students Of Rabbi Herber Zatzal",
-   "genres": [
-    "shiur"
-   ]
-  },
-  {
-   "id": "MPSPPL_H9Bn0uPKx-QgnkC6UThACt5UMxBhTbN",
-   "name": "GEULAH IN REAL LIFE",
-   "genres": [
-    "chassidus"
-   ]
-  },
-  {
-   "id": "MPSPPLsUBxns_yLbfGStQSHSq1uzVbbAeWZdKi",
-   "name": "GITTIN",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLjhKwXYlufKcsnIgEZ6ZwoQTOSESXfO2H",
-   "name": "Glatt Podcast",
-   "genres": [
-    "halacha"
-   ]
-  },
-  {
-   "id": "MPSPPLWF2a7AyZ8dxBbyoY3u36jmV7ZujCFjLU",
-   "name": "Grateful Warriors",
-   "genres": [
-    "chizuk"
-   ]
-  },
-  {
-   "id": "MPSPPLWF2a7AyZ8dza4IiLIqHab6gdNEWekWfR",
-   "name": "Gratitude in the Holy Land",
-   "genres": [
-    "chizuk"
-   ]
-  },
-  {
-   "id": "MPSPPLDv6Mga_rY11Ziai9zAxbK4khbencjo5y",
-   "name": "Great Jewish Stories of Iconic Torah Giants",
-   "genres": [
-    "stories",
-    "history"
-   ]
-  },
-  {
-   "id": "MPSPPLTXCogtFfPHmFC--BbGA7g9lrH0AtdEZ-",
-   "name": "Greeting Moshiach",
-   "genres": [
-    "chassidus"
-   ]
-  },
-  {
-   "id": "MPSPPLJH13XicPhBok32PtgNNT-UYpT2FLdyzF",
-   "name": "Ground Floor Healing",
-   "genres": [
-    "health"
-   ]
-  },
-  {
-   "id": "MPSPPLgH0AzWga2I3hwaBal6yguGysRcXs2NK5",
-   "name": "Halacha",
-   "genres": [
-    "halacha"
-   ]
-  },
-  {
-   "id": "MPSPPLiit8QAuGcexYEMdwupeCLCYTAaJ1Dzeo",
-   "name": "Hard Pass",
-   "genres": [
-    "family"
-   ]
-  },
-  {
-   "id": "MPSPPL3ccHX2SJ7VlEGeSscI6KnbCVB6e8aGGx",
-   "name": "Hashem Loves You!",
-   "genres": [
-    "chizuk"
-   ]
-  },
-  {
-   "id": "MPSPOLSIMs3bBf6gYi_OroS7rJPzDfCfO78ozaQ",
-   "name": "History For The Curious",
-   "genres": [
-    "history",
-    "stories"
-   ]
-  },
-  {
-   "id": "MPSPPL5icm2fTz2gsCuyPvwhAgCoKLfM_V1WIE",
-   "name": "History for the Curious - The Jewish History Podcast",
-   "genres": [
-    "history",
-    "stories"
-   ]
-  },
-  {
-   "id": "MPSPPLgH0AzWga2I0cE7fl1EdhaMOHUfrht37g",
-   "name": "Holidays",
-   "genres": [
-    "moadim"
-   ]
-  },
-  {
-   "id": "MPSPPLBHEVYQ6Ny-QD3Bie_32R_OLfL6FcotcM",
-   "name": "Horayot",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPL9LB7BDEPNpSb9Ifp9jGmMMAvq_8TSpIZ",
-   "name": "I.M.P.A.C.T. Today Podcast",
-   "genres": [
-    "chizuk"
-   ]
-  },
-  {
-   "id": "MPSPPLjCHq3h40MQW15ijclhDPdr3iGhCfSqBQ",
-   "name": "Inside ArtScroll - Season 11!",
-   "genres": [
-    "people"
-   ]
-  },
-  {
-   "id": "MPSPPLjCHq3h40MQUB9i-EHSj5kLNR7a-CeM8F",
-   "name": "Inside ArtScroll Podcast",
-   "genres": [
-    "people"
-   ]
-  },
-  {
-   "id": "MPSPPLI8a9R9xblEaV5BELoEU3E7QkNdKfn5ro",
-   "name": "Inspiration for the Nation Podcast",
-   "genres": [
-    "chizuk"
-   ]
-  },
-  {
-   "id": "MPSPPLSZNLOtIPlco7HaIV5NAHYMDypyCbbU3X",
-   "name": "Iyun Podcast",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLlyiloW4INgPkl9fUX6_TktWJSUaIV5kS",
-   "name": "Jewish Adulting Podcast",
-   "genres": [
-    "family"
-   ]
-  },
-  {
-   "id": "MPSPPLOq8yL822A1GowXreOrw3eY5g9hTUpPFo",
-   "name": "Jewish Inspiration Podcast · Rabbi Aryeh Wolbe",
-   "genres": [
-    "chizuk"
-   ]
-  },
-  {
-   "id": "MPSPPLsUBxns_yLbc4dV717OKBOGXqg7sUbUjj",
-   "name": "KIDDUSHIN",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLKfXmzLN5Bc7EqWJSuR-8w789ho_J3K7G",
-   "name": "Kashrus Halacha",
-   "genres": [
-    "halacha"
-   ]
-  },
-  {
-   "id": "MPSPPLBHEVYQ6Ny-QIfjMsUAk9fd6-Xzi78m_F",
-   "name": "Ketubot",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLBHEVYQ6Ny-QAXnPKLv68I9gz8V8nCm0m",
-   "name": "Kiddushin",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLI8a9R9xblEbj3S5R7i35kBL9n8sF6rCl",
-   "name": "Kosher Money Podcast",
-   "genres": [
-    "parnassah"
-   ]
-  },
-  {
-   "id": "MPSPPLlJDqh_qLuD0jxPmEIDxq_Go1q9fAQrCP",
-   "name": "LIVE Podcasts",
-   "genres": [
-    "people",
-    "music"
-   ]
-  },
-  {
-   "id": "MPSPPL6U6gEI2uACE4G4l5XJvj6xDIYYTFUHJk",
-   "name": "Latest Talks Podcast",
-   "genres": [
-    "shiur"
-   ]
-  },
-  {
-   "id": "MPSPPLjn9At5E8wRQIctEzD7-RVNBFTTOujeiZ",
-   "name": "Lechteich Mussar Podcast",
-   "genres": [
-    "mussar"
-   ]
-  },
-  {
-   "id": "MPSPPLjn9At5E8wRQoP7iFicRAsRgNSmuNnuh8",
-   "name": "Lechteich Parsha Podcast",
-   "genres": [
-    "parsha"
-   ]
-  },
-  {
-   "id": "MPSPPLBS_NBxNsIi7aDYFK2zyH2Mza9SSb4WIu",
-   "name": "Let's Talk Tachlis Podcast",
-   "genres": [
-    "chizuk"
-   ]
-  },
-  {
-   "id": "MPSPPLpywxOZH9cNsKk7baYpLoS8186Je7YUMF",
-   "name": "Let's get real with Coach Menachem",
-   "genres": [
-    "health",
-    "chizuk"
-   ]
-  },
-  {
-   "id": "MPSPPLDMbS6OiHb9T7Zp-2-yJGCJtzzE9o627u",
-   "name": "Let’s Talk Tanya – Daily Tanya | Your Language. Your Life. (Regular Year)",
-   "genres": [
-    "chassidus"
-   ]
-  },
-  {
-   "id": "MPSPPLDMbS6OiHb9Q6RS3Tauts0u-t6Vtpa0vQ",
-   "name": "Let’s Talk Tanya – Tanya Themes | Your Language. Your Life.",
-   "genres": [
-    "chassidus"
-   ]
-  },
-  {
-   "id": "MPSPPLDMbS6OiHb9QMtLi4x_kx9PFVBM9R8U4G",
-   "name": "Let’s Talk Tanya: Your Language. Your Life. (Leap Year)",
-   "genres": [
-    "chassidus"
-   ]
-  },
-  {
-   "id": "MPSPPLTXCogtFfPHn9R3lAe4fw3e-F7ChDnHg5",
-   "name": "Lubavitcher Rebbe's Memoirs",
-   "genres": [
-    "chassidus",
-    "history"
-   ]
-  },
-  {
-   "id": "MPSPPLVaIyPnsPoRw9rHKrY_lDIXi2JdC7AJHN",
-   "name": "MOSHIACH PODCASTS",
-   "genres": [
-    "chassidus"
-   ]
-  },
-  {
-   "id": "MPSPPLBHEVYQ6Ny-Q_LAgZBLL1QOejTyquLy7Q",
-   "name": "Makot",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLzzPvcRjFWpsBfbPPqbFlA8awnTdbtRNZ",
-   "name": "Meaningful Ideas on the Parsha",
-   "genres": [
-    "parsha"
-   ]
-  },
-  {
-   "id": "MPSPPLMRtGZlhEhVtRvgaOBuS6LR5hSHbD1oqP",
-   "name": "Meaningful People Podcast",
-   "genres": [
-    "people"
-   ]
-  },
-  {
-   "id": "MPSPPLiZU2rL9HnBVySDrIGF6H-UbLwWt43kAE",
-   "name": "Mesilas Yesharim",
-   "genres": [
-    "mussar"
-   ]
-  },
-  {
-   "id": "MPSPPLy09J82Ow6AtbzA5uYvYgnDmTAjWwkdmp",
-   "name": "Mishna Yomi - By R' Shloimie Friedman",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLz6lFXXAz7MAdJ7WuMbspe-UTjkZE5lJm",
-   "name": "Mommy Life Squad Podcast",
-   "genres": [
-    "family",
-    "women"
-   ]
-  },
-  {
-   "id": "MPSPPL6wbPp-o1b2p6mMpObAM6yBThrNIa6j5K",
-   "name": "Mussar HaTorah",
-   "genres": [
-    "mussar"
-   ]
-  },
-  {
-   "id": "MPSPPLBHEVYQ6Ny-SjcNcKldnPYqLszhQzutdx",
-   "name": "Nazir",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLBHEVYQ6Ny-RQSZXDlB4OJB2vGybYCSMg",
-   "name": "Nedarim",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLI8a9R9xblEb2a0IwrXMrL5kqDgXnT2Dx",
-   "name": "Not Your Typical Podcast with Charlene Aminoff",
-   "genres": [
-    "people",
-    "women"
-   ]
-  },
-  {
-   "id": "MPSPPLWF2a7AyZ8dxNPZPlAaa4S2QjMe_7Ypkl",
-   "name": "One Upon a Daf",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLDgOc89QgYN0p9X7-niswAKRCCwvWG7Z1",
-   "name": "Parsha Perspective",
-   "genres": [
-    "parsha"
-   ]
-  },
-  {
-   "id": "MPSPPLOq8yL822A1EsF_jogGXdCOJXEmFeJ5EJ",
-   "name": "Parsha Review Podcast · Rabbi Aryeh Wolbe",
-   "genres": [
-    "parsha"
-   ]
-  },
-  {
-   "id": "MPSPPLgH0AzWga2I19MkXqIMb9W517VhILxYBy",
-   "name": "Parsha Shiur",
-   "genres": [
-    "parsha",
-    "shiur"
-   ]
-  },
-  {
-   "id": "MPSPPLKRC1NiSKX4pbnDmq7_j0DOFT-xGHVoTY",
-   "name": "Power Politics - Mishpacha Podcast",
-   "genres": [
-    "news"
-   ]
-  },
-  {
-   "id": "MPSPPLOq8yL822A1G5d3CSiAdveRXjawfjFVHl",
-   "name": "Prayer Podcast · Rabbi Aryeh Wolbe",
-   "genres": [
-    "tefilla"
-   ]
-  },
-  {
-   "id": "MPSPPLiZU2rL9HnBVnlXldQg6PpBTZ2FTqPwGh",
-   "name": "Prism of Torah",
-   "genres": [
-    "parsha"
-   ]
-  },
-  {
-   "id": "MPSPPLOsYNSqjgigE1UtLhSehJ5OT07nrKmAk0",
-   "name": "Pushet Pshat Podcast",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLOq8yL822A1Hduxu-CoQKCV-N-E2T3FRT",
-   "name": "Rabbi Aryeh Wolbe Podcast Collection",
-   "genres": [
-    "shiur"
-   ]
-  },
-  {
-   "id": "MPSPPLlHkyGG6BwYQ4vpRCsTH6CkNaCTX3PV3r",
-   "name": "Rabbi Dr. Eliezer Brodt",
-   "genres": [
-    "history"
-   ]
-  },
-  {
-   "id": "MPSPOLaDLHfK2jsnQJuclVMZBqtAvWlYLWkCX2w",
-   "name": "Rabbi Greenspan's Moisid",
-   "genres": [
-    "shiur"
-   ]
-  },
-  {
-   "id": "MPSPPLFjvIKKaTDH85ZHMy4LsIxVydbTSL8kbt",
-   "name": "Rabbi Kraz's Shiurim",
-   "genres": [
-    "shiur"
-   ]
-  },
-  {
-   "id": "MPSPPLOq8yL822A1G5eYM8eHGGyFG-vxWN7szq",
-   "name": "Rabbi Yaakov Wolbe Podcast Collection",
-   "genres": [
-    "shiur"
-   ]
-  },
-  {
-   "id": "MPSPPLTXCogtFfPHlJwMYc47jFGDGaHaZQ8gvC",
-   "name": "Rambam 3 Chapters Fast",
-   "genres": [
-    "gemara",
-    "halacha"
-   ]
-  },
-  {
-   "id": "MPSPPLF9BiEZj5dYb5Jgh5C-8FKetCNEreOf2Y",
-   "name": "Rise.Shine.Grow",
-   "genres": [
-    "chizuk"
-   ]
-  },
-  {
-   "id": "MPSPPLsUBxns_yLbf89V9fl8qfnRPLnhdz9B8x",
-   "name": "SANHEDRIN",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLsUBxns_yLbePXTcY-fn0h3KY-KubMYAW",
-   "name": "SOTA",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLBHEVYQ6Ny-Rk4fozw2WCepPRlW7Mkwle",
-   "name": "Sanhedrin",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLIlpTw3IdmA8T4bHamQ2u8RU30BXZSvmW",
-   "name": "Shaar HaBITACHON",
-   "genres": [
-    "mussar",
-    "chizuk"
-   ]
-  },
-  {
-   "id": "MPSPPLiZU2rL9HnBXwoqcYTdXY2q5ikmVVQTlB",
-   "name": "Shabbos Malkesa",
-   "genres": [
-    "moadim",
-    "chassidus"
-   ]
-  },
-  {
-   "id": "MPSPPLyGTLV3FQfmicdL-6XhQdCTZIomG--J48",
-   "name": "Shabbos topics",
-   "genres": [
-    "halacha",
-    "moadim"
-   ]
-  },
-  {
-   "id": "MPSPPLiZU2rL9HnBV-O1-GtADVpgoANMaQJAeq",
-   "name": "Shalom Bayis for Men",
-   "genres": [
-    "family"
-   ]
-  },
-  {
-   "id": "MPSPPLBHEVYQ6Ny-RD1g9ELZXfnly8EvZF5cQA",
-   "name": "Shekalim",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLiZU2rL9HnBVcBNOA2DnLcop3m-r-zcpf",
-   "name": "Shemiras Halashon Daily",
-   "genres": [
-    "mussar"
-   ]
-  },
-  {
-   "id": "MPSPPLBHEVYQ6Ny-ReBZJP2dsVMvPuHXWb4LPc",
-   "name": "Shevuot",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLiZU2rL9HnBW2qVNZRClAes4STqsKB4qS",
-   "name": "Shmiras Einayim",
-   "genres": [
-    "mussar"
-   ]
-  },
-  {
-   "id": "MPSPPLlJDqh_qLuD0MMNYrvBnQ_Vc_bOrH77p-",
-   "name": "ShmueliCast Podcast",
-   "genres": [
-    "people",
-    "music"
-   ]
-  },
-  {
-   "id": "MPSPPLyGTLV3FQfmhnhkVUvR3qpChWkbOiw_94",
-   "name": "Shovavim",
-   "genres": [
-    "mussar",
-    "moadim"
-   ]
-  },
-  {
-   "id": "MPSPPLrsfmfJLRxHrbS98U8WfdbC3aFoVcw76X",
-   "name": "Shtark Tank",
-   "genres": [
-    "people",
-    "parnassah"
-   ]
-  },
-  {
-   "id": "MPSPPLTXCogtFfPHl9UVEPLslXocv7tXCfg5kF",
-   "name": "Sichos Kodesh",
-   "genres": [
-    "chassidus"
-   ]
-  },
-  {
-   "id": "MPSPPLZHR2F_E8wdLJoZ5wl1vQ6y5HGnkeav9h",
-   "name": "Simply Jewish Parenting Podcast",
-   "genres": [
-    "family"
-   ]
-  },
-  {
-   "id": "MPSPPLBHEVYQ6Ny-SQPLiIw5zFwPsgrWZ6zX8F",
-   "name": "Sotah",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLYUl5slN3ePLna06ex2y6c9RsqRWjhAjf",
-   "name": "Stories Of Hope With Tzipora Grodko",
-   "genres": [
-    "stories",
-    "women"
-   ]
-  },
-  {
-   "id": "MPSPPLWF2a7AyZ8dyOWESj6akBhh2Yfsc1oXJH",
-   "name": "Stories of Tzadikim",
-   "genres": [
-    "stories",
-    "history"
-   ]
-  },
-  {
-   "id": "MPSPPLOq8yL822A1FbGPBfmoZy3cXUVidZGzad",
-   "name": "TORAH 101 - With Rabbi Yaakov Wolbe",
-   "genres": [
-    "kiruv",
-    "shiur"
-   ]
-  },
-  {
-   "id": "MPSPPLWF2a7AyZ8dxAb8v7KeAvqJmCnyncfdw-",
-   "name": "Tachlis, What's My Avoda?",
-   "genres": [
-    "mussar",
-    "chizuk"
-   ]
-  },
-  {
-   "id": "MPSPPLWF2a7AyZ8dySPvP8mXFK_-sWZmUoc6aJ",
-   "name": "Tanya with Faigy",
-   "genres": [
-    "chassidus",
-    "women"
-   ]
-  },
-  {
-   "id": "MPSPPLWF2a7AyZ8dz_5_Rc3AKjbrTdY0cwKEZT",
-   "name": "Tanya with Faigy | Delve into the text",
-   "genres": [
-    "chassidus",
-    "women"
-   ]
-  },
-  {
-   "id": "MPSPPL1D2agtqly3sB0bw10iBifIoAmYQwX1Jo",
-   "name": "Tanya, But First A Story",
-   "genres": [
-    "chassidus",
-    "stories"
-   ]
-  },
-  {
-   "id": "MPSPPLI8a9R9xblEbe1c51TPWbwq3eNEzA4GJc",
-   "name": "That's An Issue Podcast",
-   "genres": [
-    "news"
-   ]
-  },
-  {
-   "id": "MPSPPLzWpeRsUm9kKugfLjsKTkn5jOB4lxf_jE",
-   "name": "The ADHD Heroes Podcast",
-   "genres": [
-    "health"
-   ]
-  },
-  {
-   "id": "MPSPPLTXCogtFfPHn-3fBUenU0TKuD9FMz0nV8",
-   "name": "The Chasidishe Parsha",
-   "genres": [
-    "parsha",
-    "chassidus"
-   ]
-  },
-  {
-   "id": "MPSPPLYUl5slN3ePI7St-vhijl1uQBgYpj1E6t",
-   "name": "The Daily Thread",
-   "genres": [
-    "news"
-   ]
-  },
-  {
-   "id": "MPSPPLzG5is6vxhhpNDrkZmxUKTWhg2R2-rSwi",
-   "name": "The Home Front Podcast",
-   "genres": [
-    "news"
-   ]
-  },
-  {
-   "id": "MPSPPLWF2a7AyZ8dwljQGUluRrKD8EHqKsm9q5",
-   "name": "The Inner Light of Shabbos",
-   "genres": [
-    "chassidus",
-    "moadim"
-   ]
-  },
-  {
-   "id": "MPSPPLI8a9R9xblEablQRlWzFjAFsnJRy6xrq5",
-   "name": "The Jewish Grandma Podcast",
-   "genres": [
-    "family",
-    "women"
-   ]
-  },
-  {
-   "id": "MPSPPLfcz2gHq8GK7GQZMJ5uCSpTpIej8XapfV",
-   "name": "The Jewish Singer Podcast",
-   "genres": [
-    "music",
-    "people"
-   ]
-  },
-  {
-   "id": "MPSPPLDv6Mga_rY10DW1oYuKEh8allcIsW0tfQ",
-   "name": "The Motivation Congregation: A Mussar & Parsha Podcast",
-   "genres": [
-    "mussar",
-    "parsha"
-   ]
-  },
-  {
-   "id": "MPSPPLZc-5-39P7xe-ZRorp51d9cUw9lLEH2kE",
-   "name": "The Nissim Black Show",
-   "genres": [
-    "people",
-    "music"
-   ]
-  },
-  {
-   "id": "MPSPPLIEUeUxxLYvPSVZGf6zWH5r0HSZMAWO2c",
-   "name": "The One Pasuk Podcast",
-   "genres": [
-    "tefilla"
-   ]
-  },
-  {
-   "id": "MPSPPLirPoLK-FhtXKXAotzrT8Qr_qQiRWS8Ym",
-   "name": "The Oraysa Podcast",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLT7V9V9FHfJn2YaCXt1e_zxIOJZZrLs8A",
-   "name": "The Parnassah Podcast",
-   "genres": [
-    "parnassah"
-   ]
-  },
-  {
-   "id": "MPSPPLOq8yL822A1GExT42mmkcLr5naltzEozX",
-   "name": "The Parsha Podcast - With Rabbi Yaakov Wolbe",
-   "genres": [
-    "parsha"
-   ]
-  },
-  {
-   "id": "MPSPPLqzVZV7FYeGzkfZ1NtM_TMkaNMz5mcIF4",
-   "name": "The Parshah on Fire",
-   "genres": [
-    "parsha"
-   ]
-  },
-  {
-   "id": "MPSPPLOq8yL822A1GWCNzFgKW0OrKxSNZZd1I8",
-   "name": "The Shema Podcast for the Perplexed by Dan Kullman",
-   "genres": [
-    "kiruv",
-    "tefilla",
-    "machshava"
-   ]
-  },
-  {
-   "id": "MPSPPL2pN1thGgjA1V0WTTDI4V8q_2XRVH5SmY",
-   "name": "The Sisters Chat",
-   "genres": [
-    "women",
-    "family"
-   ]
-  },
-  {
-   "id": "MPSPPLDv6Mga_rY12S0HEjQ8yX-UJd19-P86K7",
-   "name": "The Weekly Parsha - With Michoel Brooke",
-   "genres": [
-    "parsha"
-   ]
-  },
-  {
-   "id": "MPSPPLOq8yL822A1Fs3fhyBA_CPePD6pEtKZt7",
-   "name": "Thinking Talmudist Podcast · Rabbi Aryeh Wolbe",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLWF2a7AyZ8dwltQaRnG9kri8MSIgI5JkI",
-   "name": "Tikun Olam",
-   "genres": [
-    "machshava"
-   ]
-  },
-  {
-   "id": "MPSPPLZ97c1Ej2vuE5nfWkFPo8UwGHb9ekWeLT",
-   "name": "Torah Birthing",
-   "genres": [
-    "family",
-    "women",
-    "health"
-   ]
-  },
-  {
-   "id": "MPSPPLAq4iKvfKyxA",
-   "name": "Torah Podcast with HaRav Borowski",
-   "genres": [
-    "shiur"
-   ]
-  },
-  {
-   "id": "MPSPPLTXCogtFfPHn1Z5VQL9OXK6SN1vk5ymhy",
-   "name": "Torah Reading Recordings",
-   "genres": [
-    "tefilla"
-   ]
-  },
-  {
-   "id": "MPSPPLel0-Rb34hv6OW4iJAcrq8ENZ8fEetbRO",
-   "name": "Torah on One Foot",
-   "genres": [
-    "kiruv",
-    "machshava"
-   ]
-  },
-  {
-   "id": "MPSPPL3ccHX2SJ7VkJq0_7uOUStHON-ZjR3Wgs",
-   "name": "Torahvation With Chaim Reidel",
-   "genres": [
-    "chizuk",
-    "mussar"
-   ]
-  },
-  {
-   "id": "MPSPPLYUl5slN3ePIh5IMLQgwzJ4LppmkB_Dc7",
-   "name": "Two Cents Podcast",
-   "genres": [
-    "parnassah"
-   ]
-  },
-  {
-   "id": "MPSPPLl-sRclPVloqoHaBjlEivSrSf4rm6SzqW",
-   "name": "Two Jews One Opinion",
-   "genres": [
-    "machshava",
-    "news"
-   ]
-  },
-  {
-   "id": "MPSPPLSZNLOtIPlcpk1_tkNLF3nVUssajts4C6",
-   "name": "Tzarich Iyun Podcast",
-   "genres": [
-    "machshava"
-   ]
-  },
-  {
-   "id": "MPSPPL1D2agtqly3tVFv7Qp2neX-oOC1r-V5CF",
-   "name": "Untold Stories Of The Torah (Jewish History)",
-   "genres": [
-    "stories",
-    "history"
-   ]
-  },
-  {
-   "id": "MPSPPLWF2a7AyZ8dzBZba9eCtthWRO2sS-LuuJ",
-   "name": "What is Jewish Music",
-   "genres": [
-    "music"
-   ]
-  },
-  {
-   "id": "MPSPPLOq8yL822A1E86dyfcggJQvdGW8FDFpuN",
-   "name": "What is Judaism?",
-   "genres": [
-    "kiruv",
-    "machshava"
-   ]
-  },
-  {
-   "id": "MPSPPLiZU2rL9HnBV3QUwfLEnQ_zdVnoSt5qo2",
-   "name": "Why Did Rashi Say That?",
-   "genres": [
-    "parsha"
-   ]
-  },
-  {
-   "id": "MPSPPLablHYL_gz9QMAAaddB2leM5VWv3TVEDc",
-   "name": "Women's Gallery",
-   "genres": [
-    "women"
-   ]
-  },
-  {
-   "id": "MPSPPL69PqCb4M6Q2FmSqffBlvtguMsRX-th8d",
-   "name": "Yearning for Moshiach",
-   "genres": [
-    "chassidus"
-   ]
-  },
-  {
-   "id": "MPSPPLgh3nWuxHlbEvk5UkTyxlTnSBPnUSQbcs",
-   "name": "Yerushalmi Iyun Chaburah",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLgH0AzWga2I25nxO5FPHvAp_RkYqhlYL-",
-   "name": "Yishmael, Yisrael and Tefilla",
-   "genres": [
-    "tefilla"
-   ]
-  },
-  {
-   "id": "MPSPPLBHEVYQ6Ny-SDU0P1wVxkq1BXmMflGmk3",
-   "name": "Yoma",
-   "genres": [
-    "gemara"
-   ]
-  },
-  {
-   "id": "MPSPPLiit8QAuGcezrcQJfFtQC0Y2a0ycJJ6Ul",
-   "name": "Your Relationshift Podcast",
-   "genres": [
-    "family",
-    "health"
-   ]
-  },
-  {
-   "id": "MPSPPLSZNLOtIPlcrLUHIFN7RI5MgPcgIRfm1m",
-   "name": "the Rabbi's Daughter",
-   "genres": [
-    "women",
-    "stories"
-   ]
-  },
-  {
-   "id": "MPSPPLSZNLOtIPlcoMiK56buQSED87doXt5ZMt",
-   "name": "וְהִגַּדְתָּ לְבִתְּךָ",
-   "genres": [
-    "moadim",
-    "family"
-   ]
-  },
-  {
-   "id": "MPSPPLSZNLOtIPlcoz3BfeCJz0b-ggStzeaour",
-   "name": "מסע בין רעיונות - על דמויות ורעיונות: פודקאסט בהגשת שמעון רפאלי",
-   "genres": [
-    "machshava"
-   ]
-  },
-  {
-   "id": "MPSPPLKRnpMqaS8h7rj5S4GWDtp6NVoRbv5uuW",
-   "name": "ר' דוד סעגעדין | חומש רש\"י יומי",
-   "genres": [
-    "parsha"
-   ]
-  },
-  {
-   "id": "MPSPPLKRnpMqaS8h5GKrDv8Fa2u3jzG-7Ssvbz",
-   "name": "ר' דוד סעגעדין | חומש רש\"י קורץ און שארף",
-   "genres": [
-    "parsha"
-   ]
-  },
-  {
-   "id": "MPSPPLKRnpMqaS8h4-qvCMJTIKZ91tj-CyhiH_",
-   "name": "ר' דוד סעגעדין | מגילת אסתר מיט געשמאק",
-   "genres": [
-    "parsha",
-    "moadim"
-   ]
-  },
-  {
-   "id": "MPSPPLiZU2rL9HnBX4Talz8MG6U5tMD6No7VGV",
-   "name": "שמירת עיניים - Shemiras Einayim (Hebrew)",
-   "genres": [
-    "mussar"
-   ]
-  },
-  {
-   "id": "MPSPPLx01C92rhjDkqzrUIfLnfyuJRMZV6U5X5",
-   "name": "🎙️ Let's Talk Business Podcast",
-   "genres": [
-    "parnassah"
-   ]
-  }
- ]
+  "shows": [
+    {
+      "id": "MPSPPLhFNDAKdA-VXao30aco1k0X0fAQEMxC6W",
+      "name": "ADHD on Fire",
+      "genres": [
+        "health"
+      ]
+    },
+    {
+      "id": "MPSPPLQsqG7b6CWX7GfRUao4NjQedUk7j-kthf",
+      "name": "Among Chassidim",
+      "genres": [
+        "chassidus"
+      ]
+    },
+    {
+      "id": "MPSPPLVaIyPnsPoRyuttJF9GdcEDP8Emu24bE3",
+      "name": "Ari Goldwag's Weekly Parsha Podcast",
+      "genres": [
+        "parsha"
+      ]
+    },
+    {
+      "id": "MPSPPL_VFObgd1MmhrnyuOn-e4e5r9TNpy9psl",
+      "name": "Ari Samet Talk",
+      "genres": [
+        "shiur"
+      ]
+    },
+    {
+      "id": "MPSPPL5icm2fTz2gvwX8IHJ-1ny_N-X4bTptR4",
+      "name": "Asking For A Friend - Timely Issues. Timeless Torah.",
+      "genres": [
+        "halacha"
+      ]
+    },
+    {
+      "id": "MPSPPLBHEVYQ6Ny-RMvCR2KE1xf1O5iUEIHgj_",
+      "name": "Avoda Zara",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLsUBxns_yLbdXNbR5kKsmp3xGLk2RS_Fq",
+      "name": "BAVA BATRA",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLsUBxns_yLbcN9qN57npDaIYAYJtM1OUM",
+      "name": "BAVA KAMMA",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLsUBxns_yLbdiTUd-uMoDXHX2_1-4tPOh",
+      "name": "BAVA METZIA",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLBHEVYQ6Ny-T6jxJ4RxO1n8Gf2mN77Ult",
+      "name": "Baba Batra",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLBHEVYQ6Ny-TCEEBp-ignq-KP6jZEeRoH",
+      "name": "Baba Kama",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLBHEVYQ6Ny-Q3pyRutb7sncKk0Je8T8ul",
+      "name": "Baba Mesia",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLDgOc89QgYN2FIgfdTCzMnhVgRKM2pvAx",
+      "name": "Behind the Bima",
+      "genres": [
+        "shiur",
+        "machshava"
+      ]
+    },
+    {
+      "id": "MPSPPLBHEVYQ6Ny-RK_VJ7omYcE6Nu4JhTkadi",
+      "name": "Berakhot",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLuJGOjKOoDTssPMXgbo0DPDWWp6u980ua",
+      "name": "Between The Lines - Powered By JTeen",
+      "genres": [
+        "kiruv"
+      ]
+    },
+    {
+      "id": "MPSPPLablHYL_gz9TFPR-ud803-WUBaJCU-J86",
+      "name": "Big Questions of Jewish Belief",
+      "genres": [
+        "machshava",
+        "kiruv"
+      ]
+    },
+    {
+      "id": "MPSPPLWF2a7AyZ8dy7UGmUynfXLkvEMU03ZT3q",
+      "name": "Bird's Eye View",
+      "genres": [
+        "shiur"
+      ]
+    },
+    {
+      "id": "MPSPPLjhKwXYlufKdnTS6d5Crys7ThES3L7v41",
+      "name": "Bird's-Eye View",
+      "genres": [
+        "shiur"
+      ]
+    },
+    {
+      "id": "MPSPPLRFqgNq3DiarSv9_9ylVMBIjd013IIR3Q",
+      "name": "Bitachon Daily",
+      "genres": [
+        "chizuk",
+        "mussar"
+      ]
+    },
+    {
+      "id": "MPSPPLVaIyPnsPoRw0ZA-geQFjVy_FkHn-NGRB",
+      "name": "Bitachon Series - Ari Goldwag",
+      "genres": [
+        "chizuk",
+        "mussar"
+      ]
+    },
+    {
+      "id": "MPSPPLOq8yL822A1FRQqho7JJIMl_1kc63euTF",
+      "name": "Breakneck Through the Bible · Rabbi Bentzi Epstein",
+      "genres": [
+        "parsha"
+      ]
+    },
+    {
+      "id": "MPSPPL9f0aKzx4P6zeumKmin-XZSYElPbwvdYz",
+      "name": "CHAZAQ's Torah Talks",
+      "genres": [
+        "shiur"
+      ]
+    },
+    {
+      "id": "MPSPPLVaIyPnsPoRydC8TvOJLsuy07R1v-IFj0",
+      "name": "Call Of Moshiach Podcast",
+      "genres": [
+        "chassidus"
+      ]
+    },
+    {
+      "id": "MPSPPLO8exqe7SH85YA3kz6qGJbuW8wqH0A82A",
+      "name": "Chassidim and their Niggunim",
+      "genres": [
+        "chassidus",
+        "music"
+      ]
+    },
+    {
+      "id": "MPSPPLLL5HQJUtzRR90ethoBGTewh56Q49cSsn",
+      "name": "Chazarah in English by Rabbi Zev Katz",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLvVT0jyFRlNSYAoe4xTboJ2AJc1MmfHl5",
+      "name": "Classes by Mordechai Dinerman",
+      "genres": [
+        "chassidus"
+      ]
+    },
+    {
+      "id": "MPSPPLYUl5slN3ePIhfY0EIiBAVVNkQgSItw2C",
+      "name": "DMC Podcast",
+      "genres": [
+        "chassidus"
+      ]
+    },
+    {
+      "id": "MPSPPLiZU2rL9HnBVlN-qtyCiW7GbDsU7bewtN",
+      "name": "Dating The Smart Way",
+      "genres": [
+        "family"
+      ]
+    },
+    {
+      "id": "MPSPPLJH13XicPhBpKmcS0zYiNsuCV-xyZGfeo",
+      "name": "Derech Hashem",
+      "genres": [
+        "machshava",
+        "mussar"
+      ]
+    },
+    {
+      "id": "MPSPPLW85WlE5Qf0gtFTDyg7v2z5nQH-X2dVSS",
+      "name": "Derher for Kids",
+      "genres": [
+        "chassidus"
+      ]
+    },
+    {
+      "id": "MPSPPLgH0AzWga2I0s3PN8ZWi2Bz_Gbhn3sjeO",
+      "name": "Dirshu",
+      "genres": [
+        "gemara",
+        "halacha"
+      ]
+    },
+    {
+      "id": "MPSPPLqTfLQZ2iFd_VUEmSUVnvW0t9d29Pvrau",
+      "name": "Divrei Hashkafa by Rav Mayer Twersky",
+      "genres": [
+        "machshava"
+      ]
+    },
+    {
+      "id": "MPSPPL0CtQpDuM2SeER8xd7vhIi0XjMYFIVFv1",
+      "name": "Empowered Jewish Living Podcast",
+      "genres": [
+        "chizuk",
+        "women"
+      ]
+    },
+    {
+      "id": "MPSPPLWF2a7AyZ8dyOPJQtrJiDZOa-aQoodCrq",
+      "name": "Emunah at Work",
+      "genres": [
+        "chizuk",
+        "parnassah"
+      ]
+    },
+    {
+      "id": "MPSPPLBHEVYQ6Ny-THEgGGthceAy1YBlSCE06I",
+      "name": "Eruvin",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLOq8yL822A1GGYkY0lqtbocKOyqTFBzrM",
+      "name": "Everyday Judaism Podcast · Rabbi Aryeh Wolbe",
+      "genres": [
+        "halacha"
+      ]
+    },
+    {
+      "id": "MPSPPL69PqCb4M6Q2VqGsmKzRGNPt_rM0NShTp",
+      "name": "Exploring the Parsha",
+      "genres": [
+        "parsha"
+      ]
+    },
+    {
+      "id": "MPSPPLyGTLV3FQfmjYgZfWSZ4IOau2vXgcW79e",
+      "name": "Foods that are assur mederabanan",
+      "genres": [
+        "halacha"
+      ]
+    },
+    {
+      "id": "MPSPPLQ6lySRcyoOl4xOlh-y0jIGqgWtRserIY",
+      "name": "From Students Of Rabbi Herber Zatzal",
+      "genres": [
+        "shiur"
+      ]
+    },
+    {
+      "id": "MPSPPL_H9Bn0uPKx-QgnkC6UThACt5UMxBhTbN",
+      "name": "GEULAH IN REAL LIFE",
+      "genres": [
+        "chassidus"
+      ]
+    },
+    {
+      "id": "MPSPPLsUBxns_yLbfGStQSHSq1uzVbbAeWZdKi",
+      "name": "GITTIN",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLjhKwXYlufKcsnIgEZ6ZwoQTOSESXfO2H",
+      "name": "Glatt Podcast",
+      "genres": [
+        "halacha"
+      ]
+    },
+    {
+      "id": "MPSPPLWF2a7AyZ8dxBbyoY3u36jmV7ZujCFjLU",
+      "name": "Grateful Warriors",
+      "genres": [
+        "chizuk"
+      ]
+    },
+    {
+      "id": "MPSPPLWF2a7AyZ8dza4IiLIqHab6gdNEWekWfR",
+      "name": "Gratitude in the Holy Land",
+      "genres": [
+        "chizuk"
+      ]
+    },
+    {
+      "id": "MPSPPLDv6Mga_rY11Ziai9zAxbK4khbencjo5y",
+      "name": "Great Jewish Stories of Iconic Torah Giants",
+      "genres": [
+        "stories",
+        "history"
+      ]
+    },
+    {
+      "id": "MPSPPLTXCogtFfPHmFC--BbGA7g9lrH0AtdEZ-",
+      "name": "Greeting Moshiach",
+      "genres": [
+        "chassidus"
+      ]
+    },
+    {
+      "id": "MPSPPLJH13XicPhBok32PtgNNT-UYpT2FLdyzF",
+      "name": "Ground Floor Healing",
+      "genres": [
+        "health"
+      ]
+    },
+    {
+      "id": "MPSPPLgH0AzWga2I3hwaBal6yguGysRcXs2NK5",
+      "name": "Halacha",
+      "genres": [
+        "halacha"
+      ]
+    },
+    {
+      "id": "MPSPPLiit8QAuGcexYEMdwupeCLCYTAaJ1Dzeo",
+      "name": "Hard Pass",
+      "genres": [
+        "family"
+      ]
+    },
+    {
+      "id": "MPSPPL3ccHX2SJ7VlEGeSscI6KnbCVB6e8aGGx",
+      "name": "Hashem Loves You!",
+      "genres": [
+        "chizuk"
+      ]
+    },
+    {
+      "id": "MPSPOLSIMs3bBf6gYi_OroS7rJPzDfCfO78ozaQ",
+      "name": "History For The Curious",
+      "genres": [
+        "history",
+        "stories"
+      ]
+    },
+    {
+      "id": "MPSPPL5icm2fTz2gsCuyPvwhAgCoKLfM_V1WIE",
+      "name": "History for the Curious - The Jewish History Podcast",
+      "genres": [
+        "history",
+        "stories"
+      ]
+    },
+    {
+      "id": "MPSPPLgH0AzWga2I0cE7fl1EdhaMOHUfrht37g",
+      "name": "Holidays",
+      "genres": [
+        "moadim"
+      ]
+    },
+    {
+      "id": "MPSPPLBHEVYQ6Ny-QD3Bie_32R_OLfL6FcotcM",
+      "name": "Horayot",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPL9LB7BDEPNpSb9Ifp9jGmMMAvq_8TSpIZ",
+      "name": "I.M.P.A.C.T. Today Podcast",
+      "genres": [
+        "chizuk"
+      ]
+    },
+    {
+      "id": "MPSPPLjCHq3h40MQW15ijclhDPdr3iGhCfSqBQ",
+      "name": "Inside ArtScroll - Season 11!",
+      "genres": [
+        "people"
+      ]
+    },
+    {
+      "id": "MPSPPLjCHq3h40MQUB9i-EHSj5kLNR7a-CeM8F",
+      "name": "Inside ArtScroll Podcast",
+      "genres": [
+        "people"
+      ]
+    },
+    {
+      "id": "MPSPPLI8a9R9xblEaV5BELoEU3E7QkNdKfn5ro",
+      "name": "Inspiration for the Nation Podcast",
+      "genres": [
+        "chizuk"
+      ]
+    },
+    {
+      "id": "MPSPPLSZNLOtIPlco7HaIV5NAHYMDypyCbbU3X",
+      "name": "Iyun Podcast",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLlyiloW4INgPkl9fUX6_TktWJSUaIV5kS",
+      "name": "Jewish Adulting Podcast",
+      "genres": [
+        "family"
+      ]
+    },
+    {
+      "id": "MPSPPLOq8yL822A1GowXreOrw3eY5g9hTUpPFo",
+      "name": "Jewish Inspiration Podcast · Rabbi Aryeh Wolbe",
+      "genres": [
+        "chizuk"
+      ]
+    },
+    {
+      "id": "MPSPPLsUBxns_yLbc4dV717OKBOGXqg7sUbUjj",
+      "name": "KIDDUSHIN",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLKfXmzLN5Bc7EqWJSuR-8w789ho_J3K7G",
+      "name": "Kashrus Halacha",
+      "genres": [
+        "halacha"
+      ]
+    },
+    {
+      "id": "MPSPPLBHEVYQ6Ny-QIfjMsUAk9fd6-Xzi78m_F",
+      "name": "Ketubot",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLBHEVYQ6Ny-QAXnPKLv68I9gz8V8nCm0m",
+      "name": "Kiddushin",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLI8a9R9xblEbj3S5R7i35kBL9n8sF6rCl",
+      "name": "Kosher Money Podcast",
+      "genres": [
+        "parnassah"
+      ]
+    },
+    {
+      "id": "MPSPPLlJDqh_qLuD0jxPmEIDxq_Go1q9fAQrCP",
+      "name": "LIVE Podcasts",
+      "genres": [
+        "people",
+        "music"
+      ]
+    },
+    {
+      "id": "MPSPPL6U6gEI2uACE4G4l5XJvj6xDIYYTFUHJk",
+      "name": "Latest Talks Podcast",
+      "genres": [
+        "shiur"
+      ]
+    },
+    {
+      "id": "MPSPPLjn9At5E8wRQIctEzD7-RVNBFTTOujeiZ",
+      "name": "Lechteich Mussar Podcast",
+      "genres": [
+        "mussar"
+      ]
+    },
+    {
+      "id": "MPSPPLjn9At5E8wRQoP7iFicRAsRgNSmuNnuh8",
+      "name": "Lechteich Parsha Podcast",
+      "genres": [
+        "parsha"
+      ]
+    },
+    {
+      "id": "MPSPPLBS_NBxNsIi7aDYFK2zyH2Mza9SSb4WIu",
+      "name": "Let's Talk Tachlis Podcast",
+      "genres": [
+        "chizuk"
+      ]
+    },
+    {
+      "id": "MPSPPLpywxOZH9cNsKk7baYpLoS8186Je7YUMF",
+      "name": "Let's get real with Coach Menachem",
+      "genres": [
+        "health",
+        "chizuk"
+      ]
+    },
+    {
+      "id": "MPSPPLDMbS6OiHb9T7Zp-2-yJGCJtzzE9o627u",
+      "name": "Let’s Talk Tanya – Daily Tanya | Your Language. Your Life. (Regular Year)",
+      "genres": [
+        "chassidus"
+      ]
+    },
+    {
+      "id": "MPSPPLDMbS6OiHb9Q6RS3Tauts0u-t6Vtpa0vQ",
+      "name": "Let’s Talk Tanya – Tanya Themes | Your Language. Your Life.",
+      "genres": [
+        "chassidus"
+      ]
+    },
+    {
+      "id": "MPSPPLDMbS6OiHb9QMtLi4x_kx9PFVBM9R8U4G",
+      "name": "Let’s Talk Tanya: Your Language. Your Life. (Leap Year)",
+      "genres": [
+        "chassidus"
+      ]
+    },
+    {
+      "id": "MPSPPLTXCogtFfPHn9R3lAe4fw3e-F7ChDnHg5",
+      "name": "Lubavitcher Rebbe's Memoirs",
+      "genres": [
+        "chassidus",
+        "history"
+      ]
+    },
+    {
+      "id": "MPSPPLVaIyPnsPoRw9rHKrY_lDIXi2JdC7AJHN",
+      "name": "MOSHIACH PODCASTS",
+      "genres": [
+        "chassidus"
+      ]
+    },
+    {
+      "id": "MPSPPLBHEVYQ6Ny-Q_LAgZBLL1QOejTyquLy7Q",
+      "name": "Makot",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLzzPvcRjFWpsBfbPPqbFlA8awnTdbtRNZ",
+      "name": "Meaningful Ideas on the Parsha",
+      "genres": [
+        "parsha"
+      ]
+    },
+    {
+      "id": "MPSPPLMRtGZlhEhVtRvgaOBuS6LR5hSHbD1oqP",
+      "name": "Meaningful People Podcast",
+      "genres": [
+        "people"
+      ]
+    },
+    {
+      "id": "MPSPPLiZU2rL9HnBVySDrIGF6H-UbLwWt43kAE",
+      "name": "Mesilas Yesharim",
+      "genres": [
+        "mussar"
+      ]
+    },
+    {
+      "id": "MPSPPLy09J82Ow6AtbzA5uYvYgnDmTAjWwkdmp",
+      "name": "Mishna Yomi - By R' Shloimie Friedman",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLz6lFXXAz7MAdJ7WuMbspe-UTjkZE5lJm",
+      "name": "Mommy Life Squad Podcast",
+      "genres": [
+        "family",
+        "women"
+      ]
+    },
+    {
+      "id": "MPSPPL6wbPp-o1b2p6mMpObAM6yBThrNIa6j5K",
+      "name": "Mussar HaTorah",
+      "genres": [
+        "mussar"
+      ]
+    },
+    {
+      "id": "MPSPPLBHEVYQ6Ny-SjcNcKldnPYqLszhQzutdx",
+      "name": "Nazir",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLBHEVYQ6Ny-RQSZXDlB4OJB2vGybYCSMg",
+      "name": "Nedarim",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLI8a9R9xblEb2a0IwrXMrL5kqDgXnT2Dx",
+      "name": "Not Your Typical Podcast with Charlene Aminoff",
+      "genres": [
+        "people",
+        "women"
+      ]
+    },
+    {
+      "id": "MPSPPLWF2a7AyZ8dxNPZPlAaa4S2QjMe_7Ypkl",
+      "name": "One Upon a Daf",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLDgOc89QgYN0p9X7-niswAKRCCwvWG7Z1",
+      "name": "Parsha Perspective",
+      "genres": [
+        "parsha"
+      ]
+    },
+    {
+      "id": "MPSPPLOq8yL822A1EsF_jogGXdCOJXEmFeJ5EJ",
+      "name": "Parsha Review Podcast · Rabbi Aryeh Wolbe",
+      "genres": [
+        "parsha"
+      ]
+    },
+    {
+      "id": "MPSPPLgH0AzWga2I19MkXqIMb9W517VhILxYBy",
+      "name": "Parsha Shiur",
+      "genres": [
+        "parsha",
+        "shiur"
+      ]
+    },
+    {
+      "id": "MPSPPLKRC1NiSKX4pbnDmq7_j0DOFT-xGHVoTY",
+      "name": "Power Politics - Mishpacha Podcast",
+      "genres": [
+        "news"
+      ]
+    },
+    {
+      "id": "MPSPPLOq8yL822A1G5d3CSiAdveRXjawfjFVHl",
+      "name": "Prayer Podcast · Rabbi Aryeh Wolbe",
+      "genres": [
+        "tefilla"
+      ]
+    },
+    {
+      "id": "MPSPPLiZU2rL9HnBVnlXldQg6PpBTZ2FTqPwGh",
+      "name": "Prism of Torah",
+      "genres": [
+        "parsha"
+      ]
+    },
+    {
+      "id": "MPSPPLOsYNSqjgigE1UtLhSehJ5OT07nrKmAk0",
+      "name": "Pushet Pshat Podcast",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLOq8yL822A1Hduxu-CoQKCV-N-E2T3FRT",
+      "name": "Rabbi Aryeh Wolbe Podcast Collection",
+      "genres": [
+        "shiur"
+      ]
+    },
+    {
+      "id": "MPSPPLlHkyGG6BwYQ4vpRCsTH6CkNaCTX3PV3r",
+      "name": "Rabbi Dr. Eliezer Brodt",
+      "genres": [
+        "history"
+      ]
+    },
+    {
+      "id": "MPSPOLaDLHfK2jsnQJuclVMZBqtAvWlYLWkCX2w",
+      "name": "Rabbi Greenspan's Moisid",
+      "genres": [
+        "shiur"
+      ]
+    },
+    {
+      "id": "MPSPPLFjvIKKaTDH85ZHMy4LsIxVydbTSL8kbt",
+      "name": "Rabbi Kraz's Shiurim",
+      "genres": [
+        "shiur"
+      ]
+    },
+    {
+      "id": "MPSPPLOq8yL822A1G5eYM8eHGGyFG-vxWN7szq",
+      "name": "Rabbi Yaakov Wolbe Podcast Collection",
+      "genres": [
+        "shiur"
+      ]
+    },
+    {
+      "id": "MPSPPLTXCogtFfPHlJwMYc47jFGDGaHaZQ8gvC",
+      "name": "Rambam 3 Chapters Fast",
+      "genres": [
+        "gemara",
+        "halacha"
+      ]
+    },
+    {
+      "id": "MPSPPLF9BiEZj5dYb5Jgh5C-8FKetCNEreOf2Y",
+      "name": "Rise.Shine.Grow",
+      "genres": [
+        "chizuk"
+      ]
+    },
+    {
+      "id": "MPSPPLsUBxns_yLbf89V9fl8qfnRPLnhdz9B8x",
+      "name": "SANHEDRIN",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLsUBxns_yLbePXTcY-fn0h3KY-KubMYAW",
+      "name": "SOTA",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLBHEVYQ6Ny-Rk4fozw2WCepPRlW7Mkwle",
+      "name": "Sanhedrin",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLIlpTw3IdmA8T4bHamQ2u8RU30BXZSvmW",
+      "name": "Shaar HaBITACHON",
+      "genres": [
+        "mussar",
+        "chizuk"
+      ]
+    },
+    {
+      "id": "MPSPPLiZU2rL9HnBXwoqcYTdXY2q5ikmVVQTlB",
+      "name": "Shabbos Malkesa",
+      "genres": [
+        "moadim",
+        "chassidus"
+      ]
+    },
+    {
+      "id": "MPSPPLyGTLV3FQfmicdL-6XhQdCTZIomG--J48",
+      "name": "Shabbos topics",
+      "genres": [
+        "halacha",
+        "moadim"
+      ]
+    },
+    {
+      "id": "MPSPPLiZU2rL9HnBV-O1-GtADVpgoANMaQJAeq",
+      "name": "Shalom Bayis for Men",
+      "genres": [
+        "family"
+      ]
+    },
+    {
+      "id": "MPSPPLBHEVYQ6Ny-RD1g9ELZXfnly8EvZF5cQA",
+      "name": "Shekalim",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLiZU2rL9HnBVcBNOA2DnLcop3m-r-zcpf",
+      "name": "Shemiras Halashon Daily",
+      "genres": [
+        "mussar"
+      ]
+    },
+    {
+      "id": "MPSPPLBHEVYQ6Ny-ReBZJP2dsVMvPuHXWb4LPc",
+      "name": "Shevuot",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLiZU2rL9HnBW2qVNZRClAes4STqsKB4qS",
+      "name": "Shmiras Einayim",
+      "genres": [
+        "mussar"
+      ]
+    },
+    {
+      "id": "MPSPPLlJDqh_qLuD0MMNYrvBnQ_Vc_bOrH77p-",
+      "name": "ShmueliCast Podcast",
+      "genres": [
+        "people",
+        "music"
+      ]
+    },
+    {
+      "id": "MPSPPLyGTLV3FQfmhnhkVUvR3qpChWkbOiw_94",
+      "name": "Shovavim",
+      "genres": [
+        "mussar",
+        "moadim"
+      ]
+    },
+    {
+      "id": "MPSPPLrsfmfJLRxHrbS98U8WfdbC3aFoVcw76X",
+      "name": "Shtark Tank",
+      "genres": [
+        "people",
+        "parnassah"
+      ]
+    },
+    {
+      "id": "MPSPPLTXCogtFfPHl9UVEPLslXocv7tXCfg5kF",
+      "name": "Sichos Kodesh",
+      "genres": [
+        "chassidus"
+      ]
+    },
+    {
+      "id": "MPSPPLZHR2F_E8wdLJoZ5wl1vQ6y5HGnkeav9h",
+      "name": "Simply Jewish Parenting Podcast",
+      "genres": [
+        "family"
+      ]
+    },
+    {
+      "id": "MPSPPLBHEVYQ6Ny-SQPLiIw5zFwPsgrWZ6zX8F",
+      "name": "Sotah",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLYUl5slN3ePLna06ex2y6c9RsqRWjhAjf",
+      "name": "Stories Of Hope With Tzipora Grodko",
+      "genres": [
+        "stories",
+        "women"
+      ]
+    },
+    {
+      "id": "MPSPPLWF2a7AyZ8dyOWESj6akBhh2Yfsc1oXJH",
+      "name": "Stories of Tzadikim",
+      "genres": [
+        "stories",
+        "history"
+      ]
+    },
+    {
+      "id": "MPSPPLOq8yL822A1FbGPBfmoZy3cXUVidZGzad",
+      "name": "TORAH 101 - With Rabbi Yaakov Wolbe",
+      "genres": [
+        "kiruv",
+        "shiur"
+      ]
+    },
+    {
+      "id": "MPSPPLWF2a7AyZ8dxAb8v7KeAvqJmCnyncfdw-",
+      "name": "Tachlis, What's My Avoda?",
+      "genres": [
+        "mussar",
+        "chizuk"
+      ]
+    },
+    {
+      "id": "MPSPPLWF2a7AyZ8dySPvP8mXFK_-sWZmUoc6aJ",
+      "name": "Tanya with Faigy",
+      "genres": [
+        "chassidus",
+        "women"
+      ]
+    },
+    {
+      "id": "MPSPPLWF2a7AyZ8dz_5_Rc3AKjbrTdY0cwKEZT",
+      "name": "Tanya with Faigy | Delve into the text",
+      "genres": [
+        "chassidus",
+        "women"
+      ]
+    },
+    {
+      "id": "MPSPPL1D2agtqly3sB0bw10iBifIoAmYQwX1Jo",
+      "name": "Tanya, But First A Story",
+      "genres": [
+        "chassidus",
+        "stories"
+      ]
+    },
+    {
+      "id": "MPSPPLI8a9R9xblEbe1c51TPWbwq3eNEzA4GJc",
+      "name": "That's An Issue Podcast",
+      "genres": [
+        "news"
+      ]
+    },
+    {
+      "id": "MPSPPLzWpeRsUm9kKugfLjsKTkn5jOB4lxf_jE",
+      "name": "The ADHD Heroes Podcast",
+      "genres": [
+        "health"
+      ]
+    },
+    {
+      "id": "MPSPPLTXCogtFfPHn-3fBUenU0TKuD9FMz0nV8",
+      "name": "The Chasidishe Parsha",
+      "genres": [
+        "parsha",
+        "chassidus"
+      ]
+    },
+    {
+      "id": "MPSPPLYUl5slN3ePI7St-vhijl1uQBgYpj1E6t",
+      "name": "The Daily Thread",
+      "genres": [
+        "news"
+      ]
+    },
+    {
+      "id": "MPSPPLzG5is6vxhhpNDrkZmxUKTWhg2R2-rSwi",
+      "name": "The Home Front Podcast",
+      "genres": [
+        "news"
+      ]
+    },
+    {
+      "id": "MPSPPLWF2a7AyZ8dwljQGUluRrKD8EHqKsm9q5",
+      "name": "The Inner Light of Shabbos",
+      "genres": [
+        "chassidus",
+        "moadim"
+      ]
+    },
+    {
+      "id": "MPSPPLI8a9R9xblEablQRlWzFjAFsnJRy6xrq5",
+      "name": "The Jewish Grandma Podcast",
+      "genres": [
+        "family",
+        "women"
+      ]
+    },
+    {
+      "id": "MPSPPLfcz2gHq8GK7GQZMJ5uCSpTpIej8XapfV",
+      "name": "The Jewish Singer Podcast",
+      "genres": [
+        "music",
+        "people"
+      ]
+    },
+    {
+      "id": "MPSPPLDv6Mga_rY10DW1oYuKEh8allcIsW0tfQ",
+      "name": "The Motivation Congregation: A Mussar & Parsha Podcast",
+      "genres": [
+        "mussar",
+        "parsha"
+      ]
+    },
+    {
+      "id": "MPSPPLZc-5-39P7xe-ZRorp51d9cUw9lLEH2kE",
+      "name": "The Nissim Black Show",
+      "genres": [
+        "people",
+        "music"
+      ]
+    },
+    {
+      "id": "MPSPPLIEUeUxxLYvPSVZGf6zWH5r0HSZMAWO2c",
+      "name": "The One Pasuk Podcast",
+      "genres": [
+        "tefilla"
+      ]
+    },
+    {
+      "id": "MPSPPLirPoLK-FhtXKXAotzrT8Qr_qQiRWS8Ym",
+      "name": "The Oraysa Podcast",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLT7V9V9FHfJn2YaCXt1e_zxIOJZZrLs8A",
+      "name": "The Parnassah Podcast",
+      "genres": [
+        "parnassah"
+      ]
+    },
+    {
+      "id": "MPSPPLOq8yL822A1GExT42mmkcLr5naltzEozX",
+      "name": "The Parsha Podcast - With Rabbi Yaakov Wolbe",
+      "genres": [
+        "parsha"
+      ]
+    },
+    {
+      "id": "MPSPPLqzVZV7FYeGzkfZ1NtM_TMkaNMz5mcIF4",
+      "name": "The Parshah on Fire",
+      "genres": [
+        "parsha"
+      ]
+    },
+    {
+      "id": "MPSPPLOq8yL822A1GWCNzFgKW0OrKxSNZZd1I8",
+      "name": "The Shema Podcast for the Perplexed by Dan Kullman",
+      "genres": [
+        "kiruv",
+        "tefilla",
+        "machshava"
+      ]
+    },
+    {
+      "id": "MPSPPL2pN1thGgjA1V0WTTDI4V8q_2XRVH5SmY",
+      "name": "The Sisters Chat",
+      "genres": [
+        "women",
+        "family"
+      ]
+    },
+    {
+      "id": "MPSPPLDv6Mga_rY12S0HEjQ8yX-UJd19-P86K7",
+      "name": "The Weekly Parsha - With Michoel Brooke",
+      "genres": [
+        "parsha"
+      ]
+    },
+    {
+      "id": "MPSPPLOq8yL822A1Fs3fhyBA_CPePD6pEtKZt7",
+      "name": "Thinking Talmudist Podcast · Rabbi Aryeh Wolbe",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLWF2a7AyZ8dwltQaRnG9kri8MSIgI5JkI",
+      "name": "Tikun Olam",
+      "genres": [
+        "machshava"
+      ]
+    },
+    {
+      "id": "MPSPPLZ97c1Ej2vuE5nfWkFPo8UwGHb9ekWeLT",
+      "name": "Torah Birthing",
+      "genres": [
+        "family",
+        "women",
+        "health"
+      ]
+    },
+    {
+      "id": "MPSPPLAq4iKvfKyxA",
+      "name": "Torah Podcast with HaRav Borowski",
+      "genres": [
+        "shiur"
+      ]
+    },
+    {
+      "id": "MPSPPLTXCogtFfPHn1Z5VQL9OXK6SN1vk5ymhy",
+      "name": "Torah Reading Recordings",
+      "genres": [
+        "tefilla"
+      ]
+    },
+    {
+      "id": "MPSPPLel0-Rb34hv6OW4iJAcrq8ENZ8fEetbRO",
+      "name": "Torah on One Foot",
+      "genres": [
+        "kiruv",
+        "machshava"
+      ]
+    },
+    {
+      "id": "MPSPPL3ccHX2SJ7VkJq0_7uOUStHON-ZjR3Wgs",
+      "name": "Torahvation With Chaim Reidel",
+      "genres": [
+        "chizuk",
+        "mussar"
+      ]
+    },
+    {
+      "id": "MPSPPLYUl5slN3ePIh5IMLQgwzJ4LppmkB_Dc7",
+      "name": "Two Cents Podcast",
+      "genres": [
+        "parnassah"
+      ]
+    },
+    {
+      "id": "MPSPPLl-sRclPVloqoHaBjlEivSrSf4rm6SzqW",
+      "name": "Two Jews One Opinion",
+      "genres": [
+        "machshava",
+        "news"
+      ]
+    },
+    {
+      "id": "MPSPPLSZNLOtIPlcpk1_tkNLF3nVUssajts4C6",
+      "name": "Tzarich Iyun Podcast",
+      "genres": [
+        "machshava"
+      ]
+    },
+    {
+      "id": "MPSPPL1D2agtqly3tVFv7Qp2neX-oOC1r-V5CF",
+      "name": "Untold Stories Of The Torah (Jewish History)",
+      "genres": [
+        "stories",
+        "history"
+      ]
+    },
+    {
+      "id": "MPSPPLWF2a7AyZ8dzBZba9eCtthWRO2sS-LuuJ",
+      "name": "What is Jewish Music",
+      "genres": [
+        "music"
+      ]
+    },
+    {
+      "id": "MPSPPLOq8yL822A1E86dyfcggJQvdGW8FDFpuN",
+      "name": "What is Judaism?",
+      "genres": [
+        "kiruv",
+        "machshava"
+      ]
+    },
+    {
+      "id": "MPSPPLiZU2rL9HnBV3QUwfLEnQ_zdVnoSt5qo2",
+      "name": "Why Did Rashi Say That?",
+      "genres": [
+        "parsha"
+      ]
+    },
+    {
+      "id": "MPSPPLablHYL_gz9QMAAaddB2leM5VWv3TVEDc",
+      "name": "Women's Gallery",
+      "genres": [
+        "women"
+      ]
+    },
+    {
+      "id": "MPSPPL69PqCb4M6Q2FmSqffBlvtguMsRX-th8d",
+      "name": "Yearning for Moshiach",
+      "genres": [
+        "chassidus"
+      ]
+    },
+    {
+      "id": "MPSPPLgh3nWuxHlbEvk5UkTyxlTnSBPnUSQbcs",
+      "name": "Yerushalmi Iyun Chaburah",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLgH0AzWga2I25nxO5FPHvAp_RkYqhlYL-",
+      "name": "Yishmael, Yisrael and Tefilla",
+      "genres": [
+        "tefilla"
+      ]
+    },
+    {
+      "id": "MPSPPLBHEVYQ6Ny-SDU0P1wVxkq1BXmMflGmk3",
+      "name": "Yoma",
+      "genres": [
+        "gemara"
+      ]
+    },
+    {
+      "id": "MPSPPLiit8QAuGcezrcQJfFtQC0Y2a0ycJJ6Ul",
+      "name": "Your Relationshift Podcast",
+      "genres": [
+        "family",
+        "health"
+      ]
+    },
+    {
+      "id": "MPSPPLSZNLOtIPlcrLUHIFN7RI5MgPcgIRfm1m",
+      "name": "the Rabbi's Daughter",
+      "genres": [
+        "women",
+        "stories"
+      ]
+    },
+    {
+      "id": "MPSPPLSZNLOtIPlcoMiK56buQSED87doXt5ZMt",
+      "name": "וְהִגַּדְתָּ לְבִתְּךָ",
+      "genres": [
+        "moadim",
+        "family"
+      ]
+    },
+    {
+      "id": "MPSPPLSZNLOtIPlcoz3BfeCJz0b-ggStzeaour",
+      "name": "מסע בין רעיונות - על דמויות ורעיונות: פודקאסט בהגשת שמעון רפאלי",
+      "genres": [
+        "machshava"
+      ]
+    },
+    {
+      "id": "MPSPPLKRnpMqaS8h7rj5S4GWDtp6NVoRbv5uuW",
+      "name": "ר' דוד סעגעדין | חומש רש\"י יומי",
+      "genres": [
+        "parsha"
+      ]
+    },
+    {
+      "id": "MPSPPLKRnpMqaS8h5GKrDv8Fa2u3jzG-7Ssvbz",
+      "name": "ר' דוד סעגעדין | חומש רש\"י קורץ און שארף",
+      "genres": [
+        "parsha"
+      ]
+    },
+    {
+      "id": "MPSPPLKRnpMqaS8h4-qvCMJTIKZ91tj-CyhiH_",
+      "name": "ר' דוד סעגעדין | מגילת אסתר מיט געשמאק",
+      "genres": [
+        "parsha",
+        "moadim"
+      ]
+    },
+    {
+      "id": "MPSPPLiZU2rL9HnBX4Talz8MG6U5tMD6No7VGV",
+      "name": "שמירת עיניים - Shemiras Einayim (Hebrew)",
+      "genres": [
+        "mussar"
+      ]
+    },
+    {
+      "id": "MPSPPLx01C92rhjDkqzrUIfLnfyuJRMZV6U5X5",
+      "name": "🎙️ Let's Talk Business Podcast",
+      "genres": [
+        "parnassah"
+      ]
+    },
+    {
+      "id": "MPSPPLa8FPSywS7X-3Sdv2cdO0Ql-8PRqfzTus",
+      "name": "Unpacking Israeli History",
+      "genres": [
+        "history"
+      ]
+    },
+    {
+      "id": "MPSPPLPuQm7551c3Bm8vOrgZGasup74VsSYFyz",
+      "name": "Rabbi Breitowitz Q&A",
+      "genres": [
+        "halacha",
+        "shiur"
+      ]
+    },
+    {
+      "id": "MPSPPLPuQm7551c3DbhHoq_KYW_Pn2dAoPCIht",
+      "name": "Intro to Tanach",
+      "genres": [
+        "parsha",
+        "shiur"
+      ]
+    },
+    {
+      "id": "MPSPPLPuQm7551c3A86OXlNJqiK8kedrFwsuG4",
+      "name": "CHANUKAH 2022",
+      "genres": [
+        "moadim"
+      ]
+    },
+    {
+      "id": "MPSPPLPuQm7551c3AYnqTYrYQG3zq52gc98lZV",
+      "name": "Rambam Shemoneh Perakim - Rav Yitzchak Breitowitz",
+      "genres": [
+        "mussar",
+        "machshava",
+        "shiur"
+      ]
+    },
+    {
+      "id": "MPSPPLPuQm7551c3DbI5IwhDd7rsaLCH4lEmDV",
+      "name": "Shemitta - Rabbi Yitzchak Breitowitz",
+      "genres": [
+        "halacha",
+        "shiur"
+      ]
+    },
+    {
+      "id": "MPSPPLPuQm7551c3C37OpDCLJVUQ0H_xw7TsNg",
+      "name": "Purim/Megillas Esther with Rabbi Dovid Gottlieb",
+      "genres": [
+        "moadim",
+        "shiur"
+      ]
+    },
+    {
+      "id": "MPSPPLGQrWlI7O--4zPcnOKdjPPiJlqtqDzAHb",
+      "name": "The Podcast of Jewish Ideas",
+      "genres": [
+        "machshava"
+      ]
+    },
+    {
+      "id": "MPSPPLGQrWlI7O--5prjErhXo-xgcnrUnL-bye",
+      "name": "A Thought for the Week",
+      "genres": [
+        "chizuk",
+        "machshava"
+      ]
+    },
+    {
+      "id": "MPSPPLNFIryr_3Iz7rWZnyQa7dEkjWIU_vwBBn",
+      "name": "Seforimchatter",
+      "genres": [
+        "history",
+        "people"
+      ]
+    },
+    {
+      "id": "MPSPPLF6IVQZ92dcYxEfnvZJTfqoxyKzptLMck",
+      "name": "18Forty",
+      "genres": [
+        "machshava"
+      ]
+    },
+    {
+      "id": "MPSPPLF6IVQZ92dcZIObhLNrrEEulPapErO1tk",
+      "name": "Rationality",
+      "genres": [
+        "machshava"
+      ]
+    },
+    {
+      "id": "MPSPPLF6IVQZ92dcaTbFQ0R0yl_1FNTD26A5PO",
+      "name": "Intergenerational Divergence",
+      "genres": [
+        "machshava",
+        "family"
+      ]
+    }
+  ]
 }
