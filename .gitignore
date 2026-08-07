@@ -49,6 +49,9 @@ data/auto-playlists-history.json
 # transient maintenance progress status (runtime only — written by the harvest/refresh steps)
 data/.maintain-status.json*
 data/.releases-status.json*
+# runtime lock files (flock for maintain.sh, the history-append lock, etc.)
+*.lock
+data/.maintain.lock
 
 # local DB/whitelist backups (timestamped snapshots; never published)
 backups/
@@ -69,10 +72,24 @@ data/rejected-artists.txt
 # secrets (not in this dir by default, but guard against accidents)
 innertube_cookie.txt
 google-services.json
+# per-deploy secret env files (e.g. dating.env holds the residential proxy URL) — never commit
+*.env
+
+# VPS-local app deep-link config (Android assetlinks, cert fingerprint) — served at /.well-known/assetlinks.json
+data/assetlinks.json
+
+# stray one-off diagnostics left on hosts (never part of the app) — keep the tracked tree clean
+/ip-test.mjs
+/player-clients.mjs
+/player-diag.mjs
+/player-vd.mjs
 
 # local corpus snapshots / sync remnants / zmanim cache — never commit (each bak is ~29MB)
 data/corpus.db.*bak*
 data/corpus.db.vps-new*
+# any corpus.db sidecar snapshot (pre-deploy .gz backups, etc.) + a stray empty root copy
+data/corpus.db.*
+/corpus.db
 data/shabbat.json
 data/mirror-sync.json
 data/alt-titles.json
