@@ -117,6 +117,8 @@ serve-time pass (matched against `videoId` / show `id` / `channelId`), identical
 | Endpoint | Returns |
 |----------|---------|
 | `GET /podcast-channels` | `{channels:[{id:UC…,name,thumbnail,showCount,episodeCount}], version}` — the **channel grid** (approved publishers, durable avatar); the browse entry point |
+| `GET /podcast-home-rows` | `{topPodcasts:[show…], trendingEpisodes:[episode…]}` — the Podcasts-tab analogue of `/home-rows`: telemetry-ranked rows from `data/podcast-surfaces.json` (same data as `/podcasts?sort=top` + `/podcasts/trending`), bundled so the tab is independently fail-soft. Channel-gated + content-filtered; empty row → `[]` (app hides it) |
+| `GET /podcast-genres` (+`?id=<slug>`) | catalog `{count,genres:[{id,title,showCount}]}` / a genre's shows — the podcast `/genres` (see Genres above) |
 | `GET /podcasts` | `{podcasts:[{id,name,author,channelId,thumbnail,episodeCountText}], version}` — the show list (channel-gated) |
 | `GET /podcasts/version` | `{version}` — the `podcastDatabaseNumber/latest` gate, for skip-refetch |
 | `GET /podcast?id=MPSP…&offset=` | `{podcast:{…,description,categories}, episodes:[…], nextOffset}` — 30/page, newest-first by `pos`; 404 if the host channel isn't approved |

@@ -454,7 +454,7 @@ async function startServer() {
 
   const send = (res, code, obj) => { const body = JSON.stringify(obj); res.writeHead(code, CORS); res.end(body); return body; };
   const cacheSet = (key, body) => { cache.set(key, body); if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value); };
-  const CACHEABLE = new Set(["/search", "/artist", "/album", "/playlist", "/community", "/zemer-playlists", "/home-rows", "/genres", "/podcasts", "/podcast-channels", "/podcast-genres", "/podcast", "/podcast-channel"]); // /new self-caches via the feed TTL
+  const CACHEABLE = new Set(["/search", "/artist", "/album", "/playlist", "/community", "/zemer-playlists", "/home-rows", "/genres", "/podcasts", "/podcast-channels", "/podcast-genres", "/podcast-home-rows", "/podcast", "/podcast-channel"]); // /new self-caches via the feed TTL
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -1042,6 +1042,24 @@ ol{list-style:none;margin:0;padding:0}li{display:flex;gap:10px;align-items:cente
         const channels = allPodcastChannels(liveDb, podcastAllow.channels).filter((c) =>
           !idDropped(c.id, cats.blocked, cf.allowFemale) && !(cf.allowFemale === false && podcastAllow.flags.get(c.id)?.isFemale));
         return cacheSet(req.url, send(res, 200, { channels, version: podVersion() }));
+      }
+      if (u.pathname === "/podcast-home-rows") {
+        // The Podcasts-tab analogue of /home-rows: telemetry-ranked rows from data/podcast-surfaces.json
+        // (harvester/podcast-surfaces.mjs over zemer-stats /stats — reach × 20%-completion), the same data
+        // that already backs /podcasts?sort=top + /podcasts/trending, bundled into one fetch so the Podcasts
+        // tab stays independently fail-soft from Music. Channel-membership + female/KidZone + blocked gate,
+        // like every podcast surface; an empty row → [] (the app hides it). Fail-soft: no surfaces artifact →
+        // topPodcasts falls back to alphabetical, trendingEpisodes is empty.
+        const cf = contentFlags(u.searchParams);
+        if (cf.kidZoneOnly) return cacheSet(req.url, send(res, 200, { topPodcasts: [], trendingEpisodes: [] }));
+        const k = Math.min(100, Math.max(1, Number(u.searchParams.get("k") || 25)));
+        const surfaces = loadPodcastSurfaces();
+        const topPodcasts = topPodcastShows(liveDb, surfaces)
+          .filter((p) => showApproved(p.channelId, p.id) && !idDropped(p.channelId, cats.blocked, cf.allowFemale) && !podFemaleDrop(p.id, p.id, cf.allowFemale))
+          .slice(0, k);
+        const trendingEpisodes = trendingPodcastEpisodes(liveDb, surfaces, k)
+          .filter((e) => showApproved(e.channelId, e.podcastId) && !podFemaleDrop(e.podcastId, e.videoId, cf.allowFemale));
+        return cacheSet(req.url, send(res, 200, { topPodcasts, trendingEpisodes }));
       }
       if (u.pathname === "/podcast-genres") {
         // Browsable Zemer-style genre index over podcast_show.genres (the podcast /genres). Without `id`: the
