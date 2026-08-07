@@ -43,7 +43,16 @@ export const formulaOf = (r, playlistId = null) => {
 };
 
 const WEEK = 7 * 86400000;
-const MIN_FALLBACK_ANCHOR_MS = 2 * 86400000; // youngest usable "since the series began" baseline
+// Youngest usable "since the series began" baseline. Sized to ONE run-cycle (the auto-playlists timer
+// runs ~twice daily): the fallback then anchors on the PREVIOUS published chart, never on a run so fresh
+// it equals the current one (an all-zero-delta self-comparison). Kept deliberately short so that after a
+// formula flip — most visibly the once-a-year seasonal velocity↔reach↔velocity round trip on Trending —
+// the movement badges return within a single cycle instead of being blank for days. (A formula change
+// still resets the baseline; this only shortens how long the reset shows as no-arrows.) The recurring
+// seasonal case ALSO self-bridges in later years without hitting this fallback at all: HISTORY_DAYS (60)
+// retains a velocity chart from before the ~3-week season, so pickAnchor's weekly loop finds it and there
+// is no blank window — this short fallback is the safety net for a series' first-ever run of a formula.
+const MIN_FALLBACK_ANCHOR_MS = 12 * 3600000;
 // most recent Sunday 00:00 UTC at/before ms — the chart week. Exported so the API can key its anchor
 // cache on it: the anchor rolls over every Sunday WITHOUT any file change, so mtime alone is not enough.
 export const chartWeek = (ms) => {
