@@ -117,7 +117,7 @@ serve-time pass (matched against `videoId` / show `id` / `channelId`), identical
 | Endpoint | Returns |
 |----------|---------|
 | `GET /podcast-channels` | `{channels:[{id:UC…,name,thumbnail,showCount,episodeCount}], version}` — the **channel grid** (approved publishers, durable avatar); the browse entry point |
-| `GET /podcast-home-rows` | `{topPodcasts:[show…], trendingEpisodes:[episode…]}` — the Podcasts-tab analogue of `/home-rows`: telemetry-ranked rows from `data/podcast-surfaces.json` (same data as `/podcasts?sort=top` + `/podcasts/trending`), bundled so the tab is independently fail-soft. Channel-gated + content-filtered; empty row → `[]` (app hides it) |
+| `GET /podcast-home-rows` | `{topPodcasts:[show…], trendingEpisodes:[episode…], newShows:[show…]}` — the Podcasts-tab analogue of `/home-rows`: telemetry-ranked rows from `data/podcast-surfaces.json` (same data as `/podcasts?sort=top` + `/podcasts/trending`), bundled so the tab is independently fail-soft. Telemetry always LEADS; while it's thin, **Trending fills its tail with the newest episodes** (recency) and **Top orders its un-ranked tail by episode count** (not A-Z) — the fallbacks shrink as plays accrue. `newShows` = first-seen order (`podcast_show.firstSeenAt`). Channel-gated + content-filtered; `?k=` caps each row; empty row → `[]` (app hides it) |
 | `GET /podcast-genres` (+`?id=<slug>`) | catalog `{count,genres:[{id,title,showCount}]}` / a genre's shows — the podcast `/genres` (see Genres above) |
 | `GET /podcasts` | `{podcasts:[{id,name,author,channelId,thumbnail,episodeCountText}], version}` — the show list (channel-gated) |
 | `GET /podcasts/version` | `{version}` — the `podcastDatabaseNumber/latest` gate, for skip-refetch |
