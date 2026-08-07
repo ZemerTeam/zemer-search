@@ -32,7 +32,7 @@ import { buildCategories, searchCategories } from "../index/categories.mjs";
 import { buildRadioIndex, radio } from "../index/radio.mjs";
 import { scheduleAt } from "../index/station.mjs";
 import { inThreeWeeks } from "../corpus/season.mjs";
-import { ensurePodcastSchema, allPodcastShows, allPodcastChannels, podcastDetail, podcastChannelDetail, newPodcastEpisodes, newPodcastShows, allPodcastShowDocs, allPodcastEpisodeDocs, loadPodcastSurfaces, topPodcastShows, trendingPodcastEpisodes } from "../corpus/podcasts.mjs";
+import { ensurePodcastSchema, allPodcastShows, allPodcastChannels, podcastDetail, podcastChannelDetail, newPodcastEpisodes, newPodcastShows, featuredPodcastShows, allPodcastShowDocs, allPodcastEpisodeDocs, loadPodcastSurfaces, topPodcastShows, trendingPodcastEpisodes } from "../corpus/podcasts.mjs";
 import { buildFemaleMatcher, collectFemaleVideoIds } from "../index/credits.mjs";
 import { loadDefaultSynonyms } from "../index/synonyms.mjs";
 import { postBrowse, parsePlaylistPage, parseArtistItemsContinuation } from "../harness/browse.mjs";
@@ -276,7 +276,7 @@ async function startServer() {
         byCh.get(p.channelId).push(p);
       }
       const flags = new Map();
-      for (const [cid, ss] of byCh) flags.set(cid, { isFemale: ss.every((s) => s.isFemale), isKidZone: ss.every((s) => s.isKidZone) });
+      for (const [cid, ss] of byCh) flags.set(cid, { isFemale: ss.every((s) => s.isFemale), isKidZone: ss.every((s) => s.isKidZone), isVerified: ss.some((s) => s.isVerified) });
       const femaleShows = new Set();
       for (const p of shows) { const f = p.channelId && flags.get(p.channelId); if (f?.isFemale || p.isFemale) femaleShows.add(p.id); }
       podcastAllow = { channels: new Set(byCh.keys()), flags, grandfathered, femaleShows };
@@ -1051,11 +1051,20 @@ ol{list-style:none;margin:0;padding:0}li{display:flex;gap:10px;align-items:cente
         // like every podcast surface; an empty row → [] (the app hides it). Fail-soft: no surfaces artifact →
         // topPodcasts falls back to alphabetical, trendingEpisodes is empty.
         const cf = contentFlags(u.searchParams);
-        if (cf.kidZoneOnly) return cacheSet(req.url, send(res, 200, { topPodcasts: [], trendingEpisodes: [] }));
+        if (cf.kidZoneOnly) return cacheSet(req.url, send(res, 200, { featured: [], topPodcasts: [], trendingEpisodes: [], newShows: [] }));
         const k = Math.min(100, Math.max(1, Number(u.searchParams.get("k") || 25)));
         const surfaces = loadPodcastSurfaces();
         const podKeep = (p) => showApproved(p.channelId, p.id) && !idDropped(p.channelId, cats.blocked, cf.allowFemale) && !podFemaleDrop(p.id, p.id, cf.allowFemale);
-        const topPodcasts = topPodcastShows(liveDb, surfaces).filter(podKeep).slice(0, k);
+        // Curated FEATURED row (editorial, leads until telemetry matures). Channel-gated + filtered like the rest.
+        const featured = featuredPodcastShows(liveDb).filter(podKeep);
+        // Top: telemetry-ranked lead (verified-first cold-start tail), then diversify to ONE show per channel so
+        // the row is varied (not 8 masechtos / 5 Wolbe shows in a row). channelId is the dedup key.
+        const seenCh = new Set(); const topPodcasts = [];
+        for (const p of topPodcastShows(liveDb, surfaces, podcastAllow.flags).filter(podKeep)) {
+          const key = p.channelId || p.id;
+          if (seenCh.has(key)) continue; seenCh.add(key); topPodcasts.push(p);
+          if (topPodcasts.length >= k) break;
+        }
         const trendingEpisodes = trendingPodcastEpisodes(liveDb, surfaces, k)
           .filter((e) => showApproved(e.channelId, e.podcastId) && !podFemaleDrop(e.podcastId, e.videoId, cf.allowFemale));
         // Cold-start / thin-telemetry fill: top up Trending with the NEWEST episodes (recency) until the row
@@ -1070,9 +1079,9 @@ ol{list-style:none;margin:0;padding:0}li{display:flex;gap:10px;align-items:cente
             have.add(e.videoId); trendingEpisodes.push(e);
           }
         }
-        // New shows row (Featured/New) — first-seen order, channel-gated. Music parity (Music carries ~4 rows).
+        // New shows row (New arrivals) — first-seen order, channel-gated. Music parity (Music carries ~4 rows).
         const newShows = newPodcastShows(liveDb, k).filter(podKeep);
-        return cacheSet(req.url, send(res, 200, { topPodcasts, trendingEpisodes, newShows }));
+        return cacheSet(req.url, send(res, 200, { featured, topPodcasts, trendingEpisodes, newShows }));
       }
       if (u.pathname === "/podcast-genres") {
         // Browsable Zemer-style genre index over podcast_show.genres (the podcast /genres). Without `id`: the

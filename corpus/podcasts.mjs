@@ -298,18 +298,33 @@ export function loadPodcastSurfaces(file = PODCAST_SURFACES_PATH) {
   try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return null; } // absent → callers fall back to alpha
 }
 
+// Curated FEATURED shows (data/podcast-featured.json) — the editorial home-tab row that leads until telemetry
+// matures. Read live (mtime-cheap file); the caller channel-gates + content-filters. Returns show cards in the
+// curated order, dropping any id not in the corpus (a de-whitelisted/typo'd pick just vanishes, fail-soft).
+export const PODCAST_FEATURED_PATH = process.env.PODCAST_FEATURED || path.resolve(_HERE, "../data/podcast-featured.json");
+export function featuredPodcastShows(db) {
+  let ids = [];
+  try { ids = (JSON.parse(fs.readFileSync(PODCAST_FEATURED_PATH, "utf8")).shows || []).map((s) => s.id).filter(Boolean); } catch { return []; }
+  if (!ids.length) return [];
+  const art = makeShowArtResolver(db);
+  const get = db.prepare(`SELECT id,name,author,channelId,thumbnail,episodeCountText,genres FROM podcast_show WHERE id=?`);
+  return ids.map((id) => get.get(id)).filter(Boolean).map((s) => ({ ...showRow(s), thumbnail: art(s) }));
+}
+
 // /podcasts?sort=top — telemetry-ranked shows FIRST (real data always leads), the un-ranked TAIL ordered by
 // episode count desc as the cold-start signal (a substantial back catalog beats strict A-Z while telemetry is
 // young). As plays accrue, more shows are telemetry-ranked and the episode-count fallback shrinks on its own.
-export function topPodcastShows(db, surfaces) {
+export function topPodcastShows(db, surfaces, chFlags = null) {
   const all = allPodcastShows(db);
   const epc = new Map(db.prepare(`SELECT showId, COUNT(*) n FROM podcast_episode GROUP BY showId`).all().map((r) => [r.showId, r.n]));
-  const byEpisodes = (a, b) => (epc.get(b.id) || 0) - (epc.get(a.id) || 0);
-  if (!surfaces?.topShows?.length) return [...all].sort(byEpisodes); // no telemetry yet → episode-count order
+  const ver = (s) => (chFlags?.get(s.channelId)?.isVerified ? 1 : 0);
+  // cold-start signal: VERIFIED publishers first, then most episodes (a substantial back catalog), never A-Z.
+  const cold = (a, b) => ver(b) - ver(a) || (epc.get(b.id) || 0) - (epc.get(a.id) || 0);
+  if (!surfaces?.topShows?.length) return [...all].sort(cold); // no telemetry yet
   const rank = new Map(surfaces.topShows.map((s, i) => [s.id, i]));
   const byId = new Map(all.map((s) => [s.id, s]));
   const ranked = surfaces.topShows.map((s) => byId.get(s.id)).filter(Boolean);
-  const rest = all.filter((s) => !rank.has(s.id)).sort(byEpisodes);
+  const rest = all.filter((s) => !rank.has(s.id)).sort(cold);
   return [...ranked, ...rest];
 }
 

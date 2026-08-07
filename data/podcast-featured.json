@@ -1,0 +1,19 @@
+{
+  "_comment": "Curated FEATURED podcast shows — the editorial row that leads the Podcasts tab until telemetry matures (served on /podcast-home-rows as `featured`, in this order). Hand-picked for genre spread + recognizability. Channel-gated + content-filtered at serve time. Edit freely; ids are stable.",
+  "shows": [
+    { "id": "MPSPPLMRtGZlhEhVtRvgaOBuS6LR5hSHbD1oqP", "name": "Meaningful People Podcast" },
+    { "id": "MPSPPLOq8yL822A1GExT42mmkcLr5naltzEozX", "name": "The Parsha Podcast - With Rabbi Yaakov Wolbe" },
+    { "id": "MPSPPLI8a9R9xblEbj3S5R7i35kBL9n8sF6rCl", "name": "Kosher Money Podcast" },
+    { "id": "MPSPPLI8a9R9xblEaV5BELoEU3E7QkNdKfn5ro", "name": "Inspiration for the Nation Podcast" },
+    { "id": "MPSPPLDMbS6OiHb9Q6RS3Tauts0u-t6Vtpa0vQ", "name": "Let's Talk Tanya - Tanya Themes" },
+    { "id": "MPSPPLDv6Mga_rY10DW1oYuKEh8allcIsW0tfQ", "name": "The Motivation Congregation: A Mussar & Parsha Podcast" },
+    { "id": "MPSPPL5icm2fTz2gsCuyPvwhAgCoKLfM_V1WIE", "name": "History for the Curious - The Jewish History Podcast" },
+    { "id": "MPSPPLIlpTw3IdmA8T4bHamQ2u8RU30BXZSvmW", "name": "Shaar HaBITACHON" },
+    { "id": "MPSPPLZHR2F_E8wdLJoZ5wl1vQ6y5HGnkeav9h", "name": "Simply Jewish Parenting Podcast" },
+    { "id": "MPSPPLZc-5-39P7xe-ZRorp51d9cUw9lLEH2kE", "name": "The Nissim Black Show" },
+    { "id": "MPSPPLWF2a7AyZ8dyOWESj6akBhh2Yfsc1oXJH", "name": "Stories of Tzadikim" },
+    { "id": "MPSPPLWF2a7AyZ8dxNPZPlAaa4S2QjMe_7Ypkl", "name": "One Upon a Daf" },
+    { "id": "MPSPPLjCHq3h40MQUB9i-EHSj5kLNR7a-CeM8F", "name": "Inside ArtScroll Podcast" },
+    { "id": "MPSPPLrsfmfJLRxHrbS98U8WfdbC3aFoVcw76X", "name": "Shtark Tank" }
+  ]
+}
