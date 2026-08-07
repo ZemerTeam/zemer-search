@@ -15,7 +15,7 @@ import {
   ensurePodcastSchema, upsertPodcast, upsertPodcastChannel, setEpisodePlayerMeta,
   prunePodcasts, allPodcastShows, allPodcastChannels, podcastDetail, podcastChannelDetail,
   newPodcastEpisodes, allPodcastShowDocs, allPodcastEpisodeDocs, podcastStats, existingShowIds,
-  isDeadShowArt, makeShowArtResolver, applyPodcastGenres,
+  isDeadShowArt, makeShowArtResolver, applyPodcastGenres, newPodcastShows, topPodcastShows,
 } from "./podcasts.mjs";
 
 const fresh = () => { const db = new Database(":memory:"); ensurePodcastSchema(db); return db; };
@@ -282,6 +282,27 @@ test("applyPodcastGenres: replace-wholesale, surfaced on the show DTO", () => {
   assert.deepEqual(after["MPSP2"], ["parsha"]);
   upsertPodcast(db, { id: "MPSP2", name: "Parsha", channelId: "UCa" }, [ep("v2", "E2")]); // re-harvest
   assert.deepEqual(allPodcastShows(db).find((s) => s.id === "MPSP2").genres, ["parsha"], "genres survive re-harvest");
+});
+
+// ---- home-rows helpers -----------------------------------------------------
+test("newPodcastShows: first-seen order, NOT bumped by re-harvest", () => {
+  const db = fresh();
+  upsertPodcast(db, { id: "MPSPa", name: "A", channelId: "UC1" }, [ep("v1", "E1")]);
+  db.exec("UPDATE podcast_show SET firstSeenAt=1000 WHERE id='MPSPa'"); // pin an older first-seen
+  upsertPodcast(db, { id: "MPSPb", name: "B", channelId: "UC1" }, [ep("v2", "E2")]);
+  db.exec("UPDATE podcast_show SET firstSeenAt=2000 WHERE id='MPSPb'"); // newer
+  // re-harvest the older show — firstSeenAt must NOT change (harvestedAt does)
+  upsertPodcast(db, { id: "MPSPa", name: "A", channelId: "UC1" }, [ep("v1", "E1")]);
+  assert.equal(db.prepare("SELECT firstSeenAt f FROM podcast_show WHERE id='MPSPa'").get().f, 1000, "re-harvest keeps firstSeenAt");
+  assert.deepEqual(newPodcastShows(db, 10).map((s) => s.id), ["MPSPb", "MPSPa"], "newest first-seen first");
+});
+
+test("topPodcastShows cold-start (no telemetry): by episode count, not alphabetical", () => {
+  const db = fresh();
+  upsertPodcast(db, { id: "MPSPz", name: "Zeta", channelId: "UC1" }, [ep("v1", "E1"), ep("v2", "E2"), ep("v3", "E3")]); // 3 eps
+  upsertPodcast(db, { id: "MPSPa", name: "Alpha", channelId: "UC1" }, [ep("v4", "E4")]); // 1 ep
+  const order = topPodcastShows(db, null).map((s) => s.id);
+  assert.deepEqual(order, ["MPSPz", "MPSPa"], "the 3-episode show leads the 1-episode one, not A-Z");
 });
 
 test("podcastStats counts shows/episodes/channels/withDur/withCh", () => {

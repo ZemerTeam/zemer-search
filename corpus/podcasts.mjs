@@ -26,6 +26,7 @@ export function ensurePodcastSchema(db) {
       categories       TEXT,               -- JSON array of category strings (YouTube's — unpopulated/useless)
       episodeCountText TEXT,               -- display-only ("312 episodes")
       genres           TEXT,               -- comma-separated Zemer style slugs (harvester/podcast-genres.mjs)
+      firstSeenAt      INTEGER,            -- first insert time (NEVER updated on re-harvest) → the "new shows" signal
       harvestedAt      INTEGER
     );
     CREATE TABLE IF NOT EXISTS podcast_episode (
@@ -53,9 +54,13 @@ export function ensurePodcastSchema(db) {
   // migration: add publishedAt to a podcast_episode created before this column existed (idempotent)
   const cols = db.prepare(`PRAGMA table_info(podcast_episode)`).all().map((c) => c.name);
   if (!cols.includes("publishedAt")) db.exec(`ALTER TABLE podcast_episode ADD COLUMN publishedAt TEXT`);
-  // migration: add genres to a podcast_show table that predates it (idempotent)
+  // migration: add genres / firstSeenAt to a podcast_show table that predates them (idempotent)
   const scols = db.prepare(`PRAGMA table_info(podcast_show)`).all().map((c) => c.name);
   if (!scols.includes("genres")) db.exec(`ALTER TABLE podcast_show ADD COLUMN genres TEXT`);
+  if (!scols.includes("firstSeenAt")) {
+    db.exec(`ALTER TABLE podcast_show ADD COLUMN firstSeenAt INTEGER`);
+    db.exec(`UPDATE podcast_show SET firstSeenAt=harvestedAt WHERE firstSeenAt IS NULL`); // seed existing rows (approximate)
+  }
 }
 
 // Apply Zemer style genres to shows — REPLACE-WHOLESALE (a show absent from the map loses its genres), the
@@ -216,8 +221,8 @@ export const allPodcastEpisodeDocs = (db) =>
 export function upsertPodcast(db, show, episodes) {
   const now = Date.now();
   const insShow = db.prepare(`
-    INSERT INTO podcast_show (id, name, author, channelId, thumbnail, description, categories, episodeCountText, harvestedAt)
-    VALUES (@id, @name, @author, @channelId, @thumbnail, @description, @categories, @episodeCountText, @harvestedAt)
+    INSERT INTO podcast_show (id, name, author, channelId, thumbnail, description, categories, episodeCountText, firstSeenAt, harvestedAt)
+    VALUES (@id, @name, @author, @channelId, @thumbnail, @description, @categories, @episodeCountText, @harvestedAt, @harvestedAt)
     ON CONFLICT(id) DO UPDATE SET
       name=excluded.name, author=excluded.author,
       channelId=COALESCE(excluded.channelId, podcast_show.channelId),
@@ -293,15 +298,27 @@ export function loadPodcastSurfaces(file = PODCAST_SURFACES_PATH) {
   try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return null; } // absent → callers fall back to alpha
 }
 
-// /podcasts?sort=top — shows ordered by the surface ranking (telemetry), un-ranked shows appended alphabetically.
+// /podcasts?sort=top — telemetry-ranked shows FIRST (real data always leads), the un-ranked TAIL ordered by
+// episode count desc as the cold-start signal (a substantial back catalog beats strict A-Z while telemetry is
+// young). As plays accrue, more shows are telemetry-ranked and the episode-count fallback shrinks on its own.
 export function topPodcastShows(db, surfaces) {
   const all = allPodcastShows(db);
-  if (!surfaces?.topShows?.length) return all;
+  const epc = new Map(db.prepare(`SELECT showId, COUNT(*) n FROM podcast_episode GROUP BY showId`).all().map((r) => [r.showId, r.n]));
+  const byEpisodes = (a, b) => (epc.get(b.id) || 0) - (epc.get(a.id) || 0);
+  if (!surfaces?.topShows?.length) return [...all].sort(byEpisodes); // no telemetry yet → episode-count order
   const rank = new Map(surfaces.topShows.map((s, i) => [s.id, i]));
   const byId = new Map(all.map((s) => [s.id, s]));
   const ranked = surfaces.topShows.map((s) => byId.get(s.id)).filter(Boolean);
-  const rest = all.filter((s) => !rank.has(s.id)); // already alpha from allPodcastShows
+  const rest = all.filter((s) => !rank.has(s.id)).sort(byEpisodes);
   return [...ranked, ...rest];
+}
+
+// New shows for the Podcasts-tab "New" row — by FIRST-seen time (never bumped by re-harvest), so it is a real
+// new-arrivals signal, not "everything re-harvested last night". Channel-gate applied by the caller.
+export function newPodcastShows(db, limit = 25) {
+  const art = makeShowArtResolver(db);
+  return db.prepare(`SELECT id,name,author,channelId,thumbnail,episodeCountText,genres FROM podcast_show
+      WHERE firstSeenAt IS NOT NULL ORDER BY firstSeenAt DESC LIMIT ?`).all(limit).map((s) => ({ ...showRow(s), thumbnail: art(s) }));
 }
 
 // /podcasts/trending — the surface's trending episode ids, hydrated to full episode rows (newest-trend first).

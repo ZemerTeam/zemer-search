@@ -32,7 +32,7 @@ import { buildCategories, searchCategories } from "../index/categories.mjs";
 import { buildRadioIndex, radio } from "../index/radio.mjs";
 import { scheduleAt } from "../index/station.mjs";
 import { inThreeWeeks } from "../corpus/season.mjs";
-import { ensurePodcastSchema, allPodcastShows, allPodcastChannels, podcastDetail, podcastChannelDetail, newPodcastEpisodes, allPodcastShowDocs, allPodcastEpisodeDocs, loadPodcastSurfaces, topPodcastShows, trendingPodcastEpisodes } from "../corpus/podcasts.mjs";
+import { ensurePodcastSchema, allPodcastShows, allPodcastChannels, podcastDetail, podcastChannelDetail, newPodcastEpisodes, newPodcastShows, allPodcastShowDocs, allPodcastEpisodeDocs, loadPodcastSurfaces, topPodcastShows, trendingPodcastEpisodes } from "../corpus/podcasts.mjs";
 import { buildFemaleMatcher, collectFemaleVideoIds } from "../index/credits.mjs";
 import { loadDefaultSynonyms } from "../index/synonyms.mjs";
 import { postBrowse, parsePlaylistPage, parseArtistItemsContinuation } from "../harness/browse.mjs";
@@ -1054,12 +1054,25 @@ ol{list-style:none;margin:0;padding:0}li{display:flex;gap:10px;align-items:cente
         if (cf.kidZoneOnly) return cacheSet(req.url, send(res, 200, { topPodcasts: [], trendingEpisodes: [] }));
         const k = Math.min(100, Math.max(1, Number(u.searchParams.get("k") || 25)));
         const surfaces = loadPodcastSurfaces();
-        const topPodcasts = topPodcastShows(liveDb, surfaces)
-          .filter((p) => showApproved(p.channelId, p.id) && !idDropped(p.channelId, cats.blocked, cf.allowFemale) && !podFemaleDrop(p.id, p.id, cf.allowFemale))
-          .slice(0, k);
+        const podKeep = (p) => showApproved(p.channelId, p.id) && !idDropped(p.channelId, cats.blocked, cf.allowFemale) && !podFemaleDrop(p.id, p.id, cf.allowFemale);
+        const topPodcasts = topPodcastShows(liveDb, surfaces).filter(podKeep).slice(0, k);
         const trendingEpisodes = trendingPodcastEpisodes(liveDb, surfaces, k)
           .filter((e) => showApproved(e.channelId, e.podcastId) && !podFemaleDrop(e.podcastId, e.videoId, cf.allowFemale));
-        return cacheSet(req.url, send(res, 200, { topPodcasts, trendingEpisodes }));
+        // Cold-start / thin-telemetry fill: top up Trending with the NEWEST episodes (recency) until the row
+        // is full, so it is never near-empty while podcast plays are still accruing. Telemetry-trending always
+        // LEADS; as plays grow it fills more slots and this recency tail shrinks on its own (real data replaces
+        // the fallback automatically). Dedup against what trending already picked; needs a real ISO publishedAt.
+        if (trendingEpisodes.length < k) {
+          const have = new Set(trendingEpisodes.map((e) => e.videoId));
+          for (const e of newPodcastEpisodes(liveDb, k * 3)) {
+            if (trendingEpisodes.length >= k) break;
+            if (have.has(e.videoId) || !showApproved(e.channelId, e.podcastId) || podFemaleDrop(e.podcastId, e.videoId, cf.allowFemale)) continue;
+            have.add(e.videoId); trendingEpisodes.push(e);
+          }
+        }
+        // New shows row (Featured/New) — first-seen order, channel-gated. Music parity (Music carries ~4 rows).
+        const newShows = newPodcastShows(liveDb, k).filter(podKeep);
+        return cacheSet(req.url, send(res, 200, { topPodcasts, trendingEpisodes, newShows }));
       }
       if (u.pathname === "/podcast-genres") {
         // Browsable Zemer-style genre index over podcast_show.genres (the podcast /genres). Without `id`: the
