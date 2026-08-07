@@ -1058,9 +1058,23 @@ ol{list-style:none;margin:0;padding:0}li{display:flex;gap:10px;align-items:cente
         // CROSS-ROW dedup: a SHOW appears in at most ONE row, claimed in display-order precedence
         // Featured > Top > Trending > New. `used` tracks the show ids already placed.
         const used = new Set();
-        // Curated FEATURED row (editorial, leads until telemetry matures). Channel-gated + filtered like the rest.
-        const featured = featuredPodcastShows(liveDb).filter(podKeep);
-        for (const s of featured) used.add(s.id);
+        // FEATURED hero row: TELEMETRY top shows LEAD it (real data), the curated list (data/podcast-featured.json)
+        // only FILLS while telemetry is thin — so it's editorial at cold-start and becomes telemetry-driven
+        // automatically as plays accrue (full music parity, nothing stays hardcoded; the curated seed fades on
+        // its own). Bounded hero cut; cross-row deduped.
+        const featCap = Math.min(k, 12);
+        const featured = [];
+        const featTelemetry = new Set((surfaces?.topShows || []).map((x) => x.id));
+        for (const p of topPodcastShows(liveDb, surfaces, podcastAllow.flags)) { // telemetry-ranked shows, in order
+          if (featured.length >= featCap) break;
+          if (!featTelemetry.has(p.id) || used.has(p.id) || !podKeep(p)) continue;
+          featured.push(p); used.add(p.id);
+        }
+        for (const s of featuredPodcastShows(liveDb)) { // curated fill (shrinks as real top shows fill the cap)
+          if (featured.length >= featCap) break;
+          if (used.has(s.id) || !podKeep(s)) continue;
+          featured.push(s); used.add(s.id);
+        }
         // Top: telemetry-ranked lead (verified-first cold-start tail), then diversify to ONE show per channel so
         // the row is varied (not 8 masechtos / 5 Wolbe shows in a row), and never a show already in Featured.
         const seenCh = new Set(); const topPodcasts = [];
