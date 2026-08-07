@@ -1055,32 +1055,36 @@ ol{list-style:none;margin:0;padding:0}li{display:flex;gap:10px;align-items:cente
         const k = Math.min(100, Math.max(1, Number(u.searchParams.get("k") || 25)));
         const surfaces = loadPodcastSurfaces();
         const podKeep = (p) => showApproved(p.channelId, p.id) && !idDropped(p.channelId, cats.blocked, cf.allowFemale) && !podFemaleDrop(p.id, p.id, cf.allowFemale);
+        // CROSS-ROW dedup: a SHOW appears in at most ONE row, claimed in display-order precedence
+        // Featured > Top > Trending > New. `used` tracks the show ids already placed.
+        const used = new Set();
         // Curated FEATURED row (editorial, leads until telemetry matures). Channel-gated + filtered like the rest.
         const featured = featuredPodcastShows(liveDb).filter(podKeep);
+        for (const s of featured) used.add(s.id);
         // Top: telemetry-ranked lead (verified-first cold-start tail), then diversify to ONE show per channel so
-        // the row is varied (not 8 masechtos / 5 Wolbe shows in a row). channelId is the dedup key.
+        // the row is varied (not 8 masechtos / 5 Wolbe shows in a row), and never a show already in Featured.
         const seenCh = new Set(); const topPodcasts = [];
         for (const p of topPodcastShows(liveDb, surfaces, podcastAllow.flags).filter(podKeep)) {
+          if (used.has(p.id)) continue;
           const key = p.channelId || p.id;
-          if (seenCh.has(key)) continue; seenCh.add(key); topPodcasts.push(p);
+          if (seenCh.has(key)) continue; seenCh.add(key);
+          topPodcasts.push(p); used.add(p.id);
           if (topPodcasts.length >= k) break;
         }
-        const trendingEpisodes = trendingPodcastEpisodes(liveDb, surfaces, k)
-          .filter((e) => showApproved(e.channelId, e.podcastId) && !podFemaleDrop(e.podcastId, e.videoId, cf.allowFemale));
-        // Cold-start / thin-telemetry fill: top up Trending with the NEWEST episodes (recency) until the row
-        // is full, so it is never near-empty while podcast plays are still accruing. Telemetry-trending always
-        // LEADS; as plays grow it fills more slots and this recency tail shrinks on its own (real data replaces
-        // the fallback automatically). Dedup against what trending already picked; needs a real ISO publishedAt.
-        if (trendingEpisodes.length < k) {
-          const have = new Set(trendingEpisodes.map((e) => e.videoId));
-          for (const e of newPodcastEpisodes(liveDb, k * 3)) {
-            if (trendingEpisodes.length >= k) break;
-            if (have.has(e.videoId) || !showApproved(e.channelId, e.podcastId) || podFemaleDrop(e.podcastId, e.videoId, cf.allowFemale)) continue;
-            have.add(e.videoId); trendingEpisodes.push(e);
-          }
-        }
-        // New shows row (New arrivals) — first-seen order, channel-gated. Music parity (Music carries ~4 rows).
-        const newShows = newPodcastShows(liveDb, k).filter(podKeep);
+        // Trending: ONE episode per show, and never a show already in Featured/Top (no dup cards across rows).
+        // Telemetry-trending LEADS; then the NEWEST episodes (recency) fill the tail so the row is never near
+        // empty while plays accrue. As real trending data grows it takes the top slots and the recency tail
+        // shrinks on its own. Each pushed episode's show is marked used, so New won't repeat it either.
+        const trendingEpisodes = [];
+        const pushTrend = (e) => {
+          if (trendingEpisodes.length >= k || used.has(e.podcastId)) return;
+          if (!showApproved(e.channelId, e.podcastId) || podFemaleDrop(e.podcastId, e.videoId, cf.allowFemale)) return;
+          used.add(e.podcastId); trendingEpisodes.push(e);
+        };
+        for (const e of trendingPodcastEpisodes(liveDb, surfaces, k * 3)) pushTrend(e);
+        if (trendingEpisodes.length < k) for (const e of newPodcastEpisodes(liveDb, k * 6)) { if (trendingEpisodes.length >= k) break; pushTrend(e); }
+        // New arrivals row — first-seen order, and never a show already placed above.
+        const newShows = newPodcastShows(liveDb, k * 3).filter((p) => !used.has(p.id) && podKeep(p)).slice(0, k);
         return cacheSet(req.url, send(res, 200, { featured, topPodcasts, trendingEpisodes, newShows }));
       }
       if (u.pathname === "/podcast-genres") {
